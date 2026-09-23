@@ -13,6 +13,9 @@ import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle } from "@/components/ui";
 
+/** entered_by marker for alternate prices carried over from the source sheets. */
+const ALT_PRICE_TAG = "Source sheet (other price)";
+
 export default function IngredientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const store = useStore();
@@ -62,7 +65,11 @@ function Detail({ ing }: { ing: Ingredient }) {
   }, [ing.id, ing.pack_price]);
 
   const used = useMemo(() => store.usedIn("ingredient", ing.id), [store, ing.id]);
-  const history = useMemo(() => (logs ?? []).filter((l) => l.new_price != null), [logs]);
+  // "Other prices" are alternate prices found for this ingredient in the original costing sheets or supplier
+  // portals. They're kept for reference (to pick the right one), not charted as price changes.
+  const isAlt = (l: PriceLog) => l.entered_by === ALT_PRICE_TAG;
+  const history = useMemo(() => (logs ?? []).filter((l) => l.new_price != null && !isAlt(l)), [logs]);
+  const alternates = useMemo(() => (logs ?? []).filter(isAlt), [logs]);
   const series = useMemo(() => {
     const s = history.map((l) => Number(l.new_price));
     if (history[0]?.old_price != null) s.unshift(Number(history[0].old_price));
@@ -134,6 +141,13 @@ function Detail({ ing }: { ing: Ingredient }) {
         </div>
 
         <div>
+          {alternates.length ? (
+            <Group title="Other prices found in the original sheets" className="mt-7 lg:mt-5" footer="Check these against a current invoice. Update the price above if one of them is right.">
+              {alternates.map((l) => (
+                <Row key={l.id} title={<span className="tnum">{money(l.new_price)}{l.notes ? <span className="text-label-2"> · {l.notes}</span> : null}</span>} sub={l.source ?? undefined} />
+              ))}
+            </Group>
+          ) : null}
           <Group title={`Used in ${used.items.length + used.preps.length}`} className="mt-7 lg:mt-5">
             {used.items.length + used.preps.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">Not used in any recipe.</p> : null}
             {used.items

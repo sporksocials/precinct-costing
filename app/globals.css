@@ -3,140 +3,127 @@
 @tailwind utilities;
 
 /* ------------------------------------------------------------------ *
- * Tokens. Neutrals follow iOS system colours; secondary label colours
- * are nudged darker/lighter than Apple's defaults to meet WCAG AA.
+ * Caloundra Food Precinct: one committed dark theme (all four venues
+ * trade at night, and the Precinct Desk hub uses the same look).
+ * Warm off-white labels on deep black; no glows, no lifted shadows.
  * ------------------------------------------------------------------ */
 :root {
-  color-scheme: light dark;
-  --bg: #f2f2f7;
-  --surface: #ffffff;
-  --surface-2: #f2f2f7;
-  --elevated: #ffffff;
-  --label: #000000;
-  --label-2: #6c6c70; /* 5.1:1 on white, 4.6:1 on #F2F2F7 */
-  --label-3: #8e8e93;
-  --separator: rgba(60, 60, 67, 0.18);
-  --fill: rgba(118, 118, 128, 0.12);
-  --fill-2: rgba(118, 118, 128, 0.2);
-  --danger: #d70015; /* iOS accessible red — 5.2:1 on white */
-  --danger-soft: rgba(215, 0, 21, 0.08);
-  --warn: #b25000; /* accessible orange */
-  --good: #248a3d;
-  --bar: rgba(249, 249, 249, 0.82);
-  --scrim: rgba(0, 0, 0, 0.32);
-  --shadow: 0 10px 40px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+  color-scheme: dark;
+  --bg: #0e0e10;
+  --surface: #17171a;
+  --surface-2: #202024;
+  --elevated: #202024;
+  --label: #f4f1ea;
+  --label-2: #a8a39a; /* 7:1 on surface */
+  --label-3: #77736b;
+  --separator: rgba(244, 241, 234, 0.12);
+  --fill: rgba(244, 241, 234, 0.07);
+  --fill-2: rgba(244, 241, 234, 0.13);
+  --danger: #ff6b61;
+  --danger-soft: rgba(255, 107, 97, 0.14);
+  --warn: #ffb340;
+  --good: #4cd57a;
+  --bar: rgba(14, 14, 16, 0.84);
+  --scrim: rgba(0, 0, 0, 0.62);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 
-  /* default accent = All venues (graphite) */
-  --accent: #1c1c1e;
-  --accent-fill: #1c1c1e;
-  --accent-on: #ffffff;
-  --accent-soft: rgba(28, 28, 30, 0.07);
-}
+  /* precinct (all venues): warm sand */
+  --accent: #d9c3a0;
+  --accent-fill: #d9c3a0;
+  --accent-on: #1a1409;
+  --accent-soft: rgba(217, 195, 160, 0.13);
+  --venue-2: #8a7a63;
+  --font-venue: var(--font-display);
+  --venue-title-track: 0.02em;
+  --venue-title-scale: 1;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --surface-2: #2c2c2e;
-    --elevated: #2c2c2e;
-    --label: #ffffff;
-    --label-2: #98989f; /* 5.8:1 on #1C1C1E */
-    --label-3: #6e6e73;
-    --separator: rgba(84, 84, 88, 0.6);
-    --fill: rgba(118, 118, 128, 0.24);
-    --fill-2: rgba(118, 118, 128, 0.36);
-    --danger: #ff6961;
-    --danger-soft: rgba(255, 105, 97, 0.14);
-    --warn: #ffb340;
-    --good: #30d158;
-    --bar: rgba(22, 22, 24, 0.8);
-    --scrim: rgba(0, 0, 0, 0.55);
-    --shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
-
-    --accent: #f2f2f7;
-    --accent-fill: #f2f2f7;
-    --accent-on: #000000;
-    --accent-soft: rgba(242, 242, 247, 0.1);
-  }
+  /* the four venue colours, used together on precinct surfaces */
+  --c-drift: #b3e3f2;
+  --c-chiobu: #c6102e;
+  --c-greedy: #f26345;
+  --c-gelato: #ed8ccd;
 }
 
 /* ------------------------------------------------------------------ *
- * Venue accents. html[data-venue] drives the app accent; .v-<slug>
- * scopes a venue colour to one element (e.g. Home venue cards).
+ * Venue themes. html[data-venue] drives the app; .v-<slug> scopes a
+ * venue to one element (e.g. Home venue cards).
  * --accent       tint for text / icons (AA on surface)
  * --accent-fill  fills: buttons, selected chips, indicators
  * --accent-on    text on accent-fill (AA)
+ * --font-venue   the venue's own display face (titles only; numbers
+ *                stay in Bebas Neue / Karla everywhere)
  * ------------------------------------------------------------------ */
 html[data-venue="drift"],
 .v-drift {
-  --accent: #0a3848;
-  --accent-fill: #0a3848;
-  --accent-on: #ffffff;
-  --accent-soft: rgba(10, 56, 72, 0.08);
+  --accent: #b3e3f2; /* sky blue */
+  --accent-fill: #b3e3f2;
+  --accent-on: #0a3848; /* navy */
+  --accent-soft: rgba(179, 227, 242, 0.13);
+  --venue-2: #0a3848;
+  --font-venue: var(--font-drift);
+  --venue-title-track: 0.03em;
+  --venue-title-scale: 1.02;
 }
 html[data-venue="chiobu"],
 .v-chiobu {
-  --accent: #c6102e;
+  --accent: #ff5a70; /* Chiobu crimson, lifted for text on black */
   --accent-fill: #c6102e;
   --accent-on: #ffffff;
-  --accent-soft: rgba(198, 16, 46, 0.07);
+  --accent-soft: rgba(198, 16, 46, 0.2);
+  --venue-2: #c6102e;
+  --font-venue: var(--font-display);
+  --venue-title-track: 0.04em;
+  --venue-title-scale: 1.05;
 }
 html[data-venue="greedy"],
 .v-greedy {
-  --accent: #3b5fad;
-  --accent-fill: #3b5fad;
-  --accent-on: #ffffff;
-  --accent-soft: rgba(59, 95, 173, 0.08);
+  --accent: #f26345; /* orange */
+  --accent-fill: #f26345;
+  --accent-on: #1c0a05;
+  --accent-soft: rgba(242, 99, 69, 0.15);
+  --venue-2: #92c5bd; /* teal */
+  --font-venue: var(--font-greedy);
+  --venue-title-track: 0.01em;
+  --venue-title-scale: 0.92;
 }
 html[data-venue="gelato"],
 .v-gelato {
-  --accent: #603e3e; /* brown for text on light surfaces */
-  --accent-fill: #ed8ccd; /* pink for fills / indicators only */
-  --accent-on: #4a2c2c; /* 5.3:1 on the pink */
-  --accent-soft: rgba(237, 140, 205, 0.16);
+  --accent: #ed8ccd; /* cotton candy pink */
+  --accent-fill: #ed8ccd;
+  --accent-on: #3a2222;
+  --accent-soft: rgba(237, 140, 205, 0.15);
+  --venue-2: #cded8c; /* lime */
+  --font-venue: var(--font-gelato);
+  --venue-title-track: 0;
+  --venue-title-scale: 0.86;
+}
+html[data-venue="drift"] .masthead,
+.v-drift .masthead {
+  --mast-bg: linear-gradient(135deg, #0a3848 0%, #072a36 100%);
+  --mast-strip: linear-gradient(90deg, #b3e3f2 0 40%, #ffffff 40% 55%, #8f5f56 55% 75%, #b09d88 75%);
+}
+html[data-venue="chiobu"] .masthead,
+.v-chiobu .masthead {
+  --mast-bg: radial-gradient(120% 140% at 100% 0%, rgba(198, 16, 46, 0.35) 0%, #0a0a0b 60%);
+  --mast-strip: #c6102e;
+}
+html[data-venue="greedy"] .masthead,
+.v-greedy .masthead {
+  --mast-bg: linear-gradient(135deg, #2a1712 0%, #141012 100%);
+  --mast-strip: linear-gradient(90deg, #92c5bd 0 20%, #3b5fad 20% 40%, #ffde59 40% 60%, #f26345 60% 80%, #e6275e 80%);
+}
+html[data-venue="gelato"] .masthead,
+.v-gelato .masthead {
+  --mast-bg: linear-gradient(135deg, #2b1a26 0%, #16121a 100%);
+  --mast-strip: linear-gradient(90deg, #ed8ccd 0 25%, #cded8c 25% 50%, #ffde59 50% 75%, #603e3e 75%);
 }
 .v-all {
-  --accent: #1c1c1e;
-  --accent-fill: #1c1c1e;
-  --accent-on: #ffffff;
-  --accent-soft: rgba(28, 28, 30, 0.07);
-}
-
-@media (prefers-color-scheme: dark) {
-  html[data-venue="drift"],
-  .v-drift {
-    --accent: #5aa9c6;
-    --accent-fill: #1f6f8b;
-    --accent-on: #ffffff;
-    --accent-soft: rgba(90, 169, 198, 0.16);
-  }
-  html[data-venue="chiobu"],
-  .v-chiobu {
-    --accent: #ff6b81;
-    --accent-fill: #c6102e;
-    --accent-on: #ffffff;
-    --accent-soft: rgba(255, 107, 129, 0.15);
-  }
-  html[data-venue="greedy"],
-  .v-greedy {
-    --accent: #8aa6ea;
-    --accent-fill: #3b5fad;
-    --accent-on: #ffffff;
-    --accent-soft: rgba(138, 166, 234, 0.16);
-  }
-  html[data-venue="gelato"],
-  .v-gelato {
-    --accent: #f4a6da;
-    --accent-fill: #ed8ccd;
-    --accent-on: #3a2222;
-    --accent-soft: rgba(237, 140, 205, 0.16);
-  }
-  .v-all {
-    --accent: #f2f2f7;
-    --accent-fill: #f2f2f7;
-    --accent-on: #000000;
-    --accent-soft: rgba(242, 242, 247, 0.1);
-  }
+  --accent: #d9c3a0;
+  --accent-fill: #d9c3a0;
+  --accent-on: #1a1409;
+  --accent-soft: rgba(217, 195, 160, 0.13);
+  --venue-2: #8a7a63;
+  --font-venue: var(--font-display);
 }
 
 html {
@@ -150,7 +137,6 @@ body {
 }
 body {
   @apply antialiased;
-  font-feature-settings: "cv11", "ss01";
   overscroll-behavior-y: none;
 }
 
@@ -183,6 +169,35 @@ textarea:focus-visible {
 }
 
 @layer utilities {
+  /* venue display title: each venue's own face, sized to match optically */
+  .venue-title {
+    font-family: var(--font-venue);
+    font-weight: 400;
+    letter-spacing: var(--venue-title-track);
+    line-height: 1;
+    font-size: calc(2.5rem * var(--venue-title-scale));
+  }
+  .display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    line-height: 0.95;
+  }
+  .eyebrow {
+    font-family: var(--font-display);
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+  }
+  /* per-venue masthead: the venue's deep ground plus a strip of its own palette */
+  .masthead {
+    background: var(--mast-bg, var(--surface));
+  }
+  .masthead-strip {
+    background: var(--mast-strip, var(--accent-fill));
+  }
+  .precinct-strip {
+    background: linear-gradient(90deg, var(--c-drift) 0 25%, var(--c-chiobu) 25% 50%, var(--c-greedy) 50% 75%, var(--c-gelato) 75% 100%);
+  }
   .tnum {
     font-variant-numeric: tabular-nums;
   }
@@ -213,14 +228,9 @@ textarea:focus-visible {
 
 /* sheets sit one level up: in dark mode they and their grouped cells are lighter than the page */
 .sheet {
-  background: var(--bg);
-}
-@media (prefers-color-scheme: dark) {
-  .sheet {
-    background: #1c1c1e;
-    --surface: #2c2c2e;
-    --elevated: #3a3a3c;
-  }
+  background: #17171a;
+  --surface: #222226;
+  --elevated: #2c2c31;
 }
 
 @layer components {

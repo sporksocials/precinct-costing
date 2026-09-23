@@ -99,15 +99,15 @@ export function ItemSummaryCard(m: PriceModel) {
   const l = useLinked(m);
   return (
     <div className="rounded-2xl bg-surface p-5">
-      <p className="text-[13px] text-label-2">GP</p>
-      <div className={cx("flex items-baseline gap-1", l.under ? "text-danger" : "text-label")}>
+      <p className="eyebrow text-[11px] text-label-2">GP</p>
+      <div className={cx("flex items-baseline gap-1", l.under ? "text-danger" : "text-accent")}>
         <ValueInput
           ariaLabel="GP percent"
           display={l.gpPct == null ? "—" : gp(l.gpPct)}
           raw={l.gpPct == null ? "" : (l.gpPct * 100).toFixed(1)}
           onCommit={l.commitGp}
           placeholder="—"
-          className="w-full rounded-lg bg-transparent text-[44px] font-semibold leading-tight tracking-tight hover:bg-fill focus:bg-fill"
+          className="display w-full rounded-lg bg-transparent text-[60px] hover:bg-fill focus:bg-fill"
         />
       </div>
       <p className="mt-0.5 text-[13px] text-label-2">Target {gp(l.target, 0)}</p>
@@ -199,7 +199,7 @@ export function PrepSummary({ batchCost, costPerUnit, unit, variant }: { batchCo
   return (
     <div className="rounded-2xl bg-surface p-5">
       <p className="text-[13px] text-label-2">Cost per {unitShort(unit)}</p>
-      <p className="text-[44px] font-semibold leading-tight tracking-tight tnum">{money(costPerUnit)}</p>
+      <p className="display mt-1 text-[60px] tnum text-accent">{money(costPerUnit)}</p>
       <div className="mt-5 flex items-center justify-between border-t-[0.5px] border-sep pt-4">
         <span className="text-[15px] text-label-2">Batch cost</span>
         <span className="text-[17px] tnum">{money(batchCost)}</span>

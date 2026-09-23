@@ -23,10 +23,10 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <header className={cx("flex items-end justify-between gap-3 pb-3 pt-2 lg:pt-8", className)}>
+    <header className={cx("flex items-end justify-between gap-3 pb-3 pt-3 lg:pt-8", className)}>
       <div className="min-w-0">
-        <h1 className="truncate text-large-title font-bold tracking-tight lg:text-[30px] lg:leading-9">{title}</h1>
-        {subtitle ? <p className="mt-0.5 truncate text-[15px] text-label-2">{subtitle}</p> : null}
+        <h1 className="venue-title truncate pt-1 text-label">{title}</h1>
+        {subtitle ? <p className="mt-1.5 truncate text-[15px] text-label-2">{subtitle}</p> : null}
       </div>
       {trailing ? <div className="flex shrink-0 items-center gap-2 pb-1">{trailing}</div> : null}
     </header>
@@ -55,7 +55,7 @@ export function Group({
     <section className={cx("mt-6", className)}>
       {title || trailing ? (
         <div className="flex items-end justify-between px-4 pb-1.5">
-          <h2 className="text-[13px] font-normal text-label-2 sm:text-[13px]">{title}</h2>
+          <h2 className="eyebrow text-[11px] font-normal tracking-[0.18em] text-label-2">{title}</h2>
           {trailing}
         </div>
       ) : null}
@@ -259,7 +259,7 @@ export function Toggle({ checked, onChange, label, sub }: { checked: boolean; on
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={cx("relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200", checked ? "bg-[#34C759]" : "bg-fill-2")}
+      className={cx("relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200", checked ? "bg-accent-fill" : "bg-fill-2")}
     >
       <span className={cx("inline-block h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15),0_1px_1px_rgba(0,0,0,0.16)] transition-transform duration-200 ease-ios", checked ? "translate-x-[22px]" : "translate-x-[2px]")} />
     </button>
@@ -469,12 +469,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom))] z-[80] flex justify-center px-4 lg:bottom-8">
-          <div key={toast.id} role="status" className="anim-pop pointer-events-auto flex max-w-md items-center gap-4 rounded-2xl bg-[#1c1c1e] py-2.5 pl-4 pr-2 text-[15px] text-white shadow-float dark:bg-[#3a3a3c]">
+          <div key={toast.id} role="status" className="anim-pop pointer-events-auto flex max-w-md items-center gap-4 rounded-2xl bg-[#2c2c31] py-2.5 pl-4 pr-2 text-[15px] text-label shadow-float">
             <span className="min-w-0 truncate">{toast.message}</span>
             {toast.action ? (
               <button
                 type="button"
-                className="min-h-[36px] shrink-0 rounded-lg px-3 font-semibold text-[#64d2ff]"
+                className="min-h-[36px] shrink-0 rounded-lg px-3 font-semibold text-accent"
                 onClick={() => {
                   toast.action?.onClick();
                   setToast(null);

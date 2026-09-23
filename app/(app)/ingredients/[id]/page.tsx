@@ -90,7 +90,7 @@ function Detail({ ing }: { ing: Ingredient }) {
         <div>
           <section className="mt-5 rounded-3xl bg-surface p-5">
             <p className="text-[15px] font-medium text-label-2">Pack price</p>
-            <p className="mt-0.5 text-hero tnum">{money(ing.pack_price)}</p>
+            <p className="display mt-1 text-[64px] tnum text-accent">{money(ing.pack_price)}</p>
             <p className="mt-2 text-[15px] text-label-2 tnum">
               {ing.gst_free ? "GST-free" : ing.price_inc_gst ? "inc GST" : "ex GST"} · {money(unitCost)}/{unitShort(ing.pack_unit)}
               {ing.last_price_update ? ` · updated ${dateShort(ing.last_price_update)}` : ""}

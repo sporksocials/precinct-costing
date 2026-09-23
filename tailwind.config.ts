@@ -4,11 +4,13 @@ const v = (name: string) => `var(--${name})`;
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
-  darkMode: "media",
+  darkMode: "class",
   theme: {
     extend: {
       fontFamily: {
-        sans: ["-apple-system", "BlinkMacSystemFont", '"SF Pro Text"', '"SF Pro Display"', "Inter", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", "system-ui", "sans-serif"],
+        sans: ["var(--font-body)", "-apple-system", "BlinkMacSystemFont", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "Impact", "sans-serif"],
+        venue: ["var(--font-venue)", "var(--font-display)", "sans-serif"],
       },
       colors: {
         bg: v("bg"),
@@ -25,6 +27,14 @@ const config: Config = {
         "accent-fill": v("accent-fill"),
         "accent-on": v("accent-on"),
         "accent-soft": v("accent-soft"),
+        "venue-2": v("venue-2"),
+        drift: "#b3e3f2",
+        navy: "#0a3848",
+        chiobu: "#c6102e",
+        greedy: "#f26345",
+        teal: "#92c5bd",
+        gelato: "#ed8ccd",
+        sand: "#d9c3a0",
         danger: v("danger"),
         "danger-soft": v("danger-soft"),
         warn: v("warn"),

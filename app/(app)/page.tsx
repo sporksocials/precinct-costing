@@ -9,6 +9,7 @@ import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueChips, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
+import { PrecinctMark, VenueLogo } from "@/components/brand";
 
 function Split({ s, className }: { s: GpSummary; className?: string }) {
   const parts: string[] = [];
@@ -38,17 +39,36 @@ export default function HomePage() {
 
   return (
     <div>
-      <header className="pb-4 pt-2 lg:pt-8">
-        <h1 className="text-large-title font-bold tracking-tight lg:text-[30px]">{venue ? venue.name : "Home"}</h1>
+      <header className="pb-5 pt-3 lg:pt-8">
+        {venue ? (
+          <>
+            <h1 className="sr-only">{venue.name}</h1>
+            <div className="masthead relative overflow-hidden rounded-3xl px-5 pb-7 pt-5 lg:px-8 lg:pb-9 lg:pt-7">
+              <button type="button" onClick={() => setVenue("all")} className="eyebrow text-[11px] text-label/70 transition hover:text-label">
+                ← Caloundra Food Precinct
+              </button>
+              <div className="mt-5 flex min-h-[84px] items-center lg:min-h-[104px]">
+                <VenueLogo slug={venue.slug} height={72} className="lg:!h-[92px]" />
+              </div>
+              <span aria-hidden className="masthead-strip absolute inset-x-0 bottom-0 h-1.5" />
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="sr-only">Caloundra Food Precinct costing</h1>
+            <PrecinctMark size="lg" sub="Costing" />
+          </>
+        )}
       </header>
       <VenueChips />
 
       {/* 1. headline */}
-      <section className="mt-5 rounded-3xl bg-surface px-5 pb-6 pt-5 lg:px-8 lg:pt-7">
-        <p className="text-[15px] font-medium text-label-2">Average GP</p>
+      <section className="relative mt-5 overflow-hidden rounded-3xl bg-surface px-5 pb-6 pt-6 lg:px-8 lg:pt-8">
+        <span aria-hidden className={cx("absolute inset-x-0 top-0 h-1", venue ? "bg-accent-fill" : "precinct-strip")} />
+        <p className="eyebrow text-[12px] text-label-2">Average GP{venue ? "" : " · all venues"}</p>
         {empty ? (
           <div className="mt-2">
-            <p className="text-hero text-label-3">—</p>
+            <p className="display text-[88px] text-label-3">—</p>
             {venue ? (
               <button type="button" className="btn-tinted mt-4" onClick={() => newRecipe.open({ venueId: venue.id })}>
                 <Plus className="h-4 w-4" strokeWidth={2.5} /> Add recipe
@@ -57,7 +77,7 @@ export default function HomePage() {
           </div>
         ) : (
           <>
-            <p className="mt-1 text-hero tnum lg:text-[64px]">{gp(headline.avg)}</p>
+            <p className="display mt-2 text-[88px] tnum text-accent lg:text-[112px]">{gp(headline.avg)}</p>
             {!isGelato ? <Split s={headline} className="mt-2 text-[17px] sm:text-[15px]" /> : null}
           </>
         )}
@@ -105,17 +125,20 @@ function VenueCard({ v, s, onOpen, onAdd }: { v: Venue; s: GpSummary; onOpen: ()
   const gelato = v.slug === "gelato";
   return (
     <div className={cx(`v-${v.slug}`, "relative overflow-hidden rounded-2xl bg-surface")}>
-      <button type="button" onClick={onOpen} className="block w-full px-4 pb-4 pt-3.5 text-left transition active:scale-[0.99] active:opacity-80">
-        <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-accent-fill" />
-        <span className="block truncate text-[15px] font-semibold text-accent">{VENUE_SHORT[v.slug] ?? v.name}</span>
+      <button type="button" onClick={onOpen} aria-label={`${v.name}: open`} className="block w-full px-4 pb-4 pt-5 text-left transition hover:bg-fill active:scale-[0.99] active:opacity-80">
+        <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-accent-fill" />
+        <span className="flex h-[52px] items-center">
+          <VenueLogo slug={v.slug} height={40} />
+        </span>
+        <span className="sr-only">{VENUE_SHORT[v.slug] ?? v.name}</span>
         {s.count ? (
           <>
-            <span className="mt-1 block text-[28px] font-semibold leading-tight tnum">{gp(s.avg)}</span>
+            <span className="display mt-3 block text-[46px] tnum text-accent">{gp(s.avg)}</span>
             {!gelato ? <Split s={s} className="mt-0.5 text-[13px] leading-snug" /> : <span className="mt-0.5 block text-[13px] text-transparent">.</span>}
           </>
         ) : (
           <>
-            <span className="mt-1 block text-[28px] font-semibold leading-tight text-label-3">—</span>
+            <span className="display mt-3 block text-[46px] text-label-3">—</span>
             <span className="mt-0.5 block text-[13px] text-label-2">No recipes yet</span>
           </>
         )}

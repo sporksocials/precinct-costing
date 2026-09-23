@@ -15,10 +15,10 @@ export default function MorePage() {
     <div>
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
-        <Row href="/alerts" title="Alerts" leading={<Icon className="bg-[#FF3B30]"><Bell className={ic} /></Icon>} chevron />
-        <Row href="/specials" title="Specials" leading={<Icon className="bg-[#FF9500]"><Sparkles className={ic} /></Icon>} chevron />
-        <Row href="/portal-prices" title="Supplier prices" leading={<Icon className="bg-[#34C759]"><Store className={ic} /></Icon>} chevron />
-        <Row href="/settings" title="Settings" leading={<Icon className="bg-[#8E8E93]"><Settings className={ic} /></Icon>} chevron />
+        <Row href="/alerts" title="Alerts" leading={<Icon className="bg-[#C6102E]"><Bell className={ic} /></Icon>} chevron />
+        <Row href="/specials" title="Specials" leading={<Icon className="bg-[#F26345]"><Sparkles className={ic} /></Icon>} chevron />
+        <Row href="/portal-prices" title="Supplier prices" leading={<Icon className="bg-[#0A3848]"><Store className={ic} /></Icon>} chevron />
+        <Row href="/settings" title="Settings" leading={<Icon className="bg-[#3a3a3f]"><Settings className={ic} /></Icon>} chevron />
       </Group>
       <Group title="Signed in as">
         <Row title={userEmail ?? "—"} />

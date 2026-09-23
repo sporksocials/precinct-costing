@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.env
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+# local visual-QA fixture + screenshots (client pricing data — never commit or deploy)
+.demo

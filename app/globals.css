@@ -1,0 +1,308 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ *
+ * Tokens. Neutrals follow iOS system colours; secondary label colours
+ * are nudged darker/lighter than Apple's defaults to meet WCAG AA.
+ * ------------------------------------------------------------------ */
+:root {
+  color-scheme: light dark;
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --elevated: #ffffff;
+  --label: #000000;
+  --label-2: #6c6c70; /* 5.1:1 on white, 4.6:1 on #F2F2F7 */
+  --label-3: #8e8e93;
+  --separator: rgba(60, 60, 67, 0.18);
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill-2: rgba(118, 118, 128, 0.2);
+  --danger: #d70015; /* iOS accessible red — 5.2:1 on white */
+  --danger-soft: rgba(215, 0, 21, 0.08);
+  --warn: #b25000; /* accessible orange */
+  --good: #248a3d;
+  --bar: rgba(249, 249, 249, 0.82);
+  --scrim: rgba(0, 0, 0, 0.32);
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+
+  /* default accent = All venues (graphite) */
+  --accent: #1c1c1e;
+  --accent-fill: #1c1c1e;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(28, 28, 30, 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: #2c2c2e;
+    --elevated: #2c2c2e;
+    --label: #ffffff;
+    --label-2: #98989f; /* 5.8:1 on #1C1C1E */
+    --label-3: #6e6e73;
+    --separator: rgba(84, 84, 88, 0.6);
+    --fill: rgba(118, 118, 128, 0.24);
+    --fill-2: rgba(118, 118, 128, 0.36);
+    --danger: #ff6961;
+    --danger-soft: rgba(255, 105, 97, 0.14);
+    --warn: #ffb340;
+    --good: #30d158;
+    --bar: rgba(22, 22, 24, 0.8);
+    --scrim: rgba(0, 0, 0, 0.55);
+    --shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+
+    --accent: #f2f2f7;
+    --accent-fill: #f2f2f7;
+    --accent-on: #000000;
+    --accent-soft: rgba(242, 242, 247, 0.1);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Venue accents. html[data-venue] drives the app accent; .v-<slug>
+ * scopes a venue colour to one element (e.g. Home venue cards).
+ * --accent       tint for text / icons (AA on surface)
+ * --accent-fill  fills: buttons, selected chips, indicators
+ * --accent-on    text on accent-fill (AA)
+ * ------------------------------------------------------------------ */
+html[data-venue="drift"],
+.v-drift {
+  --accent: #0a3848;
+  --accent-fill: #0a3848;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(10, 56, 72, 0.08);
+}
+html[data-venue="chiobu"],
+.v-chiobu {
+  --accent: #c6102e;
+  --accent-fill: #c6102e;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(198, 16, 46, 0.07);
+}
+html[data-venue="greedy"],
+.v-greedy {
+  --accent: #3b5fad;
+  --accent-fill: #3b5fad;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(59, 95, 173, 0.08);
+}
+html[data-venue="gelato"],
+.v-gelato {
+  --accent: #603e3e; /* brown for text on light surfaces */
+  --accent-fill: #ed8ccd; /* pink for fills / indicators only */
+  --accent-on: #4a2c2c; /* 5.3:1 on the pink */
+  --accent-soft: rgba(237, 140, 205, 0.16);
+}
+.v-all {
+  --accent: #1c1c1e;
+  --accent-fill: #1c1c1e;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(28, 28, 30, 0.07);
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-venue="drift"],
+  .v-drift {
+    --accent: #5aa9c6;
+    --accent-fill: #1f6f8b;
+    --accent-on: #ffffff;
+    --accent-soft: rgba(90, 169, 198, 0.16);
+  }
+  html[data-venue="chiobu"],
+  .v-chiobu {
+    --accent: #ff6b81;
+    --accent-fill: #c6102e;
+    --accent-on: #ffffff;
+    --accent-soft: rgba(255, 107, 129, 0.15);
+  }
+  html[data-venue="greedy"],
+  .v-greedy {
+    --accent: #8aa6ea;
+    --accent-fill: #3b5fad;
+    --accent-on: #ffffff;
+    --accent-soft: rgba(138, 166, 234, 0.16);
+  }
+  html[data-venue="gelato"],
+  .v-gelato {
+    --accent: #f4a6da;
+    --accent-fill: #ed8ccd;
+    --accent-on: #3a2222;
+    --accent-soft: rgba(237, 140, 205, 0.16);
+  }
+  .v-all {
+    --accent: #f2f2f7;
+    --accent-fill: #f2f2f7;
+    --accent-on: #000000;
+    --accent-soft: rgba(242, 242, 247, 0.1);
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+html,
+body {
+  background: var(--bg);
+  color: var(--label);
+}
+body {
+  @apply antialiased;
+  font-feature-settings: "cv11", "ss01";
+  overscroll-behavior-y: none;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+::placeholder {
+  color: var(--label-3);
+  opacity: 1;
+}
+:focus-visible {
+  outline: 2px solid var(--accent-fill);
+  outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+@layer utilities {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  .hairline {
+    box-shadow: inset 0 -0.5px 0 var(--separator);
+  }
+  .hairline-t {
+    box-shadow: inset 0 0.5px 0 var(--separator);
+  }
+  .bar-blur {
+    background: var(--bar);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .shadow-float {
+    box-shadow: var(--shadow);
+  }
+}
+
+/* sheets sit one level up: in dark mode they and their grouped cells are lighter than the page */
+.sheet {
+  background: var(--bg);
+}
+@media (prefers-color-scheme: dark) {
+  .sheet {
+    background: #1c1c1e;
+    --surface: #2c2c2e;
+    --elevated: #3a3a3c;
+  }
+}
+
+@layer components {
+  /* iOS grouped inset list */
+  .group-list {
+    @apply overflow-hidden rounded-2xl bg-surface;
+  }
+  .group-list > * + * {
+    position: relative;
+  }
+  .group-list > * + *::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: var(--inset, 1rem);
+    height: 0.5px;
+    background: var(--separator);
+    pointer-events: none;
+  }
+  .section-label {
+    @apply px-4 pb-1.5 text-[13px] text-label-2;
+  }
+  .field {
+    @apply block w-full rounded-xl bg-fill px-3.5 py-3 text-[17px] leading-tight text-label outline-none transition placeholder:text-label-3 focus:bg-surface focus:ring-[1.5px] focus:ring-[color:var(--accent-fill)] sm:py-2.5 sm:text-[15px];
+  }
+  .btn {
+    @apply inline-flex min-h-[44px] select-none items-center justify-center gap-1.5 rounded-xl px-4 text-[17px] font-semibold transition active:scale-[0.98] active:opacity-80 disabled:pointer-events-none disabled:opacity-40 sm:min-h-[36px] sm:text-[15px];
+  }
+  .btn-primary {
+    @apply btn bg-accent-fill text-accent-on;
+  }
+  .btn-tinted {
+    @apply btn bg-accent-soft text-accent;
+  }
+  .btn-plain {
+    @apply btn bg-fill text-label;
+  }
+  .btn-text {
+    @apply inline-flex min-h-[44px] items-center gap-1 px-1 text-[17px] text-accent active:opacity-60 sm:min-h-0 sm:text-[15px];
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.anim-sheet {
+  animation: sheet-up 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.anim-pop {
+  animation: pop-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.anim-fade {
+  animation: fade-in 0.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-sheet,
+  .anim-pop,
+  .anim-fade {
+    animation: none;
+  }
+}

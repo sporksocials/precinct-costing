@@ -16,6 +16,7 @@ import { VENUE_SHORT } from "../venue";
 import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
 import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
+import { PricePicker } from "./price-picker";
 import { ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
 import { GelatoFlavourPanel } from "./gelato-panel";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
@@ -468,6 +469,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           </Group>
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
+          {itemCost && item ? <PricePicker cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} /> : null}
 
           {itemCost && item ? (
             <FixCard

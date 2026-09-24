@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { resolveTargetGp, type LineCost } from "@/lib/costing";
-import { costServe } from "@/lib/gelato";
+import { costServe, virtualItemId } from "@/lib/gelato";
+import { ChevronRight } from "lucide-react";
 import { gp, money } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
 import { cx, Dot, Group, Segmented } from "../ui";
@@ -15,7 +16,7 @@ const BATCHES = ["3", "4.5", "5", "9"] as const;
  * Live serve prices for a gelato flavour mix: what every serve costs and earns with the mix as
  * it stands in the editor (before it is saved), plus the mix scaled to a machine batch.
  */
-export function GelatoFlavourPanel({ mixCost, batchKg, lines }: { mixCost: number; batchKg: number; lines: LineCost[] }) {
+export function GelatoFlavourPanel({ flavourId, mixCost, batchKg, lines }: { flavourId: string; mixCost: number; batchKg: number; lines: LineCost[] }) {
   const store = useStore();
   const venue = store.gelato.venue;
   const [all, setAll] = useState(false);
@@ -54,7 +55,7 @@ export function GelatoFlavourPanel({ mixCost, batchKg, lines }: { mixCost: numbe
           <p className="px-4 py-3 text-[15px] text-label-2">Add the mix ingredients (in g or kg) to see the serve prices.</p>
         ) : (
           serves.map((c) => (
-            <div key={c.serve.id} className="flex min-h-[48px] items-center gap-3 px-4 py-2">
+            <Link key={c.serve.id} href={`/items/${virtualItemId(flavourId, c.serve.id)}`} className="flex min-h-[48px] items-center gap-3 px-4 py-2 active:bg-fill lg:hover:bg-fill">
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[17px] sm:text-[15px]">{c.serve.name}</span>
                 <span className="block truncate text-[13px] text-label-2 tnum">
@@ -69,7 +70,8 @@ export function GelatoFlavourPanel({ mixCost, batchKg, lines }: { mixCost: numbe
                   {c.gpPct != null ? gp(c.gpPct) : "No price"}
                 </span>
               </span>
-            </div>
+              <ChevronRight className="-mr-1 h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} aria-hidden />
+            </Link>
           ))
         )}
       </Group>

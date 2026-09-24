@@ -476,7 +476,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
 
-          {isFlavour ? <GelatoFlavourPanel mixCost={recipe.total} batchKg={batchWeightKg(lines.filter((l) => l.component_id))} lines={recipe.lines.filter((c) => c.line.component_id)} /> : null}
+          {isFlavour ? <GelatoFlavourPanel flavourId={id} mixCost={recipe.total} batchKg={batchWeightKg(lines.filter((l) => l.component_id))} lines={recipe.lines.filter((c) => c.line.component_id)} /> : null}
 
           {/* prep: used in */}
           {isFlavour ? (

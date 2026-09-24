@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, IceCreamCone, Plus } from "lucide-react";
-import { isVirtualItemId } from "@/lib/gelato";
+import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
+import type { Prep } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
@@ -85,9 +87,29 @@ export default function RecipesPage() {
   }, [prepPool, cat, q, sort]);
 
   const cats = tab === "items" ? itemCats : prepCats;
-  const showGelato = tab === "items" && !!store.gelato.venue && store.gelato.flavours.length > 0 && (!venue || venue.id === store.gelato.venue.id) && !q.trim();
+  // gelato: in the Gelato venue each flavour is one row (its serves open from there); in All, one link row
+  const gelatoVenue = store.gelato.venue;
+  const inGelato = tab === "items" && !!gelatoVenue && venue?.id === gelatoVenue.id;
+  const showGelato = tab === "items" && !!gelatoVenue && store.gelato.flavours.length > 0 && !venue && !q.trim();
+  const flavourRows = useMemo(() => {
+    if (!inGelato || (cat !== "all" && cat !== "Gelato")) return [];
+    let list = store.gelato.flavours.filter((f) => showInactive || f.active);
+    if (q.trim()) {
+      const docs = list.map((f) => ({ ...indexDoc({ kind: "prep" as const, id: f.id, title: flavourName(f), sub: "", href: "", extra: "gelato flavour" }), f }));
+      list = search(docs, q, 500).map((h) => h.doc.f);
+    }
+    const menuServes = store.gelato.serves.filter((sv) => sv.on_menu);
+    const serves = menuServes.length ? menuServes : store.gelato.serves;
+    const out = list.map((f) => {
+      const cs = serves.map((sv) => store.itemCosts.get(virtualItemId(f.id, sv.id))).filter((c): c is ItemCost => !!c);
+      const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
+      return { f, serves: cs.length, worst, under: cs.some((c) => c.underTarget) };
+    });
+    if (sort === "gp" && !q.trim()) out.sort((a, b) => (a.worst?.gpPct ?? 9) - (b.worst?.gpPct ?? 9));
+    return out;
+  }, [inGelato, cat, store.gelato, store.itemCosts, showInactive, q, sort]);
   const rows = tab === "items" ? items : preps;
-  const total = rows.length;
+  const total = rows.length + flavourRows.length;
 
   return (
     <div>
@@ -146,9 +168,28 @@ export default function RecipesPage() {
         )
       ) : (
         <>
-          <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
-            {total} {tab === "items" ? (total === 1 ? "menu item" : "menu items") : total === 1 ? "prep" : "preps"}
-          </p>
+          {flavourRows.length ? (
+            <>
+              <div className="flex items-end justify-between px-4 pb-1.5 pt-5">
+                <p className="text-[13px] text-label-2">
+                  {flavourRows.length} {flavourRows.length === 1 ? "flavour" : "flavours"} · each sold in {store.gelato.serves.length} serves
+                </p>
+                <Link href="/gelato" className="text-[13px] font-medium text-accent">
+                  All prices
+                </Link>
+              </div>
+              <div className="group-list">
+                {flavourRows.map((r) => (
+                  <FlavourRow key={r.f.id} f={r.f} serves={r.serves} worst={r.worst} />
+                ))}
+              </div>
+            </>
+          ) : null}
+          {rows.length ? (
+            <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
+              {rows.length} {tab === "items" ? (rows.length === 1 ? "menu item" : "menu items") : rows.length === 1 ? "prep" : "preps"}
+            </p>
+          ) : null}
           {showGelato ? (
             <div className="group-list mb-4">
               <Row
@@ -160,14 +201,16 @@ export default function RecipesPage() {
               />
             </div>
           ) : null}
-          <div className="group-list">
-            {tab === "items"
-              ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)
-              : (rows as PrepCost[]).slice(0, limit).map((p) => <PrepRow key={p.prep.id} p={p} />)}
-          </div>
-          {total > limit ? (
+          {rows.length ? (
+            <div className="group-list">
+              {tab === "items"
+                ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)
+                : (rows as PrepCost[]).slice(0, limit).map((p) => <PrepRow key={p.prep.id} p={p} />)}
+            </div>
+          ) : null}
+          {rows.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
-              Show more ({total - limit})
+              Show more ({rows.length - limit})
             </button>
           ) : null}
         </>
@@ -205,6 +248,30 @@ function ItemRow({ c, showVenue }: { c: ItemCost; showVenue: boolean }) {
           </>
         )
       }
+    />
+  );
+}
+
+function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: ItemCost | null }) {
+  const store = useStore();
+  const pc = store.prepCosts.get(f.id);
+  return (
+    <Row
+      href={`/preps/${f.id}`}
+      title={flavourName(f)}
+      titleClassName={!f.active ? "text-label-2" : undefined}
+      sub={[pc ? `Mix ${money(pc.costPerUnit)}/kg` : null, `lowest GP of ${serves} menu serves`].filter(Boolean).join(" · ")}
+      trailing={
+        worst?.gpPct != null ? (
+          <>
+            {worst.underTarget ? <Dot className="bg-danger" /> : null}
+            <span className="text-label">{gp(worst.gpPct)}</span>
+          </>
+        ) : (
+          <span className="text-label-3">No price</span>
+        )
+      }
+      chevron
     />
   );
 }

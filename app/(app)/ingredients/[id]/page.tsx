@@ -178,7 +178,7 @@ function Detail({ ing }: { ing: Ingredient }) {
             ))}
           </Group>
 
-          <Disclosure title="Advanced">
+          <Disclosure title="Advanced" hint="Name, pack, GST, yield, supplier code">
             <div className="group-list">
               <FieldRow label="Name">
                 <InlineInput value={ing.name} inputMode="text" width="w-48" onCommit={(t) => t.trim() && patch({ name: t.trim() })} />

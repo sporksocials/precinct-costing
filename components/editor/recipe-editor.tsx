@@ -393,9 +393,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             ) : prep ? (
               <FieldRow label="Batch yield">
                 <span className="flex items-center gap-2">
-                  <span className="rounded-lg bg-fill px-2">
-                    <InlineInput value={String(prep.yield_qty)} width="w-16" onCommit={(t) => { const n = Number(t.replace(",", ".")); if (n > 0) setDraft((d) => ({ ...d, yield_qty: n })); }} />
-                  </span>
+                  <InlineInput value={String(prep.yield_qty)} width="w-20" onCommit={(t) => { const n = Number(t.replace(",", ".")); if (n > 0) setDraft((d) => ({ ...d, yield_qty: n })); }} />
                   <Segmented size="sm" ariaLabel="Yield unit" className="w-[150px]" value={prep.yield_unit} onChange={(u: PackUnit) => setDraft((d) => ({ ...d, yield_unit: u }))} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
                 </span>
               </FieldRow>
@@ -490,7 +488,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           ) : null}
 
           {/* details */}
-          <Disclosure title="Details">
+          <Disclosure title={item ? "Pricing & notes" : "Type & notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
             <div className="group-list">
               {item ? (
                 <>
@@ -506,7 +504,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                     />
                   </FieldRow>
                   <FieldRow label="Happy hour price" sub={item.hh_price_inc && itemCost ? `GP ${gp(gpForPrice(itemCost.costPerPortion, item.hh_price_inc, store.settings.gst_rate))}` : undefined}>
-                    <InlineInput value={item.hh_price_inc != null ? String(item.hh_price_inc) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, hh_price_inc: parsePriceInput(t) }))} />
+                    <InlineInput value={item.hh_price_inc != null ? Number(item.hh_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, hh_price_inc: parsePriceInput(t) }))} />
                   </FieldRow>
                 </>
               ) : prep ? (

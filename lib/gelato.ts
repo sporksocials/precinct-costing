@@ -90,7 +90,7 @@ export function buildGelato(input: {
         section: s.name,
         portions: 1,
         sell_price_inc: s.sell_price_inc,
-        target_override: null,
+        target_override: s.target_gp != null ? Number(s.target_gp) : null,
         hh_price_inc: null,
         active: f.active && s.active,
         source: "gelato",

@@ -55,7 +55,7 @@ export function Group({
     <section className={cx("mt-6", className)}>
       {title || trailing ? (
         <div className="flex items-end justify-between px-4 pb-1.5">
-          <h2 className="eyebrow text-[11px] font-normal tracking-[0.18em] text-label-2">{title}</h2>
+          <h2 className="text-[13px] font-medium text-label-2">{title}</h2>
           {trailing}
         </div>
       ) : null}
@@ -102,7 +102,7 @@ export function Row({
     </>
   );
   const cls = cx(
-    "flex min-h-[44px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors",
+    "flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-150",
     (href || onClick) && "active:bg-fill hover:bg-[color:var(--fill)] lg:hover:bg-[color:var(--fill)]",
     active && "bg-fill",
     className,
@@ -151,9 +151,9 @@ export function Segmented<T extends string>({
             aria-checked={on}
             onClick={() => onChange(o.value)}
             className={cx(
-              "flex-1 whitespace-nowrap rounded-[8px] px-3 font-medium transition-all",
+              "flex-1 whitespace-nowrap rounded-[8px] px-3 font-medium transition-[background-color,box-shadow,color] duration-200 ease-ios",
               size === "sm" ? "min-h-[30px] text-[13px]" : "min-h-[34px] text-[15px] sm:min-h-[30px] sm:text-[13px]",
-              on ? "bg-elevated text-label shadow-[0_1px_3px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.04)]" : "text-label",
+              on ? "bg-elevated text-label shadow-[0_1px_3px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.04)]" : "text-label-2 hover:text-label",
             )}
           >
             {o.label}
@@ -189,8 +189,8 @@ export function Chips<T extends string>({
             aria-checked={on}
             onClick={() => onChange(o.value)}
             className={cx(
-              "min-h-[36px] shrink-0 whitespace-nowrap rounded-full px-3.5 text-[15px] font-medium transition-colors sm:min-h-[32px] sm:text-[13px]",
-              on ? "bg-accent-fill text-accent-on" : "bg-surface text-label active:bg-fill",
+              "min-h-[40px] shrink-0 whitespace-nowrap rounded-full px-4 text-[15px] font-medium transition-[background-color,color,transform] duration-200 ease-ios active:scale-[0.97] sm:min-h-[34px] sm:px-3.5 sm:text-[14px]",
+              on ? "bg-accent-fill text-accent-on" : "bg-surface text-label shadow-[inset_0_0_0_0.5px_var(--separator)] hover:bg-surface-2",
               o.className,
             )}
           >
@@ -535,15 +535,23 @@ export function Banner({ children, action, tone = "danger" }: { children: React.
   );
 }
 
-export function Disclosure({ title, children, defaultOpen }: { title: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
+export function Disclosure({ title, hint, children, defaultOpen }: { title: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
     <section className="mt-6">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex min-h-[44px] w-full items-center gap-1.5 px-4 text-[15px] text-label-2">
-        <ChevronRight className={cx("h-4 w-4 transition-transform", open && "rotate-90")} strokeWidth={2.5} />
-        {title}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={cx("flex min-h-[52px] w-full items-center gap-3 bg-surface px-4 text-left transition-[border-radius,background-color] duration-200 hover:bg-surface-2", open ? "rounded-t-2xl" : "rounded-2xl")}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-[17px] font-medium sm:text-[15px]">{title}</span>
+          {hint && !open ? <span className="mt-0.5 block truncate text-[13px] text-label-2">{hint}</span> : null}
+        </span>
+        <ChevronRight className={cx("h-[18px] w-[18px] shrink-0 text-label-3 transition-transform duration-200 ease-ios", open && "rotate-90")} strokeWidth={2.5} />
       </button>
-      {open ? <div className="anim-fade">{children}</div> : null}
+      {open ? <div className="anim-fade [&>.group-list]:rounded-t-none [&>.group-list]:shadow-[inset_0_0.5px_0_var(--separator)]">{children}</div> : null}
     </section>
   );
 }
@@ -589,7 +597,12 @@ export function InlineInput({
     if (!focused) setText(value);
   }, [value, focused]);
   return (
-    <span className={cx("flex items-center justify-end gap-0.5 text-[17px] text-label-2 sm:text-[15px]", width)}>
+    <span
+      className={cx(
+        "flex min-h-[36px] items-center justify-end gap-0.5 rounded-lg bg-fill px-2.5 text-[17px] text-label-2 transition-shadow duration-150 focus-within:bg-surface-2 focus-within:shadow-[inset_0_0_0_1.5px_var(--accent-fill)] sm:min-h-[32px] sm:text-[15px]",
+        width,
+      )}
+    >
       {prefix ? <span>{prefix}</span> : null}
       <input
         type={type}
@@ -612,7 +625,7 @@ export function InlineInput({
             (e.target as HTMLInputElement).blur();
           }
         }}
-        style={{ width: `${Math.max(text.length, (placeholder ?? "").length, 2) + 0.6}ch` }}
+        style={{ width: `${Math.max(text.length, (placeholder ?? "").length, 2) + 0.4}ch` }}
         className={cx("min-w-0 max-w-full bg-transparent tnum text-label outline-none", align === "right" ? "text-right" : "text-left")}
       />
       {suffix ? <span>{suffix}</span> : null}

@@ -93,7 +93,7 @@ export default function GelatoPage() {
             Edit serves
           </Link>
         }
-        footer={`Same price for every flavour. Suggested price covers the dearest flavour at ${gp(target, 0)} GP.`}
+        footer={`Same price for every flavour. Suggested price covers the dearest flavour at the serve’s target (${gp(target, 0)} unless set on the serve).`}
       >
         {serveStats.map(({ s, min, max, worst, dearest, under }) => {
           const price = s.sell_price_inc != null ? Number(s.sell_price_inc) : null;
@@ -108,7 +108,7 @@ export default function GelatoPage() {
                   {!s.on_menu ? <span className="ml-1.5 text-[13px] text-label-3">not on menu</span> : null}
                 </>
               }
-              sub={[`${Number(s.grams)}g`, min === max ? `cost ${money(min)}` : `cost ${money(min)}–${money(max)}`, sugg ? `suggested ${money(sugg)}` : null, under ? `${under} under target` : null].filter(Boolean).join(" · ")}
+              sub={[`${Number(s.grams)}g`, min === max ? `cost ${money(min)}` : `cost ${money(min)}–${money(max)}`, s.target_gp != null ? `target ${gp(Number(s.target_gp), 0)}` : null, sugg ? `suggested ${money(sugg)}` : null, under ? `${under} under target` : null].filter(Boolean).join(" · ")}
               trailing={
                 <>
                   <span className="text-label">{price != null ? money(price) : "No price"}</span>
@@ -128,7 +128,7 @@ export default function GelatoPage() {
       {/* flavour x serve grid */}
       <section className="mt-7">
         <div className="flex items-end justify-between px-4 pb-1.5">
-          <h2 className="eyebrow text-[11px] font-normal tracking-[0.18em] text-label-2">GP by flavour</h2>
+          <h2 className="text-[13px] font-medium text-label-2">GP by flavour</h2>
           {inactiveCount ? (
             <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowInactive((x) => !x)}>
               {showInactive ? "Hide inactive" : `Show inactive (${inactiveCount})`}
@@ -186,7 +186,7 @@ export default function GelatoPage() {
             </table>
           </div>
         )}
-        <p className="px-4 pt-1.5 text-[13px] text-label-2">Red is under the {gp(target, 0)} target. Tap a flavour to edit its mix.</p>
+        <p className="px-4 pt-1.5 text-[13px] text-label-2">Red is under target. Tap a flavour to edit its mix.</p>
       </section>
 
       <div className="mt-6 lg:hidden">
@@ -204,6 +204,7 @@ export default function GelatoPage() {
         <Plus className="h-7 w-7" strokeWidth={2.25} />
       </button>
 
+      <div aria-hidden className="h-20 lg:hidden" />
       {newOpen ? <NewFlavourSheet venueId={venue.id} onClose={() => setNewOpen(false)} /> : null}
     </div>
   );

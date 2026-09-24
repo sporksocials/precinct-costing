@@ -148,6 +148,7 @@ create table if not exists public.cost_gelato_serves (
   on_menu boolean not null default true,
   active boolean not null default true,
   notes text,
+  target_gp numeric check (target_gp is null or (target_gp >= 0 and target_gp < 1)),
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   unique (venue_id, name)

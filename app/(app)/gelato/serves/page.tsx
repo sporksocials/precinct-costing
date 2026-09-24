@@ -149,8 +149,19 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
           <FieldRow label="Gelato" sub={`Costed at ${Math.round(Number(draft.grams) * (1 + store.settings.gelato_wastage))}g with ${gp(store.settings.gelato_wastage, 0)} wastage`}>
             <InlineInput value={String(draft.grams)} suffix="g" onCommit={(t) => { const n = num(t); if (n && n > 0) setDraft((d) => ({ ...d, grams: n })); }} />
           </FieldRow>
+          <FieldRow label="Target GP" sub={`Blank uses the Gelato target. Tubs and wholesale usually sit lower.`}>
+            <InlineInput
+              value={draft.target_gp != null ? String(Math.round(Number(draft.target_gp) * 1000) / 10) : ""}
+              placeholder="Default"
+              suffix="%"
+              onCommit={(t) => {
+                const n = num(t.replace("%", ""));
+                setDraft((d) => ({ ...d, target_gp: t.trim() === "" || n == null ? null : n >= 1 ? n / 100 : n }));
+              }}
+            />
+          </FieldRow>
           <FieldRow label="Price (inc GST)" sub="Same for every flavour">
-            <InlineInput value={draft.sell_price_inc != null ? String(draft.sell_price_inc) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, sell_price_inc: t.trim() ? num(t) : null }))} />
+            <InlineInput value={draft.sell_price_inc != null ? Number(draft.sell_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, sell_price_inc: t.trim() ? num(t) : null }))} />
           </FieldRow>
         </div>
         <div className="group-list mt-4">
@@ -165,7 +176,6 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
                 <span className="block truncate text-[17px] sm:text-[15px]">{lc.componentName}</span>
                 {lc.warning ? <span className="block text-[13px] text-warn">⚠ Costed {lc.componentBase === "each" ? "each" : `per ${lc.componentBase}`} — change the unit</span> : null}
               </span>
-              <span className="rounded-lg bg-fill px-2">
                 <InlineInput
                   value={String(lines[i].qty)}
                   suffix={unitShort(lines[i].unit)}
@@ -175,7 +185,6 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
                     if (n != null && n >= 0) setLines((ls) => ls.map((l, k) => (k === i ? { ...l, qty: n } : l)));
                   }}
                 />
-              </span>
               <span className="w-14 text-right text-[15px] tnum text-label-2">{money(lc.cost)}</span>
               <button type="button" aria-label={`Remove ${lc.componentName}`} className="p-1 text-label-3 hover:text-danger" onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))}>
                 <Trash2 className="h-4 w-4" />

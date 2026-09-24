@@ -26,7 +26,7 @@ export function GelatoFlavourPanel({ flavourId, mixCost, batchKg, lines }: { fla
 
   const serves = useMemo(() => {
     const list = all ? store.gelato.serves : store.gelato.serves.filter((s) => s.on_menu);
-    return (list.length ? list : store.gelato.serves).map((s) => costServe(s, store.gelatoServeLines, perKg, store.settings.gelato_wastage, store.index, store.settings, target));
+    return (list.length ? list : store.gelato.serves).map((s) => costServe(s, store.gelatoServeLines, perKg, store.settings.gelato_wastage, store.index, store.settings, s.target_gp != null ? Number(s.target_gp) : target));
   }, [all, store.gelato.serves, store.gelatoServeLines, perKg, store.settings, store.index, target]);
 
   const factor = batchKg > 0 ? Number(batch) / batchKg : 0;

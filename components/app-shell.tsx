@@ -60,7 +60,7 @@ function Sidebar() {
         <kbd className="rounded bg-surface px-1.5 py-0.5 font-sans text-[11px] text-label-2">⌘K</kbd>
       </button>
       <nav className="space-y-0.5">{MAIN.map(link)}</nav>
-      <p className="eyebrow mt-6 px-2.5 pb-1 text-[10px] text-label-2">More</p>
+      <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">More</p>
       <nav className="space-y-0.5">{MORE.map(link)}</nav>
       <Suspense fallback={null}>
         <SidebarVenue />
@@ -114,7 +114,7 @@ function TabBar() {
           return (
             <Link key={t.href} href={t.href} aria-current={on ? "page" : undefined} className={cx("flex flex-1 flex-col items-center justify-center gap-0.5 pt-1", on ? "text-accent" : "text-label-2")}>
               <Icon className="h-[24px] w-[24px]" strokeWidth={on ? 2.25 : 1.75} />
-              <span className="text-[10px] font-medium leading-none">{t.label}</span>
+              <span className="text-[11px] font-medium leading-none">{t.label}</span>
             </Link>
           );
         })}
@@ -183,7 +183,11 @@ function Frame({ children }: { children: React.ReactNode }) {
           noTabs ? "pb-[calc(140px+env(safe-area-inset-bottom))]" : "pb-[calc(96px+env(safe-area-inset-bottom))]",
         )}
       >
-        <Gate>{children}</Gate>
+        <Gate>
+          <div key={pathname} className="anim-page">
+            {children}
+          </div>
+        </Gate>
       </main>
     </div>
   );

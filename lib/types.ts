@@ -152,6 +152,8 @@ export interface GelatoServe {
   on_menu: boolean;
   active: boolean;
   notes: string | null;
+  /** own GP target for this serve (take-home tubs, wholesale); null uses the venue's Gelato target */
+  target_gp?: number | null;
 }
 
 export interface GelatoServeLine {

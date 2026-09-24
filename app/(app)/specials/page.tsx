@@ -139,7 +139,7 @@ function SpecialCard({ s, onError }: { s: Special; onError: (m: string | null) =
               </button>
             }
           >
-            <InlineInput value={s.manual_cost != null ? String(s.manual_cost) : ""} placeholder="0.00" prefix="$" onCommit={(t) => patch({ manual_cost: parsePriceInput(t) })} />
+            <InlineInput value={s.manual_cost != null ? Number(s.manual_cost).toFixed(2) : ""} placeholder="0.00" prefix="$" onCommit={(t) => patch({ manual_cost: parsePriceInput(t) })} />
           </FieldRow>
         )}
         {picking ? (
@@ -163,7 +163,7 @@ function SpecialCard({ s, onError }: { s: Special; onError: (m: string | null) =
           </div>
         ) : null}
         <FieldRow label="Sell price" sub="inc GST">
-          <InlineInput value={s.sell_price_inc != null ? String(s.sell_price_inc) : ""} placeholder="0.00" prefix="$" onCommit={(t) => patch({ sell_price_inc: parsePriceInput(t) })} />
+          <InlineInput value={s.sell_price_inc != null ? Number(s.sell_price_inc).toFixed(2) : ""} placeholder="0.00" prefix="$" onCommit={(t) => patch({ sell_price_inc: parsePriceInput(t) })} />
         </FieldRow>
         <FieldRow label="GP">
           <span className={cx("text-[20px] font-semibold tnum", under ? "text-danger" : "text-label")}>{gp(gpPct)}</span>

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
-import { daysAgo, money, movePct, packLabel, unitShort } from "@/lib/format";
+import { dateShort, daysAgo, money, movePct, packLabel, unitShort } from "@/lib/format";
+import { DataTable } from "@/components/table";
 import { indexDoc, search } from "@/lib/search";
 import { blankIngredient, IngredientSheet } from "@/components/ingredient-sheet";
 import { Chips, cx, Empty, PageHeader, Row, SearchField } from "@/components/ui";
@@ -41,6 +42,10 @@ export default function IngredientsPage() {
   }, [docs, cat, q]);
 
   const gst = store.settings.gst_rate;
+  const usedCount = (id: string) => {
+    const u = store.usedIn("ingredient", id);
+    return u.items.length + u.preps.length;
+  };
 
   return (
     <div>
@@ -61,7 +66,42 @@ export default function IngredientsPage() {
       ) : (
         <>
           <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">{rows.length} ingredients</p>
-          <div className="group-list">
+          <div className="hidden lg:block">
+            <DataTable
+              rows={rows.slice(0, limit)}
+              rowKey={(i) => i.id}
+              href={(i) => `/ingredients/${i.id}`}
+              columns={[
+                { key: "name", label: "Ingredient", render: (i) => <span className="font-medium">{i.name}</span>, sort: (i) => i.name },
+                { key: "sup", label: "Supplier", render: (i) => <span className="text-label-2">{store.supplierById.get(i.supplier_id ?? -1)?.name ?? "—"}</span>, sort: (i) => store.supplierById.get(i.supplier_id ?? -1)?.name ?? "" },
+                { key: "pack", label: "Pack", align: "right", render: (i) => <span className="text-label-2">{packLabel(i.pack_size, i.pack_unit)}</span> },
+                { key: "price", label: "Pack price", align: "right", render: (i) => money(Number(i.pack_price)), sort: (i) => Number(i.pack_price) },
+                {
+                  key: "unit",
+                  label: "Unit price",
+                  align: "right",
+                  render: (i) => {
+                    const u = ingredientCostPerBase(i, gst);
+                    return u ? <span className="font-semibold">{`${money(u)}/${unitShort(i.pack_unit)}`}</span> : <span className="text-label-3">No price</span>;
+                  },
+                  sort: (i) => ingredientCostPerBase(i, gst),
+                },
+                {
+                  key: "move",
+                  label: "Last move",
+                  align: "right",
+                  render: (i) => {
+                    const m = (daysAgo(i.last_price_update) ?? 999) <= 30 ? priceMovePct(i.previous_price, i.pack_price) : null;
+                    return m ? <span className={m > 0 ? "text-danger" : "text-label-2"}>{m > 0 ? "↑" : "↓"} {movePct(Math.abs(m)).replace("+", "")}</span> : <span className="text-label-3">—</span>;
+                  },
+                  sort: (i) => ((daysAgo(i.last_price_update) ?? 999) <= 30 ? priceMovePct(i.previous_price, i.pack_price) : null),
+                },
+                { key: "updated", label: "Updated", align: "right", render: (i) => <span className="text-label-2">{dateShort(i.last_price_update)}</span>, sort: (i) => i.last_price_update ?? "", hideBelow: "xl" },
+                { key: "used", label: "Used in", align: "right", render: (i) => <span className="text-label-2">{usedCount(i.id) || "—"}</span>, sort: (i) => usedCount(i.id) },
+              ]}
+            />
+          </div>
+          <div className="group-list lg:hidden">
             {rows.slice(0, limit).map((i) => {
               const sup = store.supplierById.get(i.supplier_id ?? -1)?.name;
               const recent = (daysAgo(i.last_price_update) ?? 999) <= 30;
@@ -72,7 +112,7 @@ export default function IngredientsPage() {
                   key={i.id}
                   href={`/ingredients/${i.id}`}
                   title={i.name}
-                  sub={[sup, `${packLabel(i.pack_size, i.pack_unit)} pack`].filter(Boolean).join(" · ")}
+                  sub={[sup, `${money(Number(i.pack_price))} per ${packLabel(i.pack_size, i.pack_unit)}`].filter(Boolean).join(" · ")}
                   trailing={
                     <span className="flex flex-col items-end leading-tight">
                       <span className="text-label">{unit ? `${money(unit)}/${unitShort(i.pack_unit)}` : <span className="text-label-3">No price</span>}</span>

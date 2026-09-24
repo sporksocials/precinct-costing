@@ -12,7 +12,8 @@ import { gp, money, packLabel, unitShort } from "@/lib/format";
 import type { ItemCost, PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueChips, VENUE_SHORT } from "@/components/venue";
-import { Chips, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
+import { Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
+import { DataTable, type Column } from "@/components/table";
 
 type Tab = "items" | "preps";
 type Sort = "az" | "gp" | "cost";
@@ -185,13 +186,8 @@ export default function RecipesPage() {
               </div>
             </>
           ) : null}
-          {rows.length ? (
-            <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
-              {rows.length} {tab === "items" ? (rows.length === 1 ? "menu item" : "menu items") : rows.length === 1 ? "prep" : "preps"}
-            </p>
-          ) : null}
           {showGelato ? (
-            <div className="group-list mb-4">
+            <div className="group-list mt-5">
               <Row
                 href="/gelato"
                 leading={<IceCreamCone className="h-5 w-5 text-label-2" strokeWidth={2} />}
@@ -202,11 +198,25 @@ export default function RecipesPage() {
             </div>
           ) : null}
           {rows.length ? (
-            <div className="group-list">
-              {tab === "items"
-                ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)
-                : (rows as PrepCost[]).slice(0, limit).map((p) => <PrepRow key={p.prep.id} p={p} />)}
-            </div>
+            <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
+              {rows.length} {tab === "items" ? (rows.length === 1 ? "menu item" : "menu items") : rows.length === 1 ? "prep" : "preps"}
+            </p>
+          ) : null}
+          {rows.length ? (
+            <>
+              <div className="group-list lg:hidden">
+                {tab === "items"
+                  ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)
+                  : (rows as PrepCost[]).slice(0, limit).map((p) => <PrepRow key={p.prep.id} p={p} />)}
+              </div>
+              <div className="hidden lg:block">
+                {tab === "items" ? (
+                  <ItemTable rows={(rows as ItemCost[]).slice(0, limit)} showVenue={!venue} sorted={!!q.trim() || sort !== "az"} />
+                ) : (
+                  <PrepTable rows={(rows as PrepCost[]).slice(0, limit)} />
+                )}
+              </div>
+            </>
           ) : null}
           {rows.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
@@ -224,32 +234,76 @@ export default function RecipesPage() {
       >
         <Plus className="h-7 w-7" strokeWidth={2.25} />
       </button>
+      <div aria-hidden className="h-20 lg:hidden" />
     </div>
+  );
+}
+
+function itemSub(c: ItemCost, showVenue: boolean, venueName: string | undefined): string {
+  const parts = [showVenue ? venueName : null, venueName === c.item.category ? null : c.item.category, `cost ${money(c.costPerPortion)}`];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function GpCell({ c }: { c: ItemCost }) {
+  if (c.gpPct == null) return <span className="text-label-3">No price</span>;
+  return (
+    <span className="flex flex-col items-end leading-tight">
+      <span className={cx("flex items-center gap-1.5 font-semibold", c.underTarget ? "text-danger" : "text-label")}>
+        {c.underTarget ? <Dot className="bg-danger" /> : null}
+        {gp(c.gpPct)}
+      </span>
+      <span className="mt-0.5 text-[13px] font-normal text-label-2">{money(c.sellInc)}</span>
+    </span>
   );
 }
 
 function ItemRow({ c, showVenue }: { c: ItemCost; showVenue: boolean }) {
   const store = useStore();
   const v = store.venueById.get(c.item.venue_id);
-  const sub = [showVenue ? VENUE_SHORT[v?.slug ?? ""] ?? v?.name : null, c.item.category, `cost ${money(c.costPerPortion)}`].filter(Boolean).join(" · ");
   return (
     <Row
       href={`/items/${c.item.id}`}
       title={c.item.name}
       titleClassName={!c.item.active ? "text-label-2" : undefined}
-      sub={sub}
-      trailing={
+      sub={itemSub(c, showVenue, VENUE_SHORT[v?.slug ?? ""] ?? v?.name)}
+      trailing={<GpCell c={c} />}
+    />
+  );
+}
+
+function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: boolean; sorted: boolean }) {
+  const store = useStore();
+  const vName = (c: ItemCost) => {
+    const v = store.venueById.get(c.item.venue_id);
+    return VENUE_SHORT[v?.slug ?? ""] ?? v?.name ?? "";
+  };
+  const columns: Column<ItemCost>[] = [
+    { key: "name", label: "Menu item", render: (c) => <span className={cx("font-medium", !c.item.active && "text-label-2")}>{c.item.name}</span>, sort: (c) => c.item.name },
+    ...(showVenue
+      ? [{ key: "venue", label: "Venue", render: (c: ItemCost) => <span className={cx(`v-${store.venueById.get(c.item.venue_id)?.slug}`, "inline-flex items-center gap-1.5 text-label-2")}><Dot className="bg-accent-fill" />{vName(c)}</span>, sort: vName }]
+      : []),
+    { key: "cat", label: "Category", render: (c) => <span className="text-label-2">{c.item.category}</span>, sort: (c) => c.item.category },
+    { key: "cost", label: "Cost", align: "right", render: (c) => money(c.costPerPortion), sort: (c) => c.costPerPortion },
+    { key: "price", label: "Price", align: "right", render: (c) => (c.sellInc != null ? money(c.sellInc) : <span className="text-label-3">—</span>), sort: (c) => c.sellInc },
+    { key: "target", label: "Target", align: "right", render: (c) => <span className="text-label-2">{gp(c.targetGp, 0)}</span>, sort: (c) => c.targetGp, hideBelow: "xl" },
+    { key: "suggest", label: "Suggested", align: "right", render: (c) => <span className={c.underTarget ? "text-label" : "text-label-3"}>{money(c.suggestedInc)}</span>, sort: (c) => c.suggestedInc, hideBelow: "xl" },
+    {
+      key: "gp",
+      label: "GP",
+      align: "right",
+      render: (c) =>
         c.gpPct == null ? (
           <span className="text-label-3">No price</span>
         ) : (
-          <>
+          <span className={cx("inline-flex items-center gap-1.5 font-semibold", c.underTarget ? "text-danger" : "text-label")}>
             {c.underTarget ? <Dot className="bg-danger" /> : null}
-            <span className="text-label">{gp(c.gpPct)}</span>
-          </>
-        )
-      }
-    />
-  );
+            {gp(c.gpPct)}
+          </span>
+        ),
+      sort: (c) => c.gpPct,
+    },
+  ];
+  return <DataTable key={sorted ? "s" : "u"} rows={rows} columns={columns} rowKey={(c) => c.item.id} href={(c) => `/items/${c.item.id}`} />;
 }
 
 function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: ItemCost | null }) {
@@ -274,6 +328,19 @@ function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: Item
       chevron
     />
   );
+}
+
+function PrepTable({ rows }: { rows: PrepCost[] }) {
+  const store = useStore();
+  const columns: Column<PrepCost>[] = [
+    { key: "name", label: "Prep", render: (p) => <span className={cx("font-medium", !p.prep.active && "text-label-2")}>{p.prep.name}</span>, sort: (p) => p.prep.name },
+    { key: "type", label: "Type", render: (p) => <span className="text-label-2">{p.prep.prep_type ?? "—"}</span>, sort: (p) => p.prep.prep_type ?? "" },
+    { key: "venue", label: "Venue", render: (p) => <span className="text-label-2">{p.prep.venue_id == null ? "Shared" : VENUE_SHORT[store.venueById.get(p.prep.venue_id)?.slug ?? ""] ?? ""}</span> },
+    { key: "batch", label: "Batch", align: "right", render: (p) => packLabel(p.prep.yield_qty, p.prep.yield_unit), sort: (p) => Number(p.prep.yield_qty) },
+    { key: "unit", label: "Cost per unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
+    { key: "total", label: "Batch cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
+  ];
+  return <DataTable rows={rows} columns={columns} rowKey={(p) => p.prep.id} href={(p) => `/preps/${p.prep.id}`} />;
 }
 
 function PrepRow({ p }: { p: PrepCost }) {

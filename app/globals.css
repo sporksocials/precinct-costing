@@ -185,7 +185,7 @@ textarea:focus-visible {
   }
   .eyebrow {
     font-family: var(--font-display);
-    letter-spacing: 0.28em;
+    letter-spacing: 0.2em;
     text-transform: uppercase;
   }
   /* per-venue masthead: the venue's deep ground plus a strip of its own palette */
@@ -309,10 +309,41 @@ textarea:focus-visible {
 .anim-fade {
   animation: fade-in 0.2s ease-out;
 }
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* each screen fades in. Opacity only: a transform here would trap the fixed bars and buttons inside it */
+.anim-page {
+  animation: fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* list rows stagger in on first paint */
+.anim-stagger > * {
+  animation: page-in 0.36s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.anim-stagger > *:nth-child(2) { animation-delay: 30ms; }
+.anim-stagger > *:nth-child(3) { animation-delay: 60ms; }
+.anim-stagger > *:nth-child(4) { animation-delay: 90ms; }
+.anim-stagger > *:nth-child(5) { animation-delay: 120ms; }
+.anim-stagger > *:nth-child(n + 6) { animation-delay: 150ms; }
+html {
+  scroll-behavior: smooth;
+}
 @media (prefers-reduced-motion: reduce) {
   .anim-sheet,
   .anim-pop,
-  .anim-fade {
+  .anim-fade,
+  .anim-page,
+  .anim-stagger > * {
     animation: none;
+  }
+  html {
+    scroll-behavior: auto;
   }
 }

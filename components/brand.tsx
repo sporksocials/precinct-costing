@@ -26,15 +26,15 @@ export function VenueLogo({ slug, height = 40, className }: { slug: string; heig
   );
 }
 
-/** Caloundra Food Precinct wordmark: set in Bebas Neue, with the four venue colours as a strip. */
+/** Caloundra Food Precinct logo (the stacked wordmark), with the four venue colours as a strip. */
 export function PrecinctMark({ size = "md", sub, className }: { size?: "sm" | "md" | "lg"; sub?: string; className?: string }) {
-  const big = size === "lg" ? "text-[52px] lg:text-[64px]" : size === "md" ? "text-[34px]" : "text-[22px]";
-  const eyebrow = size === "lg" ? "text-[13px]" : size === "md" ? "text-[11px]" : "text-[9px]";
+  const w = size === "lg" ? "w-[132px]" : size === "md" ? "w-[96px]" : "w-[72px]";
+  const eyebrow = size === "lg" ? "text-[13px]" : "text-[11px]";
   return (
-    <div className={cx("inline-flex flex-col", className)}>
-      <span className={cx("eyebrow text-sand", eyebrow)}>Caloundra</span>
-      <span className={cx("display text-label", big)}>Food Precinct</span>
-      <span aria-hidden className={cx("precinct-strip mt-1.5 block rounded-full", size === "sm" ? "h-[3px]" : "h-1")} />
+    <div className={cx("inline-flex flex-col", w, className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/brand/precinct.png" alt="Caloundra Food Precinct" width={900} height={853} className="block h-auto w-full select-none" draggable={false} />
+      <span aria-hidden className={cx("precinct-strip mt-2 block rounded-full", size === "sm" ? "h-[3px]" : "h-1")} />
       {sub ? <span className={cx("eyebrow mt-2 text-label-2", eyebrow)}>{sub}</span> : null}
     </div>
   );

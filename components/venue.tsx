@@ -94,7 +94,19 @@ export function VenueChips({ className }: { className?: string }) {
       className={className}
       value={slug}
       onChange={setVenue}
-      options={[{ value: "all", label: "All" }, ...venues.map((v) => ({ value: v.slug, label: VENUE_SHORT[v.slug] ?? v.name, className: slug === v.slug ? `v-${v.slug}` : undefined }))]}
+      options={[
+        { value: "all", label: "All" },
+        ...venues.map((v) => ({
+          value: v.slug,
+          label: (
+            <span className="inline-flex items-center gap-2">
+              {slug !== v.slug ? <span aria-hidden className={`v-${v.slug} inline-block h-2 w-2 rounded-full bg-accent-fill`} /> : null}
+              {VENUE_SHORT[v.slug] ?? v.name}
+            </span>
+          ),
+          className: slug === v.slug ? `v-${v.slug}` : undefined,
+        })),
+      ]}
     />
   );
 }

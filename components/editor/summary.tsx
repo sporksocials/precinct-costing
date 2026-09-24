@@ -99,7 +99,7 @@ export function ItemSummaryCard(m: PriceModel) {
   const l = useLinked(m);
   return (
     <div className="rounded-2xl bg-surface p-5">
-      <p className="eyebrow text-[11px] text-label-2">GP</p>
+      <p className="eyebrow text-[12px] text-label-2">GP</p>
       <div className={cx("flex items-baseline gap-1", l.under ? "text-danger" : "text-accent")}>
         <ValueInput
           ariaLabel="GP percent"

@@ -35,7 +35,7 @@ export default function SettingsPage() {
           <InlineInput value={pctIn(store.settings.gst_rate)} suffix="%" onCommit={(t) => { const v = pctOut(t); if (v != null) run(store.updateSetting("gst_rate", v)); }} />
         </FieldRow>
         <FieldRow label="Round prices up to">
-          <InlineInput value={String(store.settings.round_to)} prefix="$" onCommit={(t) => { const v = Number(t); if (v >= 0) run(store.updateSetting("round_to", v)); }} />
+          <InlineInput value={Number(store.settings.round_to).toFixed(2)} prefix="$" onCommit={(t) => { const v = Number(t.replace("$", "")); if (Number.isFinite(v) && v >= 0) run(store.updateSetting("round_to", v)); }} />
         </FieldRow>
         <FieldRow label="Price alert above">
           <InlineInput value={pctIn(store.settings.alert_pct)} suffix="%" onCommit={(t) => { const v = pctOut(t); if (v != null) run(store.updateSetting("alert_pct", v)); }} />

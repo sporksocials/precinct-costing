@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, IceCreamCone, Plus } from "lucide-react";
 import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
@@ -12,8 +12,9 @@ import { indexDoc, search } from "@/lib/search";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
 import type { ItemCost, PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueStrip, VENUE_SHORT } from "@/components/venue";
-import { AddButton, Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
+import { useVenue, VenueFilter, venueQuery, VENUE_SHORT } from "@/components/venue";
+import { RecipeTabs } from "@/components/recipe-tabs";
+import { AddButton, Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
 type Tab = "items" | "preps";
@@ -22,8 +23,6 @@ const PAGE = 100;
 
 export default function RecipesPage() {
   const store = useStore();
-  const router = useRouter();
-  const pathname = usePathname();
   const params = useSearchParams();
   const { venue } = useVenue();
   const newRecipe = useNewRecipe();
@@ -37,14 +36,7 @@ export default function RecipesPage() {
   useEffect(() => {
     setLimit(PAGE);
   }, [q, cat, sort, tab, venue]);
-  useEffect(() => setCat("all"), [tab, venue]);
-
-  const setTab = (t: Tab) => {
-    const p = new URLSearchParams(params.toString());
-    if (t === "preps") p.set("type", "preps");
-    else p.delete("type");
-    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
-  };
+  useEffect(() => setCat("all"), [tab]);
 
   // ---- menu items
   const itemPool = useMemo(() => {
@@ -90,6 +82,10 @@ export default function RecipesPage() {
   }, [prepPool, cat, q, sort]);
 
   const cats = tab === "items" ? itemCats : prepCats;
+  // switching venue keeps the chosen category unless the new venue doesn't have it
+  useEffect(() => {
+    if (cat !== "all" && !cats.includes(cat)) setCat("all");
+  }, [cat, cats]);
   // gelato: in the Gelato venue each flavour is one row (its serves open from there); in All, one link row
   const gelatoVenue = store.gelato.venue;
   const inGelato = tab === "items" && !!gelatoVenue && venue?.id === gelatoVenue.id;
@@ -138,18 +134,9 @@ export default function RecipesPage() {
           </>
         }
       />
-      <VenueStrip className="mb-4 lg:hidden" />
-      <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-        <Segmented
-          ariaLabel="Recipe type"
-          className="lg:w-64"
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: "items", label: "Menu Items" },
-            { value: "preps", label: "Preps" },
-          ]}
-        />
+      <VenueFilter className="mb-3" />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <RecipeTabs current={tab} className="lg:w-80" />
         <div className="flex flex-1 items-center gap-1">
           <SearchField className="flex-1" value={q} onChange={setQ} placeholder={tab === "items" ? "Search menu items" : "Search preps"} />
           <Menu
@@ -208,7 +195,7 @@ export default function RecipesPage() {
                 <p className="text-[13px] text-label-2">
                   {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.map((s) => s.name).join(", ")}
                 </p>
-                <Link href="/beers" className="text-[13px] font-medium text-accent">
+                <Link href={`/beers${venueQuery(venue)}`} className="text-[13px] font-medium text-accent">
                   All Tap Beers
                 </Link>
               </div>

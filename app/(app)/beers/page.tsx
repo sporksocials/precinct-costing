@@ -1,15 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { beerItemId } from "@/lib/beer";
 import { ingredientCostPerBase, type ItemCost } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { parsePriceInput } from "@/lib/solver";
-import { useVenue, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
+import { RecipeTabs } from "@/components/recipe-tabs";
 import { KegPicker } from "@/components/beer-parts";
 import { AddButton, Banner, Chips, cx, Dot, Empty, FieldRow, Group, InlineInput, PageHeader, Row, Sheet } from "@/components/ui";
 
@@ -29,15 +28,11 @@ export default function BeersPage() {
 
   return (
     <div className="max-w-3xl">
-      <div className="pt-2 lg:pt-6">
-        <Link href="/recipes" className="btn-text -ml-1 !gap-0 !text-accent">
-          <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-          Recipes
-        </Link>
-      </div>
-      <PageHeader title="Tap Beers" subtitle={`${beers.length} on tap${venue ? ` at ${venue.name}` : ""}`} className="!pt-1" trailing={<AddButton label="New Tap Beer" onClick={() => setAdding(true)} />} />
+      <PageHeader title="Recipes" trailing={<AddButton label="New Tap Beer" onClick={() => setAdding(true)} />} />
+      <VenueFilter className="mb-3" />
+      <RecipeTabs current="beers" className="lg:w-80" />
       {error ? <Banner>{error}</Banner> : null}
-      <p className="px-1 text-[15px] text-label-2">Every beer is one keg poured in the same serves. Add a beer, pick its keg and type its prices — the cost and GP of every serve follow the keg price.</p>
+      <p className="mt-4 px-1 text-[15px] text-label-2">Every beer is one keg poured in the same serves. Add a beer, pick its keg and type its prices — the cost and GP of every serve follow the keg price.</p>
 
       {beers.length === 0 ? (
         <Empty title="No Tap Beers" body={venue ? `Nothing on tap at ${venue.name} yet.` : "Add the first tap beer."} action={<button className="btn-primary" onClick={() => setAdding(true)}>New Tap Beer</button>} />
@@ -85,7 +80,7 @@ export default function BeersPage() {
         ))}
       </Group>
 
-      {adding ? <NewBeerSheet defaultVenueId={venue?.id ?? store.venues.find((v) => v.slug === "drift")?.id ?? store.venues[0]?.id} onClose={() => setAdding(false)} /> : null}
+      {adding ? <NewBeerSheet defaultVenueId={(venue && venue.slug !== "gelato" ? venue.id : undefined) ?? store.venues.find((v) => v.slug === "drift")?.id ?? store.venues[0]?.id} onClose={() => setAdding(false)} /> : null}
     </div>
   );
 }

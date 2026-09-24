@@ -9,6 +9,7 @@ import { useStore } from "@/lib/store";
 import { flavourName, parseVirtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
+import { VenueAccent } from "@/components/venue";
 import { RecipeEditorPage } from "@/components/editor/recipe-editor";
 import { cx, Empty, FieldRow, Group, Row } from "@/components/ui";
 
@@ -41,7 +42,8 @@ function GelatoServeView({ id }: { id: string }) {
       />
     );
   return (
-    <div className="v-gelato max-w-2xl lg:pt-6">
+    <div className="max-w-2xl lg:pt-6">
+      <VenueAccent slug="gelato" />
       <Link href="/gelato" className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
         Gelato

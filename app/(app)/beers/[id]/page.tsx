@@ -9,7 +9,7 @@ import { beerItemId } from "@/lib/beer";
 import { ingredientCostPerBase, resolveTargetGp } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { parsePriceInput } from "@/lib/solver";
-import { VENUE_SHORT } from "@/components/venue";
+import { VenueAccent, VENUE_SHORT } from "@/components/venue";
 import { KegPicker } from "@/components/beer-parts";
 import { SetPriceButton } from "@/components/price-actions";
 import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, Toggle } from "@/components/ui";
@@ -45,10 +45,11 @@ export default function BeerPage() {
   };
 
   return (
-    <div className={cx(venue ? `v-${venue.slug}` : "", "max-w-2xl lg:pt-6")}>
+    <div className="max-w-2xl lg:pt-6">
+      <VenueAccent slug={venue?.slug} />
       <Link href="/beers" className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-        Tap Beers
+        Recipes · Beers
       </Link>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{beer.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">

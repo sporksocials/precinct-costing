@@ -12,7 +12,7 @@ import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { batchWeightKg, flavourName, isGelatoFlavour } from "@/lib/gelato";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
-import { VENUE_SHORT } from "../venue";
+import { VenueAccent, VENUE_SHORT } from "../venue";
 import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
 import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
@@ -327,6 +327,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   return (
     <div className="lg:pt-6">
+      <VenueAccent slug={venue?.slug} />
       {/* nav bar */}
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center justify-between px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
         <Link href={backHref} className="btn-text -ml-1 !gap-0 !text-accent">

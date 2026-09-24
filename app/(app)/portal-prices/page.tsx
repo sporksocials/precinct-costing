@@ -47,12 +47,12 @@ export default function SupplierPricesPage() {
 
   return (
     <div>
-      <PageHeader title="Supplier prices" subtitle={captured ? `Latest portal prices · ${dateShort(captured)}` : undefined} />
+      <PageHeader title="Supplier Prices" subtitle={captured ? `Latest portal prices · ${dateShort(captured)}` : undefined} />
       <SearchField value={q} onChange={setQ} placeholder="Search the catalogue" />
       {suppliers.length > 1 ? <Chips className="mt-3" ariaLabel="Supplier" value={supplier} onChange={setSupplier} options={[{ value: "all", label: "All" }, ...suppliers.map((s) => ({ value: s, label: s }))]} /> : null}
       {store.portalError ? <Banner>{store.portalError}</Banner> : null}
       {rows === null && !store.portalError ? <ListSkeleton rows={8} /> : null}
-      {rows && filtered.length === 0 ? <Empty title="No results" body={q ? `Nothing matches “${q}”.` : "No catalogue prices yet."} /> : null}
+      {rows && filtered.length === 0 ? <Empty title="No Results" body={q ? `Nothing matches “${q}”.` : "No catalogue prices yet."} /> : null}
       {filtered.length ? (
         <>
           <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">{filtered.length} products</p>
@@ -73,7 +73,7 @@ export default function SupplierPricesPage() {
                         <span className="text-label">{money(r.price)}</span>
                         {per ? <span className="text-[13px]">{per}</span> : null}
                       </span>
-                      {isKnown ? <Check className="h-4 w-4 text-label-3" aria-label="Already an ingredient" /> : <span className="text-[15px] font-semibold text-accent">Add</span>}
+                      {isKnown ? <Check className="h-4 w-4 text-label-3" aria-label="Already an Ingredient" /> : <span className="text-[15px] font-semibold text-accent">Add</span>}
                     </span>
                   }
                 />
@@ -82,7 +82,7 @@ export default function SupplierPricesPage() {
           </div>
           {filtered.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
-              Show more ({filtered.length - limit})
+              Show More ({filtered.length - limit})
             </button>
           ) : null}
         </>
@@ -90,7 +90,7 @@ export default function SupplierPricesPage() {
       {adding ? (
         <IngredientSheet
           open
-          title="Add as ingredient"
+          title="Add as Ingredient"
           note="Prefilled from the supplier catalogue. Check the pack size."
           initial={draftFromPortal(adding, store.suppliers, store.settings.gst_rate)}
           onClose={() => setAdding(null)}

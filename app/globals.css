@@ -22,7 +22,9 @@
   --danger: #ff6b61;
   --danger-soft: rgba(255, 107, 97, 0.14);
   --warn: #ffb340;
+  --warn-soft: rgba(255, 179, 64, 0.15);
   --good: #4cd57a;
+  --good-soft: rgba(76, 213, 122, 0.15);
   --bar: rgba(14, 14, 16, 0.84);
   --scrim: rgba(0, 0, 0, 0.62);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);

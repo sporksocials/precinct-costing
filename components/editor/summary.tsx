@@ -89,7 +89,7 @@ function TargetChip({ price, target, onUse }: { price: number | null; target: nu
   if (price == null) return null;
   return (
     <button type="button" onClick={onUse} className="inline-flex min-h-[32px] items-center rounded-full bg-danger-soft px-3 text-[13px] font-semibold text-danger active:opacity-70">
-      Use {money(price)} for {gp(target, 0)} target
+      Use {money(price)} for {gp(target, 0)} Target
     </button>
   );
 }
@@ -118,11 +118,11 @@ export function ItemSummaryCard(m: PriceModel) {
       ) : null}
       <div className="mt-5 space-y-3 border-t-[0.5px] border-sep pt-4">
         <div className="flex items-center justify-between">
-          <span className="text-[15px] text-label-2">Sell price</span>
+          <span className="text-[15px] text-label-2">Sell Price</span>
           <span className="flex items-center rounded-lg bg-fill px-2 text-[17px] font-semibold">
             <ValueInput
               ariaLabel="Sell price including GST"
-              display={l.price == null ? "Add price" : money(l.price)}
+              display={l.price == null ? "Add Price" : money(l.price)}
               raw={l.price == null ? "" : String(l.price)}
               onCommit={l.commitPrice}
               placeholder="$0.00"
@@ -131,7 +131,7 @@ export function ItemSummaryCard(m: PriceModel) {
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-[15px] text-label-2">Cost per portion</span>
+          <span className="text-[15px] text-label-2">Cost per Portion</span>
           <span className="text-[17px] tnum">{money(m.cost.costPerPortion)}</span>
         </div>
         <p className="text-[12px] text-label-3">Prices include GST</p>
@@ -186,7 +186,7 @@ export function PrepSummary({ batchCost, costPerUnit, unit, variant }: { batchCo
       <div className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden">
         <div className="grid grid-cols-2 gap-2 px-4 py-2.5">
           <div>
-            <p className="text-[12px] text-label-2">Batch cost</p>
+            <p className="text-[12px] text-label-2">Batch Cost</p>
             <p className="text-[20px] font-semibold tnum">{money(batchCost)}</p>
           </div>
           <div className="text-right">
@@ -201,7 +201,7 @@ export function PrepSummary({ batchCost, costPerUnit, unit, variant }: { batchCo
       <p className="text-[13px] text-label-2">Cost per {unitShort(unit)}</p>
       <p className="display mt-1 text-[60px] tnum text-accent">{money(costPerUnit)}</p>
       <div className="mt-5 flex items-center justify-between border-t-[0.5px] border-sep pt-4">
-        <span className="text-[15px] text-label-2">Batch cost</span>
+        <span className="text-[15px] text-label-2">Batch Cost</span>
         <span className="text-[17px] tnum">{money(batchCost)}</span>
       </div>
       <p className="mt-3 text-[12px] text-label-3">Ex GST</p>

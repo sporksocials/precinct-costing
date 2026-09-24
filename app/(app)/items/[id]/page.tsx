@@ -27,11 +27,11 @@ function GelatoServeView({ id }: { id: string }) {
   if (!c || !flavour || !serve)
     return (
       <Empty
-        title="Serve not found"
+        title="Serve Not Found"
         body="The flavour or serve may have been removed."
         action={
           <Link href="/gelato" className="btn-primary">
-            Back to gelato
+            Back to Gelato
           </Link>
         }
       />
@@ -59,7 +59,7 @@ function GelatoServeView({ id }: { id: string }) {
         </FieldRow>
       </div>
 
-      <Group title="What goes in it">
+      <Group title="In This Serve">
         {c.recipe.lines.map((lc) => (
           <Row
             key={lc.line.id}
@@ -71,7 +71,7 @@ function GelatoServeView({ id }: { id: string }) {
       </Group>
 
       <div className="group-list mt-6">
-        <Row href={`/preps/${flavour.id}`} title="Edit the flavour mix" sub="Changes flow to every serve of this flavour" chevron />
+        <Row href={`/preps/${flavour.id}`} title="Edit Flavour Mix" sub="Changes flow to every serve of this flavour" chevron />
         <Row href="/gelato/serves" title={`Edit ${serve.name}`} sub="Grams, price and packaging — changes every flavour" chevron />
       </div>
     </div>

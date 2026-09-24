@@ -43,7 +43,7 @@ export default function GelatoServesPage() {
       {error ? <Banner>{error}</Banner> : null}
 
       <Group footer="Extra gelato allowed for per serve — scooping, display tray leftovers and melt. It’s added to every serve’s gelato cost.">
-        <FieldRow label="Wastage allowance">
+        <FieldRow label="Wastage Allowance">
           <InlineInput
             value={pctIn(store.settings.gelato_wastage)}
             suffix="%"
@@ -71,7 +71,7 @@ export default function GelatoServesPage() {
             chevron
           />
         ))}
-        <Row onClick={() => setEditing("new")} leading={<Plus className="h-5 w-5 text-accent" strokeWidth={2.5} />} title={<span className="text-accent">Add serve</span>} />
+        <Row onClick={() => setEditing("new")} leading={<Plus className="h-5 w-5 text-accent" strokeWidth={2.5} />} title={<span className="text-accent">Add Serve</span>} />
       </Group>
 
       {editing ? (
@@ -139,7 +139,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
   };
 
   return (
-    <Sheet open onClose={onClose} title={serve ? serve.name : "New serve"} action={{ label: busy ? "Saving…" : "Save", onClick: () => void save(), disabled: !canSave }}>
+    <Sheet open onClose={onClose} title={serve ? serve.name : "New Serve"} action={{ label: busy ? "Saving…" : "Save", onClick: () => void save(), disabled: !canSave }}>
       <div className="pb-2 pt-3">
         {error ? <Banner>{error}</Banner> : null}
         <div className="group-list">
@@ -165,7 +165,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
           </FieldRow>
         </div>
         <div className="group-list mt-4">
-          <Toggle label="On the menu" sub="Shown in the default Gelato view" checked={draft.on_menu} onChange={(v) => setDraft((d) => ({ ...d, on_menu: v }))} />
+          <Toggle label="On the Menu" sub="Shown in the default Gelato view" checked={draft.on_menu} onChange={(v) => setDraft((d) => ({ ...d, on_menu: v }))} />
           <Toggle label="Active" sub="Off hides this serve everywhere" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
         </div>
 
@@ -209,7 +209,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
               <div className="space-y-2">
                 <p className="px-1 text-center text-[15px] text-label-2">Delete {serve.name}? Every flavour loses this serve.</p>
                 <button className="btn w-full bg-danger-soft text-danger" disabled={busy} onClick={() => void del()}>
-                  Delete serve
+                  Delete Serve
                 </button>
                 <button className="btn-plain w-full" onClick={() => setConfirmDelete(false)}>
                   Cancel
@@ -217,7 +217,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
               </div>
             ) : (
               <button className="btn-plain w-full text-danger" onClick={() => setConfirmDelete(true)}>
-                Delete serve…
+                Delete Serve…
               </button>
             )}
           </div>

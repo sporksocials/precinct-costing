@@ -160,11 +160,11 @@ export function SmartAdd({
       onAdd({ component_type: s.d.ctype, component_id: s.d.id, qty: parsed.qty, unit: r.unit, adjusted: r.adjusted, name: s.d.title });
       reset();
     } else if (s.t === "portal") {
-      setSheet({ draft: draftFromPortal(s.d.row, store.suppliers, store.settings.gst_rate), title: "Add from catalogue", qty: parsed.qty, unit: parsed.unit });
+      setSheet({ draft: draftFromPortal(s.d.row, store.suppliers, store.settings.gst_rate), title: "Add from Catalogue", qty: parsed.qty, unit: parsed.unit });
     } else {
       const name = s.name.charAt(0).toUpperCase() + s.name.slice(1);
       const guess: PackUnit = parsed.unit === "ml" || parsed.unit === "L" ? "L" : parsed.unit === "each" ? "each" : "kg";
-      setSheet({ draft: blankIngredient({ name, pack_unit: guess }), title: "New ingredient", qty: parsed.qty, unit: parsed.unit });
+      setSheet({ draft: blankIngredient({ name, pack_unit: guess }), title: "New Ingredient", qty: parsed.qty, unit: parsed.unit });
     }
   }
 
@@ -221,7 +221,7 @@ export function SmartAdd({
           onFocus={onFocus}
           onBlur={() => window.setTimeout(() => onFocusChange?.(false), 150)}
           placeholder={placeholder}
-          aria-label="Add ingredient"
+          aria-label="Add Ingredient"
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="none"
@@ -278,7 +278,7 @@ export function SmartAdd({
           open
           initial={sheet.draft}
           title={sheet.title}
-          note={sheet.title === "Add from catalogue" ? "Prefilled from the supplier catalogue. Check the pack size, then add." : undefined}
+          note={sheet.title === "Add from Catalogue" ? "Prefilled from the supplier catalogue. Check the pack size, then add." : undefined}
           onClose={() => setSheet(null)}
           onSaved={(ing) => {
             const r = resolveLineUnit(sheet.unit, ing.pack_unit);

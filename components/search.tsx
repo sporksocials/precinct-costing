@@ -95,7 +95,7 @@ const GROUPS: { kind: SearchKind; label: string; max: number }[] = [
   { kind: "item", label: "Recipes", max: 6 },
   { kind: "prep", label: "Preps", max: 4 },
   { kind: "ingredient", label: "Ingredients", max: 6 },
-  { kind: "portal", label: "Supplier catalogue", max: 4 },
+  { kind: "portal", label: "Supplier Catalogue", max: 4 },
 ];
 
 interface ResultRow {

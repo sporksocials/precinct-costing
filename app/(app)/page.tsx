@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Check, Clock, Plus, Store, TrendingUp } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { gpSummary, priceIncreases, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
+import { catalogueGaps, gpSummary, ingredientsInUse, priceIncreases, staleIngredients, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
 import { parseVirtualItemId } from "@/lib/gelato";
 import Link from "next/link";
-import { gp, movePct } from "@/lib/format";
+import { gp, money, movePct } from "@/lib/format";
+import { DataTable } from "@/components/table";
+import { SetPriceButton } from "@/components/price-actions";
 import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueChips, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueSwitcher, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
 import { PrecinctMark, VenueLogo } from "@/components/brand";
 
@@ -49,18 +51,11 @@ export default function HomePage() {
   const store = useStore();
   const { venue, setVenue } = useVenue();
   const newRecipe = useNewRecipe();
-  const qs = venue ? `&venue=${venue.slug}` : "";
 
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
   const perVenue = useMemo(
     () => store.venues.map((v) => ({ v, s: gpSummary(store.itemCosts.values(), v.id), under: underTargetRows(store.itemCosts.values(), v.id) })),
     [store.venues, store.itemCosts],
-  );
-  const under = useMemo(() => underTargetRows(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
-  const itemById = useMemo(() => new Map(store.items.map((i) => [i.id, i])), [store.items]);
-  const increases = useMemo(
-    () => priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venue?.id ?? null),
-    [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venue],
   );
 
   const shownAvg = useCountUp(headline.avg);
@@ -69,15 +64,15 @@ export default function HomePage() {
 
   return (
     <div>
-      <header className="pb-5 pt-3 lg:pt-8">
+      <div className="flex h-12 items-center justify-end lg:hidden">
+        <VenueSwitcher />
+      </div>
+      <header className="pb-5 lg:pt-8">
         {venue ? (
           <>
             <h1 className="sr-only">{venue.name}</h1>
-            <div className="masthead relative overflow-hidden rounded-3xl px-5 pb-7 pt-5 lg:px-8 lg:pb-9 lg:pt-7">
-              <button type="button" onClick={() => setVenue("all")} className="eyebrow -ml-1 min-h-[36px] px-1 text-[12px] text-label/70 transition hover:text-label">
-                ← Caloundra Food Precinct
-              </button>
-              <div className="mt-5 flex min-h-[84px] items-center lg:min-h-[104px]">
+            <div className="masthead relative overflow-hidden rounded-3xl px-5 pb-7 pt-6 lg:px-8 lg:pb-9 lg:pt-8">
+              <div className="flex min-h-[84px] items-center lg:min-h-[104px]">
                 <VenueLogo slug={venue.slug} height={72} className="lg:!h-[92px]" />
               </div>
               <span aria-hidden className="masthead-strip absolute inset-x-0 bottom-0 h-1.5" />
@@ -86,29 +81,31 @@ export default function HomePage() {
         ) : (
           <>
             <h1 className="sr-only">Caloundra Food Precinct costing</h1>
-            <PrecinctMark size="lg" sub="Costing" />
+            <PrecinctMark size="lg" sub="Costing" className="lg:hidden" />
+            <p aria-hidden className="venue-title hidden text-label lg:block">All Venues</p>
           </>
         )}
       </header>
-      <VenueChips />
 
       {/* 1. headline */}
-      <section className="relative mt-5 overflow-hidden rounded-3xl bg-surface px-5 pb-6 pt-6 lg:px-8 lg:pt-8">
+      <section className="relative overflow-hidden rounded-3xl bg-surface px-5 pb-6 pt-6 lg:px-8 lg:pt-8">
         <span aria-hidden className={cx("absolute inset-x-0 top-0 h-1", venue ? "bg-accent-fill" : "precinct-strip")} />
-        <p className="eyebrow text-[12px] text-label-2">Average GP{venue ? "" : " · all venues"}</p>
+        <p className="eyebrow text-[12px] text-label-2">Average GP{venue ? "" : " · All Venues"}</p>
         {empty ? (
           <div className="mt-2">
             <p className="display text-[88px] text-label-3">—</p>
             {venue ? (
               <button type="button" className="btn-tinted mt-4" onClick={() => newRecipe.open({ venueId: venue.id })}>
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> Add recipe
+                <Plus className="h-4 w-4" strokeWidth={2.5} /> Add First Recipe
               </button>
             ) : null}
           </div>
         ) : (
           <>
-            <p className="display mt-2 text-[88px] tnum text-accent lg:text-[112px]" aria-label={gp(headline.avg)}>{gp(shownAvg)}</p>
-            {!isGelato ? <Split s={headline} className="mt-2 text-[17px] sm:text-[15px]" /> : null}
+            <p className="display mt-2 text-[88px] tnum text-accent lg:text-[112px]" aria-label={gp(headline.avg)}>
+              {gp(shownAvg)}
+            </p>
+            {!isGelato ? <Split s={headline} className="mt-2 text-[17px] sm:text-[15px]" /> : <span className="mt-2 block text-[15px] text-label-2">{headline.count} priced serves</span>}
           </>
         )}
       </section>
@@ -122,31 +119,179 @@ export default function HomePage() {
         </section>
       ) : null}
 
-      {/* 3. needs attention (hidden for a venue with nothing costed yet) */}
-      {empty && !under.length && !increases.length ? null : (
-      <Group title="Needs attention" className="mt-8" inset="2.25rem">
-        {under.length ? (
-          <Row
-            href={`/alerts?view=under${qs}`}
-            leading={<Dot className="bg-danger" />}
-            title={`${under.length} ${under.length === 1 ? "item" : "items"} below target GP`}
-            sub={`Furthest off: ${rowName(under[0])} · ${gp(under[0].cost.gpPct)} vs ${gp(under[0].cost.targetGp, 0)}`}
-            chevron
-          />
-        ) : (
-          <Row leading={<Dot className="bg-[color:var(--good)]" />} title="Everything is on target" />
-        )}
-        {increases.length ? (
-          <Row
-            href={`/alerts?view=increases${qs}`}
-            leading={<Dot className="bg-warn" />}
-            title={`${increases.length} price ${increases.length === 1 ? "increase" : "increases"} this month`}
-            sub={`${increases[0].ingredient.name} ${movePct(increases[0].movePct)} · ${increases[0].recipeCount} ${increases[0].recipeCount === 1 ? "recipe" : "recipes"}`}
-            chevron
-          />
-        ) : null}
-      </Group>
-      )}
+      {/* 3. today: what needs doing, with the fix one tap away */}
+      {empty ? null : <Today venueId={venue?.id ?? null} />}
+    </div>
+  );
+}
+
+function Today({ venueId }: { venueId: number | null }) {
+  const store = useStore();
+  const [allUnder, setAllUnder] = useState(false);
+  const [allRises, setAllRises] = useState(false);
+  useEffect(() => {
+    store.loadPortalPrices();
+  }, [store]);
+
+  const under = useMemo(() => underTargetRows(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
+  const itemById = useMemo(() => new Map(store.items.map((i) => [i.id, i])), [store.items]);
+  const rises = useMemo(
+    () => priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, 30, store.itemCosts),
+    [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, store.itemCosts],
+  );
+  const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
+  const stale = useMemo(() => staleIngredients(store.ingredients, inUse), [store.ingredients, inUse]);
+  const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate), [store.ingredients, store.portalPrices, store.settings.gst_rate]);
+
+  const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" });
+  const clear = !under.length && !rises.length && !stale.length && !gaps.length;
+  const shownUnder = allUnder ? under : under.slice(0, 5);
+  const shownRises = allRises ? rises : rises.slice(0, 3);
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between px-1">
+        <h2 className="text-[22px] font-bold tracking-tight">Today</h2>
+        <span className="text-[13px] text-label-2">{today}</span>
+      </div>
+
+      {clear ? (
+        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-surface px-4 py-4">
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-good-soft text-good">
+            <Check className="h-5 w-5" strokeWidth={2.5} />
+          </span>
+          <span>
+            <span className="block text-[17px] font-semibold sm:text-[15px]">All Clear</span>
+            <span className="block text-[15px] text-label-2 sm:text-[13px]">Every dish is on target and prices are up to date.</span>
+          </span>
+        </div>
+      ) : null}
+
+      {/* price rises: the cause, before the symptoms */}
+      {rises.length ? (
+        <Group title={`Price Rises · Last 30 Days`} className="mt-4" inset="3.75rem">
+          {shownRises.map((r) => (
+            <Row
+              key={r.ingredient.id}
+              href={`/ingredients/${r.ingredient.id}`}
+              leading={
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                  <TrendingUp className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                </span>
+              }
+              title={
+                <>
+                  {r.ingredient.name} <span className="text-danger">{movePct(r.movePct)}</span>
+                </>
+              }
+              sub={[
+                `${money(r.log.old_price)} → ${money(r.log.new_price)}`,
+                `${r.recipeCount} ${r.recipeCount === 1 ? "recipe" : "recipes"}`,
+                r.underCount ? `${r.underCount} now below target` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              chevron
+            />
+          ))}
+          {rises.length > 3 ? (
+            <Row onClick={() => setAllRises((x) => !x)} title={<span className="text-accent">{allRises ? "Show Fewer" : `Show All ${rises.length}`}</span>} />
+          ) : null}
+        </Group>
+      ) : null}
+
+      {/* below target, with the fix on the row */}
+      {under.length ? (
+        <>
+          <Group
+            title={`Below Target · ${under.length}`}
+            className="mt-6 lg:hidden"
+            footer="Set applies the suggested price (rounded up to the target GP). You can undo it."
+          >
+            {shownUnder.map((r) => (
+              <UnderRowView key={r.cost.item.id} r={r} showVenue={venueId == null} />
+            ))}
+            {under.length > 5 ? <Row onClick={() => setAllUnder((x) => !x)} title={<span className="text-accent">{allUnder ? "Show Fewer" : `Show All ${under.length}`}</span>} /> : null}
+          </Group>
+          <div className="mt-6 hidden lg:block">
+            <div className="flex items-end justify-between px-4 pb-1.5">
+              <h2 className="text-[13px] font-medium text-label-2">Below Target · {under.length}</h2>
+              {under.length > 8 ? (
+                <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setAllUnder((x) => !x)}>
+                  {allUnder ? "Show Fewer" : `Show All ${under.length}`}
+                </button>
+              ) : null}
+            </div>
+            <DataTable
+              rows={allUnder ? under : under.slice(0, 8)}
+              rowKey={(r) => r.cost.item.id}
+              href={(r) => `/items/${r.cost.item.id}`}
+              columns={[
+                { key: "name", label: "Item", render: (r) => <span className="font-medium">{rowName(r)}</span>, sort: (r) => rowName(r) },
+                ...(venueId == null ? [{ key: "venue", label: "Venue", render: (r: UnderRow) => <span className="text-label-2">{venueShort(store, r)}</span>, sort: (r: UnderRow) => venueShort(store, r) }] : []),
+                { key: "gp", label: "GP", align: "right", render: (r) => <span className="font-semibold text-danger">{gp(r.cost.gpPct)}</span>, sort: (r) => r.cost.gpPct },
+                { key: "target", label: "Target", align: "right", render: (r) => <span className="text-label-2">{gp(r.cost.targetGp, 0)}</span>, sort: (r) => r.cost.targetGp },
+                { key: "now", label: "Price Now", align: "right", render: (r) => money(r.cost.sellInc), sort: (r) => r.cost.sellInc },
+                { key: "fix", label: "Fix", align: "right", render: (r) => <SetPriceButton c={r.cost} />, sort: (r) => r.cost.suggestedInc },
+              ]}
+            />
+            <p className="px-4 pt-1.5 text-[13px] text-label-2">Set applies the suggested price (rounded up to the target GP). You can undo it.</p>
+          </div>
+        </>
+      ) : null}
+
+      {/* price checks */}
+      {stale.length || gaps.length ? (
+        <Group title="Price Checks" className="mt-6" inset="3.75rem">
+          {gaps.length ? (
+            <Row
+              href="/ingredients?filter=catalogue"
+              leading={
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
+                  <Store className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                </span>
+              }
+              title={`${gaps.length} ${gaps.length === 1 ? "price differs" : "prices differ"} from the supplier catalogue`}
+              sub={`${gaps[0].ingredient.name}: catalogue ${gaps[0].diffPct > 0 ? "+" : ""}${Math.round(gaps[0].diffPct * 100)}%`}
+              chevron
+            />
+          ) : null}
+          {stale.length ? (
+            <Row
+              href="/ingredients?filter=stale"
+              leading={
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-fill-2 text-label-2">
+                  <Clock className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                </span>
+              }
+              title={`${stale.length} ${stale.length === 1 ? "ingredient hasn’t" : "ingredients haven’t"} been checked in 90 days`}
+              sub="Only ones used in recipes. Update from your next invoice."
+              chevron
+            />
+          ) : null}
+        </Group>
+      ) : null}
+    </section>
+  );
+}
+
+function venueShort(store: ReturnType<typeof useStore>, r: UnderRow): string {
+  const v = store.venueById.get(r.cost.item.venue_id);
+  return VENUE_SHORT[v?.slug ?? ""] ?? v?.name ?? "";
+}
+
+function UnderRowView({ r, showVenue }: { r: UnderRow; showVenue: boolean }) {
+  const store = useStore();
+  return (
+    <div className="flex min-h-[60px] items-center gap-2 pr-3">
+      <Link href={`/items/${r.cost.item.id}`} className="min-w-0 flex-1 py-2.5 pl-4 transition-colors active:bg-fill">
+        <span className="block truncate text-[17px] leading-snug sm:text-[15px]">{rowName(r)}</span>
+        <span className="mt-0.5 block truncate text-[15px] leading-snug text-label-2 tnum sm:text-[13px]">
+          {showVenue ? `${venueShort(store, r)} · ` : ""}
+          <span className="text-danger">{gp(r.cost.gpPct)}</span> vs {gp(r.cost.targetGp, 0)} · now {money(r.cost.sellInc)}
+        </span>
+      </Link>
+      <SetPriceButton c={r.cost} />
     </div>
   );
 }

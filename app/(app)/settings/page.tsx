@@ -34,10 +34,10 @@ export default function SettingsPage() {
         <FieldRow label="GST">
           <InlineInput value={pctIn(store.settings.gst_rate)} suffix="%" onCommit={(t) => { const v = pctOut(t); if (v != null) run(store.updateSetting("gst_rate", v)); }} />
         </FieldRow>
-        <FieldRow label="Round prices up to">
+        <FieldRow label="Round Prices Up To">
           <InlineInput value={Number(store.settings.round_to).toFixed(2)} prefix="$" onCommit={(t) => { const v = Number(t.replace("$", "")); if (Number.isFinite(v) && v >= 0) run(store.updateSetting("round_to", v)); }} />
         </FieldRow>
-        <FieldRow label="Price alert above">
+        <FieldRow label="Price Alert Above">
           <InlineInput value={pctIn(store.settings.alert_pct)} suffix="%" onCommit={(t) => { const v = pctOut(t); if (v != null) run(store.updateSetting("alert_pct", v)); }} />
         </FieldRow>
       </Group>
@@ -66,7 +66,7 @@ export default function SettingsPage() {
         <p className="px-4 pt-1.5 text-[13px] text-label-2">Blank uses {gp(DEFAULT_TARGET_GP, 0)}. A recipe can override its own target under Details.</p>
       </section>
 
-      <Group title="Who can sign in" footer="Only these emails can sign in and see prices.">
+      <Group title="Who Can Sign In" footer="Only these emails can sign in and see prices.">
         {store.allowedUsers.map((u) => (
           <Row
             key={u.email}
@@ -96,7 +96,7 @@ export default function SettingsPage() {
 
       <Group title="Account">
         <Row title={store.userEmail ?? "—"} />
-        <Row onClick={() => void store.signOut()} title={<span className="text-danger">Sign out</span>} />
+        <Row onClick={() => void store.signOut()} title={<span className="text-danger">Sign Out</span>} />
       </Group>
 
       <Sheet open={!!removing} onClose={() => setRemoving(null)} hideHeader size="sm">

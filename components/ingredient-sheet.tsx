@@ -57,7 +57,7 @@ export function draftFromPortal(r: PortalPrice, suppliers: { id: number; name: s
 export function IngredientSheet({
   open,
   initial,
-  title = "New ingredient",
+  title = "New Ingredient",
   onClose,
   onSaved,
   note,
@@ -123,7 +123,7 @@ export function IngredientSheet({
         <div>
           <p className="section-label !px-1">Pack</p>
           <div className="flex items-center gap-2">
-            <input className="field w-28 text-right tnum" inputMode="decimal" value={sizeText} onChange={(e) => setSizeText(e.target.value)} aria-label="Pack size" />
+            <input className="field w-28 text-right tnum" inputMode="decimal" value={sizeText} onChange={(e) => setSizeText(e.target.value)} aria-label="Pack Size" />
             <Segmented ariaLabel="Pack unit" className="flex-1" value={f.pack_unit} onChange={(u) => set("pack_unit", u)} options={PACK_UNITS.map((u) => ({ value: u, label: u === "each" ? "each" : u }))} />
           </div>
         </div>
@@ -131,10 +131,10 @@ export function IngredientSheet({
           <p className="section-label !px-1">Pack price</p>
           <div className="relative">
             <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[17px] text-label-2">$</span>
-            <input className="field pl-7 tnum" inputMode="decimal" placeholder="0.00" value={priceText} onChange={(e) => setPriceText(e.target.value)} aria-label="Pack price" />
+            <input className="field pl-7 tnum" inputMode="decimal" placeholder="0.00" value={priceText} onChange={(e) => setPriceText(e.target.value)} aria-label="Pack Price" />
           </div>
           <div className="group-list mt-2">
-            <Toggle checked={f.price_inc_gst} onChange={(v) => set("price_inc_gst", v)} label="Price includes GST" />
+            <Toggle checked={f.price_inc_gst} onChange={(v) => set("price_inc_gst", v)} label="Price Includes GST" />
           </div>
           {size > 0 && price > 0 ? (
             <p className="px-1 pt-2 text-[13px] text-label-2 tnum">
@@ -143,7 +143,7 @@ export function IngredientSheet({
           ) : null}
         </div>
         <button type="submit" className="btn-primary w-full" disabled={!valid}>
-          {busy ? "Saving…" : "Add ingredient"}
+          {busy ? "Saving…" : "Add Ingredient"}
         </button>
       </form>
     </Sheet>

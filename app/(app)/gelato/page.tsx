@@ -49,7 +49,7 @@ export default function GelatoPage() {
     [serves, flavours, store.itemCosts],
   );
 
-  if (!venue) return <Empty title="Gelato Rumba isn’t set up" body="There’s no Gelato Rumba venue in the system." />;
+  if (!venue) return <Empty title="Gelato Rumba Isn’t Set Up" body="There’s no Gelato Rumba venue in the system." />;
 
   return (
     <div className="v-gelato">
@@ -68,7 +68,7 @@ export default function GelatoPage() {
         }
       />
       <p className="max-w-2xl px-1 text-[15px] text-label-2">
-        Every flavour is sold in the same serves, so a flavour only needs its mix. Add a new flavour and all its serve prices and GPs appear here automatically.
+        Add a flavour’s mix and every serve is priced for you.
       </p>
 
       <div className="mt-4 flex items-center gap-3">
@@ -78,8 +78,8 @@ export default function GelatoPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "menu", label: `On the menu (${onMenu.length})` },
-            { value: "all", label: `All serves (${g.serves.length})` },
+            { value: "menu", label: `On the Menu (${onMenu.length})` },
+            { value: "all", label: `All Serves (${g.serves.length})` },
           ]}
         />
       </div>
@@ -90,7 +90,7 @@ export default function GelatoPage() {
         className="mt-5"
         trailing={
           <Link href="/gelato/serves" className="text-[13px] font-medium text-accent lg:hidden">
-            Edit serves
+            Edit Serves
           </Link>
         }
         footer={`Same price for every flavour. Suggested price covers the dearest flavour at the serve’s target (${gp(target, 0)} unless set on the serve).`}
@@ -137,7 +137,7 @@ export default function GelatoPage() {
         </div>
         {flavours.length === 0 ? (
           <Empty
-            title="No flavours yet"
+            title="No Flavours Yet"
             body="Add a flavour and write its mix — the serve prices follow."
             action={
               <button className="btn-primary" onClick={() => setNewOpen(true)}>
@@ -191,13 +191,13 @@ export default function GelatoPage() {
 
       <div className="mt-6 lg:hidden">
         <div className="group-list">
-          <Row href="/gelato/serves" leading={<SlidersHorizontal className="h-5 w-5 text-label-2" strokeWidth={2} />} title="Serves, prices & packaging" sub="Grams, price, cups/cones and wastage" chevron />
+          <Row href="/gelato/serves" leading={<SlidersHorizontal className="h-5 w-5 text-label-2" strokeWidth={2} />} title="Serves, Prices & Packaging" sub="Grams, price, cups/cones and wastage" chevron />
         </div>
       </div>
 
       <button
         type="button"
-        aria-label="New flavour"
+        aria-label="New Flavour"
         onClick={() => setNewOpen(true)}
         className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-accent-fill text-accent-on shadow-float transition active:scale-95 lg:hidden"
       >
@@ -234,7 +234,7 @@ function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose: () =>
   }
 
   return (
-    <Sheet open onClose={onClose} title="New flavour" action={{ label: busy ? "Adding…" : "Add", onClick: () => void create(), disabled: !clean || exists || busy }}>
+    <Sheet open onClose={onClose} title="New Flavour" action={{ label: busy ? "Adding…" : "Add", onClick: () => void create(), disabled: !clean || exists || busy }}>
       <form
         className="space-y-4 pb-2 pt-3"
         onSubmit={(e) => {
@@ -243,11 +243,11 @@ function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose: () =>
         }}
       >
         {error ? <Banner>{error}</Banner> : null}
-        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Flavour name, e.g. Lemon Sorbet" value={name} onChange={(e) => setName(e.target.value)} aria-label="Flavour name" />
+        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Flavour name, e.g. Lemon Sorbet" value={name} onChange={(e) => setName(e.target.value)} aria-label="Flavour Name" />
         {exists ? <p className="px-1 text-[13px] text-danger">There’s already a {clean} flavour.</p> : null}
         <p className="px-1 text-[13px] text-label-2">Next you’ll add the mix ingredients (base, paste, toppings). Every serve is priced from the mix automatically — no recipes to set up.</p>
         <button type="submit" className="btn-primary w-full" disabled={!clean || exists || busy}>
-          {busy ? "Adding…" : "Add flavour"}
+          {busy ? "Adding…" : "Add Flavour"}
         </button>
       </form>
     </Sheet>

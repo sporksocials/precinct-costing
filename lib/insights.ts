@@ -1,5 +1,5 @@
-import { buildIndex, costItem, priceMovePct, type ItemCost, type PrepCost } from "./costing";
-import type { CostingSettings, Ingredient, MenuItem, Prep, PriceLog, RecipeLine, Target } from "./types";
+import { buildIndex, costItem, ingredientExGstPackPrice, parsePackFromUom, priceMovePct, type ItemCost, type PrepCost } from "./costing";
+import type { CostingSettings, Ingredient, MenuItem, PortalPrice, Prep, PriceLog, RecipeLine, Target } from "./types";
 import { parseVirtualItemId } from "./gelato";
 
 export const FOOD_CATEGORIES = new Set(["Food"]);
@@ -110,6 +110,8 @@ export interface PriceIncrease {
   delta: number;
   recipeCount: number;
   impact: number;
+  /** affected recipes that are now below target (needs itemCosts) */
+  underCount: number;
 }
 
 /** Ingredients whose latest logged move in `days` is an increase above `alertPct`, ranked by $ delta × recipes using it. */
@@ -121,6 +123,7 @@ export function priceIncreases(
   alertPct: number,
   venueId?: number | null,
   days = 30,
+  itemCosts?: Map<string, ItemCost>,
 ): PriceIncrease[] {
   const since = Date.now() - days * 86_400_000;
   const latest = new Map<string, PriceLog>();
@@ -143,7 +146,8 @@ export function priceIncreases(
     }
     const delta = Number(log.new_price) - Number(log.old_price);
     const recipes = new Set(used.map((i) => recipeKey(i.id))).size;
-    out.push({ ingredient: ing, log, movePct: m, delta, recipeCount: recipes, impact: delta * Math.max(recipes, 0.01) });
+    const underCount = itemCosts ? new Set(used.filter((i) => itemCosts.get(i.id)?.underTarget).map((i) => recipeKey(i.id))).size : 0;
+    out.push({ ingredient: ing, log, movePct: m, delta, recipeCount: recipes, impact: delta * Math.max(recipes, 0.01), underCount });
   }
   return out.sort((a, b) => b.impact - a.impact);
 }
@@ -176,4 +180,54 @@ export function ingredientChangeImpact(
     rows.push({ item: it, before: costItem(it, beforeIdx, data.settings, data.targets, cb), after: costItem(it, afterIdx, data.settings, data.targets, ca) });
   }
   return rows.sort((a, b) => (a.after.gpPct ?? 1) - (a.before.gpPct ?? 1) - ((b.after.gpPct ?? 1) - (b.before.gpPct ?? 1)));
+}
+
+/** Ids of ingredients used by any recipe line (directly; preps count as users). */
+export function ingredientsInUse(lines: RecipeLine[]): Set<string> {
+  const s = new Set<string>();
+  for (const l of lines) if (l.component_type === "ingredient") s.add(l.component_id);
+  return s;
+}
+
+/** In-use ingredients whose price hasn't been confirmed in `days` (or ever). */
+export function staleIngredients(ingredients: Ingredient[], inUse: Set<string>, days = 90): Ingredient[] {
+  const cutoff = Date.now() - days * 86_400_000;
+  return ingredients.filter((i) => {
+    if (!i.active || !inUse.has(i.id)) return false;
+    const t = i.last_price_update ? new Date(i.last_price_update).getTime() : NaN;
+    return Number.isNaN(t) || t < cutoff;
+  });
+}
+
+export interface CatalogueGap {
+  ingredient: Ingredient;
+  portal: PortalPrice;
+  /** ex-GST price per base unit (kg / L / each) */
+  ours: number;
+  theirs: number;
+  /** theirs vs ours, e.g. 0.12 = the catalogue is 12% dearer */
+  diffPct: number;
+}
+
+/** Ingredients linked to a supplier catalogue product (same code) whose price per unit differs by more than `tolerance`. */
+export function catalogueGaps(ingredients: Ingredient[], portal: PortalPrice[] | null, gst: number, tolerance = 0.02): CatalogueGap[] {
+  if (!portal?.length) return [];
+  const byCode = new Map<string, PortalPrice>();
+  for (const p of portal) if (p.product_code && p.price != null) byCode.set(p.product_code.trim().toLowerCase(), p);
+  const out: CatalogueGap[] = [];
+  for (const i of ingredients) {
+    if (!i.active || !i.supplier_code) continue;
+    const p = byCode.get(i.supplier_code.trim().toLowerCase());
+    if (!p) continue;
+    const pack = parsePackFromUom(p.uom);
+    const size = pack && pack.pack_unit === i.pack_unit ? pack.pack_size : Number(i.pack_size);
+    if (!size || !Number(i.pack_size)) continue;
+    const theirsEx = p.price_inc_gst ? Number(p.price) / (1 + gst) : Number(p.price);
+    const theirs = theirsEx / size;
+    const ours = ingredientExGstPackPrice(i, gst) / Number(i.pack_size);
+    if (!ours || !theirs) continue;
+    const diffPct = theirs / ours - 1;
+    if (Math.abs(diffPct) > tolerance) out.push({ ingredient: i, portal: p, ours, theirs, diffPct });
+  }
+  return out.sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
 }

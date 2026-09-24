@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense } from "react";
-import { Bell, BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settings, Sparkles, Store } from "lucide-react";
+import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settings, Store } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
-import { VenueSync } from "./venue";
-import { PrecinctMark, VenueLogo } from "./brand";
-import { useVenue } from "./venue";
+import { VenueSwitcher, VenueSync } from "./venue";
+import { PrecinctMark } from "./brand";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
 
 const MAIN = [
@@ -19,9 +18,7 @@ const MAIN = [
 ];
 const MORE = [
   { href: "/gelato", label: "Gelato", icon: IceCreamCone },
-  { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/specials", label: "Specials", icon: Sparkles },
-  { href: "/portal-prices", label: "Supplier prices", icon: Store },
+  { href: "/portal-prices", label: "Supplier Prices", icon: Store },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -51,9 +48,12 @@ function Sidebar() {
   };
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col px-3 pb-4 pt-6 hairline lg:flex" style={{ boxShadow: "inset -0.5px 0 0 var(--separator)" }}>
-      <Link href="/" className="mb-5 block px-2.5" aria-label="Caloundra Food Precinct costing: home">
+      <Link href="/" className="mb-5 block px-2.5" aria-label="Caloundra Food Precinct Costing: Home">
         <PrecinctMark size="sm" sub="Costing" />
       </Link>
+      <Suspense fallback={null}>
+        <VenueSwitcher variant="card" className="mb-3" />
+      </Suspense>
       <button type="button" onClick={openSearch} className="mb-4 flex h-9 items-center gap-2 rounded-lg bg-fill px-2.5 text-[15px] text-label-2 hover:bg-fill-2">
         <Search className="h-4 w-4" strokeWidth={2.25} />
         <span className="flex-1 text-left">Search</span>
@@ -62,9 +62,6 @@ function Sidebar() {
       <nav className="space-y-0.5">{MAIN.map(link)}</nav>
       <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">More</p>
       <nav className="space-y-0.5">{MORE.map(link)}</nav>
-      <Suspense fallback={null}>
-        <SidebarVenue />
-      </Suspense>
       <div className="mt-auto px-2.5">
         <p className="truncate text-[13px] text-label-2" title={userEmail ?? ""}>
           {userEmail}
@@ -74,18 +71,6 @@ function Sidebar() {
         </button>
       </div>
     </aside>
-  );
-}
-
-/** The selected venue's logo in the sidebar, on its own masthead ground. */
-function SidebarVenue() {
-  const { venue } = useVenue();
-  if (!venue) return null;
-  return (
-    <Link href={`/?venue=${venue.slug}`} className="masthead relative mt-6 flex h-[76px] items-center overflow-hidden rounded-xl px-3.5" aria-label={`${venue.name} home`}>
-      <VenueLogo slug={venue.slug} height={34} />
-      <span aria-hidden className="masthead-strip absolute inset-x-0 bottom-0 h-1" />
-    </Link>
   );
 }
 
@@ -132,7 +117,7 @@ function Gate({ children }: { children: React.ReactNode }) {
           <p className="text-[20px] font-semibold">Couldn’t load</p>
           <p className="mt-1.5 text-[15px] text-label-2">{error}</p>
           <button className="btn-primary mt-5" onClick={() => void reload()} disabled={refreshing}>
-            Try again
+            Try Again
           </button>
         </div>
       );

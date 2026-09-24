@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { SetPriceButton } from "@/components/price-actions";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
@@ -23,10 +24,10 @@ export default function IngredientDetailPage() {
   if (!ing)
     return (
       <Empty
-        title="Ingredient not found"
+        title="Ingredient Not Found"
         action={
           <Link className="btn-primary" href="/ingredients">
-            Back to ingredients
+            Back to Ingredients
           </Link>
         }
       />
@@ -103,11 +104,11 @@ function Detail({ ing }: { ing: Ingredient }) {
               {ing.last_price_update ? ` · updated ${dateShort(ing.last_price_update)}` : ""}
             </p>
             <button type="button" className="btn-primary mt-5 w-full sm:w-auto" onClick={() => setUpdating(true)}>
-              Update price
+              Update Price
             </button>
           </section>
 
-          <Group title="Price history" className="mt-7">
+          <Group title="Price History" className="mt-7">
             {logs === null ? (
               <p className="px-4 py-3 text-[15px] text-label-2">Loading…</p>
             ) : history.length === 0 ? (
@@ -142,13 +143,13 @@ function Detail({ ing }: { ing: Ingredient }) {
 
         <div>
           {alternates.length ? (
-            <Group title="Other prices found in the original sheets" className="mt-7 lg:mt-5" footer="Check these against a current invoice. Update the price above if one of them is right.">
+            <Group title="Other Prices Found in the Original Sheets" className="mt-7 lg:mt-5" footer="Check these against a current invoice. Update the price above if one of them is right.">
               {alternates.map((l) => (
                 <Row key={l.id} title={<span className="tnum">{money(l.new_price)}{l.notes ? <span className="text-label-2"> · {l.notes}</span> : null}</span>} sub={l.source ?? undefined} />
               ))}
             </Group>
           ) : null}
-          <Group title={`Used in ${used.items.length + used.preps.length}`} className="mt-7 lg:mt-5">
+          <Group title={`Used In ${used.items.length + used.preps.length}`} className="mt-7 lg:mt-5">
             {used.items.length + used.preps.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">Not used in any recipe.</p> : null}
             {used.items
               .slice()
@@ -193,10 +194,10 @@ function Detail({ ing }: { ing: Ingredient }) {
                   ))}
                 </select>
               </FieldRow>
-              <FieldRow label="Supplier code">
+              <FieldRow label="Supplier Code">
                 <InlineInput value={ing.supplier_code ?? ""} placeholder="None" inputMode="text" width="w-36" onCommit={(t) => patch({ supplier_code: t.trim() || null })} />
               </FieldRow>
-              <FieldRow label="Pack size">
+              <FieldRow label="Pack Size">
                 <span className="flex items-center gap-2">
                   <InlineInput value={num(ing.pack_size)} width="w-16" onCommit={(t) => Number(t) > 0 && patch({ pack_size: Number(t) })} />
                   <Segmented size="sm" ariaLabel="Pack unit" className="w-[140px]" value={ing.pack_unit} onChange={(u) => patch({ pack_unit: u })} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
@@ -205,13 +206,13 @@ function Detail({ ing }: { ing: Ingredient }) {
               <FieldRow label="Category">
                 <InlineInput value={ing.category ?? ""} placeholder="None" inputMode="text" width="w-40" onCommit={(t) => patch({ category: t.trim() || null })} />
               </FieldRow>
-              <FieldRow label="Rebate per pack">
+              <FieldRow label="Rebate per Pack">
                 <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => patch({ rebate: Number(t) || 0 })} />
               </FieldRow>
               <FieldRow label="Yield" sub="Usable share after trim, e.g. 85">
                 <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = Number(t); if (n > 0) patch({ yield_pct: n > 1 ? n / 100 : n }); }} />
               </FieldRow>
-              <Toggle label="Price includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
+              <Toggle label="Price Includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
               <Toggle label="GST-free" checked={ing.gst_free} onChange={(v) => patch({ gst_free: v })} />
               <Toggle label="Active" checked={ing.active} onChange={(v) => patch({ active: v })} />
               <div className="px-4 py-2.5">
@@ -242,7 +243,7 @@ function PriceLine({ values }: { values: number[] }) {
   const pts = values.map((v, i) => [4 + (i / (values.length - 1)) * (w - 8), span ? h - 6 - ((v - min) / span) * (h - 12) : h / 2] as const);
   const last = pts[pts.length - 1];
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full text-accent" preserveAspectRatio="none" role="img" aria-label="Price trend">
+    <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full text-accent" preserveAspectRatio="none" role="img" aria-label="Price Trend">
       <polyline fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={pts.map((p) => p.join(",")).join(" ")} />
       <circle cx={last[0]} cy={last[1]} r="3.5" fill="currentColor" />
     </svg>
@@ -261,6 +262,15 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   const price = Number(text.replace(/[$,\s]/g, ""));
   const valid = text.trim() !== "" && Number.isFinite(price) && price >= 0;
   const move = valid ? priceMovePct(ing.pack_price, price) : null;
+  // live preview: what this price does to every recipe using the ingredient, before saving
+  const deferredPrice = useDeferredValue(valid ? price : null);
+  const preview = useMemo(() => {
+    if (deferredPrice == null || Math.abs(deferredPrice - Number(ing.pack_price)) < 1e-9) return null;
+    const p: Partial<Ingredient> = { pack_price: deferredPrice };
+    if (incGst !== ing.price_inc_gst) p.price_inc_gst = incGst;
+    return ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
+  }, [deferredPrice, incGst, ing, store]);
+  const newlyUnder = preview ? preview.filter((r) => r.after.underTarget && !r.before.underTarget) : [];
 
   async function save() {
     if (!valid || busy) return;
@@ -282,14 +292,14 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   if (impact) {
     const venuesOf = (r: ImpactRow) => store.venueById.get(r.item.venue_id)?.name;
     return (
-      <Sheet open onClose={onClose} title="Price updated" cancelLabel={null} action={{ label: "Done", onClick: onClose }}>
+      <Sheet open onClose={onClose} title="Price Updated" cancelLabel={null} action={{ label: "Done", onClick: onClose }}>
         <div className="pb-2 pt-4">
           <p className="text-center text-[15px] text-label-2">{ing.name}</p>
           <p className="text-center text-[34px] font-semibold tnum">{money(price)}</p>
           {impact.length === 0 ? (
             <p className="py-6 text-center text-[15px] text-label-2">Not used in any recipe — nothing else changes.</p>
           ) : (
-            <Group title={`Used in ${impact.length} ${impact.length === 1 ? "recipe" : "recipes"}`} className="mt-4">
+            <Group title={`Used In ${impact.length} ${impact.length === 1 ? "Recipe" : "Recipes"}`} className="mt-4">
               {impact.map((r) => {
                 const worse = (r.after.gpPct ?? 0) < (r.before.gpPct ?? 0) - 1e-9;
                 return (
@@ -300,7 +310,12 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
                     title={r.item.name}
                     sub={venuesOf(r)}
                     trailing={
-                      r.before.gpPct == null ? (
+                      r.after.underTarget && r.after.sellInc != null ? (
+                        <span className="flex items-center gap-2 tnum">
+                          <span className="font-semibold text-danger">{gp(r.after.gpPct, 0)}</span>
+                          <SetPriceButton c={store.itemCosts.get(r.item.id) ?? r.after} />
+                        </span>
+                      ) : r.before.gpPct == null ? (
                         <span className="text-label-3">No price</span>
                       ) : (
                         <span className="tnum">
@@ -320,7 +335,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   }
 
   return (
-    <Sheet open onClose={onClose} title="Update price" action={{ label: busy ? "Saving…" : "Save", onClick: () => void save(), disabled: !valid || busy }}>
+    <Sheet open onClose={onClose} title="Update Price" action={{ label: busy ? "Saving…" : "Save", onClick: () => void save(), disabled: !valid || busy }}>
       <form
         className="pb-2 pt-4"
         onSubmit={(e) => {
@@ -338,7 +353,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
             autoFocus
             inputMode="decimal"
             enterKeyHint="done"
-            aria-label="New pack price"
+            aria-label="New Pack Price"
             placeholder={Number(ing.pack_price).toFixed(2)}
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -355,14 +370,33 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
             `Currently ${money(ing.pack_price)}`
           )}
         </p>
+        {preview && preview.length ? (
+          <div className={cx("mt-3 rounded-2xl px-4 py-3", newlyUnder.length ? "bg-danger-soft" : "bg-surface")}>
+            <p className={cx("text-[15px] font-semibold", newlyUnder.length ? "text-danger" : "text-label")}>
+              {newlyUnder.length
+                ? `${newlyUnder.length} ${newlyUnder.length === 1 ? "dish falls" : "dishes fall"} below target`
+                : `Changes ${preview.length} ${preview.length === 1 ? "dish" : "dishes"}, all still on target`}
+            </p>
+            <ul className="mt-1.5 space-y-1">
+              {preview.slice(0, 4).map((r) => (
+                <li key={r.item.id} className="flex items-baseline gap-2 text-[13px] tnum">
+                  <span className="min-w-0 flex-1 truncate text-label-2">{r.item.name}</span>
+                  <span className="shrink-0 text-label-2">{gp(r.before.gpPct, 0)} →</span>
+                  <span className={cx("shrink-0 font-semibold", r.after.underTarget ? "text-danger" : "text-label")}>{gp(r.after.gpPct, 0)}</span>
+                </li>
+              ))}
+            </ul>
+            {preview.length > 4 ? <p className="mt-1 text-[12px] text-label-3">and {preview.length - 4} more</p> : null}
+          </div>
+        ) : null}
         <div className="group-list mt-4">
-          <Toggle checked={incGst} onChange={setIncGst} label="Price includes GST" />
+          <Toggle checked={incGst} onChange={setIncGst} label="Price Includes GST" />
           <div className="px-4">
             <input className="h-11 w-full bg-transparent text-[17px] outline-none placeholder:text-label-3 sm:text-[15px]" placeholder="Invoice / note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
         </div>
         <button type="submit" className="btn-primary mt-5 w-full" disabled={!valid || busy}>
-          {busy ? "Saving…" : "Save price"}
+          {busy ? "Saving…" : "Save Price"}
         </button>
       </form>
     </Sheet>

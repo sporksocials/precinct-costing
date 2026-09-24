@@ -36,7 +36,7 @@ export function LoginForm() {
           We sent a sign-in link to <span className="font-medium text-label">{email}</span>. Open the link on this device to sign in.
         </p>
         <button type="button" className="btn-text mx-auto mt-3" onClick={() => setSent(false)}>
-          Use a different email
+          Use a Different Email
         </button>
       </div>
     );

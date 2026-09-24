@@ -18,6 +18,8 @@ import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
 import { ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
 import { GelatoFlavourPanel } from "./gelato-panel";
+import { CostBar, FixCard, trimFix } from "./cost-insight";
+import { WhatIfSheet } from "./what-if";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -76,7 +78,7 @@ export function RecipeEditorPage({ kind, id }: { kind: Kind; id: string }) {
         body="It may have been deleted."
         action={
           <Link href="/recipes" className="btn-primary">
-            Back to recipes
+            Back to Recipes
           </Link>
         }
       />
@@ -105,7 +107,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const [focusQtyFor, setFocusQtyFor] = useState<string | null>(null);
   const [adjusted, setAdjusted] = useState<Set<string>>(new Set());
   const [addFocused, setAddFocused] = useState(false);
-  const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin">(null);
+  const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin" | "whatif">(null);
   const [dragId, setDragId] = useState<string | null>(null);
 
   // ---------- autosave (debounced; refs hold the latest values) ----------
@@ -313,10 +315,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
   const backHref = isFlavour ? "/gelato" : kind === "item" ? "/recipes" : "/recipes?type=preps";
 
+  const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
-    { label: "Duplicate to venue…", onClick: () => setSheet("duplicate") },
-    { label: draft.active ? "Make inactive" : "Make active", onClick: () => setDraft((d) => ({ ...d, active: !d.active })) },
-    ...(kind === "prep" ? [{ label: `Used in (${usedIn.items.length + usedIn.preps.length})`, onClick: () => setSheet("usedin") }] : []),
+    ...(kind === "item" ? [{ label: "What If…", onClick: () => setSheet("whatif") }] : []),
+    { label: "Duplicate to Venue…", onClick: () => setSheet("duplicate") },
+    { label: draft.active ? "Make Inactive" : "Make Active", onClick: () => setDraft((d) => ({ ...d, active: !d.active })) },
+    ...(kind === "prep" ? [{ label: `Used In (${usedIn.items.length + usedIn.preps.length})`, onClick: () => setSheet("usedin") }] : []),
     "sep" as const,
     { label: "Delete…", destructive: true, onClick: () => setSheet("delete") },
   ];
@@ -333,7 +337,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           <span className={cx("text-[13px]", status === "error" ? "text-danger" : "text-label-2")} aria-live="polite">
             {statusText}
           </span>
-          <Menu label="More actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
+          {kind === "item" ? (
+            <button type="button" onClick={() => setSheet("whatif")} className="btn-text px-2 font-semibold">
+              What If
+            </button>
+          ) : null}
+          <Menu label="More Actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
         </div>
       </div>
 
@@ -357,7 +366,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             rows={1}
             value={draft.name}
             placeholder="Recipe name"
-            aria-label="Recipe name"
+            aria-label="Recipe Name"
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value.replace(/\n/g, " ") }))}
             onBlur={() => {
               if (!draftRef.current.name.trim()) setDraft((d) => ({ ...d, name: saved.name || "Untitled" }));
@@ -387,11 +396,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                 <Stepper value={Number(item.portions) || 1} min={1} onChange={(v) => setDraft((d) => ({ ...d, portions: v }))} />
               </FieldRow>
             ) : prep && isFlavour ? (
-              <FieldRow label="Batch weight" sub="Total of the mix ingredients — updates as you edit">
+              <FieldRow label="Batch Weight" sub="Total of the mix ingredients — updates as you edit">
                 <span className="text-[17px] tnum text-label-2 sm:text-[15px]">{formatQty(batchWeightKg(lines.filter((l) => l.component_id)), "kg")}</span>
               </FieldRow>
             ) : prep ? (
-              <FieldRow label="Batch yield">
+              <FieldRow label="Batch Yield">
                 <span className="flex items-center gap-2">
                   <InlineInput value={String(prep.yield_qty)} width="w-20" onCommit={(t) => { const n = Number(t.replace(",", ".")); if (n > 0) setDraft((d) => ({ ...d, yield_qty: n })); }} />
                   <Segmented size="sm" ariaLabel="Yield unit" className="w-[150px]" value={prep.yield_unit} onChange={(u: PackUnit) => setDraft((d) => ({ ...d, yield_unit: u }))} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
@@ -402,6 +411,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
           {/* ingredients */}
           <Group title="Ingredients" className="mt-7 lg:[--inset:2.25rem]" trailing={lines.length ? <span className="text-[13px] text-label-2 tnum">{money(recipe.total)} total</span> : null}>
+            {lines.length > 1 ? <CostBar lines={recipe.lines} total={recipe.total} /> : null}
             {lines.map((l) => {
               const lc = costById.get(l.id);
               const warn = friendlyWarning(lc, adjusted.has(l.id));
@@ -444,7 +454,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                         {l.component_type === "prep" ? <PrepBadge /> : null}
                       </span>
                       <span className="mt-0.5 block truncate text-[15px] leading-snug text-label-2 tnum sm:text-[13px]">
-                        {Number(l.qty) ? formatQty(l.qty, l.unit) : <span className="text-accent">Add quantity</span>}
+                        {Number(l.qty) ? formatQty(l.qty, l.unit) : <span className="text-accent">Add Quantity</span>}
                         {l.note ? ` · ${l.note}` : ""}
                       </span>
                       {warn ? <span className="mt-0.5 block text-[13px] leading-snug text-warn">⚠ {warn}</span> : null}
@@ -474,6 +484,19 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
 
+          {itemCost && item ? (
+            <FixCard
+              cost={itemCost}
+              fix={fix}
+              onRaise={() => setDraft((d) => ({ ...d, sell_price_inc: itemCost.suggestedInc }))}
+              onTrim={() => {
+                if (!fix) return;
+                patchLine(fix.line.id, { qty: fix.to });
+                toast.show({ message: `${fix.name} trimmed to ${formatQty(fix.to, fix.line.unit)}`, action: { label: "Undo", onClick: () => patchLine(fix.line.id, { qty: fix.from }) } });
+              }}
+            />
+          ) : null}
+
           {isFlavour ? <GelatoFlavourPanel flavourId={id} mixCost={recipe.total} batchKg={batchWeightKg(lines.filter((l) => l.component_id))} lines={recipe.lines.filter((c) => c.line.component_id)} /> : null}
 
           {/* prep: used in */}
@@ -488,11 +511,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           ) : null}
 
           {/* details */}
-          <Disclosure title={item ? "Pricing & notes" : "Type & notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
+          <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
             <div className="group-list">
               {item ? (
                 <>
-                  <FieldRow label="Menu section">
+                  <FieldRow label="Menu Section">
                     <InlineInput value={item.section ?? ""} placeholder="None" inputMode="text" width="w-40" onCommit={(t) => setDraft((d) => ({ ...d, section: t.trim() || null }))} />
                   </FieldRow>
                   <FieldRow label="Target GP" sub={`Default for ${venue?.name ?? "venue"} ${item.category}: ${gp(store.targets.find((t) => t.venue_id === item.venue_id && t.category === item.category)?.target_gp ?? 0.7, 0)}`}>
@@ -503,7 +526,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                       onCommit={(t) => setDraft((d) => ({ ...d, target_override: t.trim() ? parseGpInput(t) : null }))}
                     />
                   </FieldRow>
-                  <FieldRow label="Happy hour price" sub={item.hh_price_inc && itemCost ? `GP ${gp(gpForPrice(itemCost.costPerPortion, item.hh_price_inc, store.settings.gst_rate))}` : undefined}>
+                  <FieldRow label="Happy Hour Price" sub={item.hh_price_inc && itemCost ? `GP ${gp(gpForPrice(itemCost.costPerPortion, item.hh_price_inc, store.settings.gst_rate))}` : undefined}>
                     <InlineInput value={item.hh_price_inc != null ? Number(item.hh_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, hh_price_inc: parsePriceInput(t) }))} />
                   </FieldRow>
                 </>
@@ -599,9 +622,33 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           ))}
         </div>
       </Sheet>
+      {sheet === "whatif" && itemCost && item ? (
+        <WhatIfSheet
+          cost={itemCost}
+          item={item}
+          lines={lines}
+          onClose={() => setSheet(null)}
+          onApply={(price, k) => {
+            const prev = { price: item.sell_price_inc, lines: linesRef.current };
+            setDraft((d) => ({ ...d, sell_price_inc: price }));
+            if (k !== 1) setLines((ls) => ls.map((l) => ({ ...l, qty: Math.round(Number(l.qty) * k * 1000) / 1000 })));
+            setSheet(null);
+            toast.show({
+              message: k !== 1 ? `Portion ${k > 1 ? "+" : "−"}${Math.round(Math.abs(k - 1) * 100)}% and price applied` : "Price applied",
+              action: {
+                label: "Undo",
+                onClick: () => {
+                  setDraft((d) => ({ ...d, sell_price_inc: prev.price }));
+                  if (k !== 1) setLines(() => prev.lines);
+                },
+              },
+            });
+          }}
+        />
+      ) : null}
       {sheet === "duplicate" ? <DuplicateSheet kind={kind} draft={draft} lines={lines} onClose={() => setSheet(null)} /> : null}
       {sheet === "delete" ? <DeleteSheet kind={kind} rec={draft} inUse={usedIn.items.length + usedIn.preps.length} onClose={() => setSheet(null)} onDeleted={() => router.push(backHref)} beforeDelete={() => { window.clearTimeout(timer.current); savedVersion.current = version.current; }} /> : null}
-      <Sheet open={sheet === "usedin"} onClose={() => setSheet(null)} title="Used in" cancelLabel={null} action={{ label: "Done", onClick: () => setSheet(null) }}>
+      <Sheet open={sheet === "usedin"} onClose={() => setSheet(null)} title="Used In" cancelLabel={null} action={{ label: "Done", onClick: () => setSheet(null) }}>
         {usedIn.items.length + usedIn.preps.length === 0 ? (
           <p className="py-8 text-center text-[15px] text-label-2">Not used in any recipe yet.</p>
         ) : (
@@ -632,7 +679,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 function MobileAutofocus() {
   useEffect(() => {
     const t = window.setTimeout(() => {
-      document.querySelector<HTMLInputElement>('input[aria-label="Add ingredient"]')?.focus();
+      document.querySelector<HTMLInputElement>('input[aria-label="Add Ingredient"]')?.focus();
     }, 350);
     return () => window.clearTimeout(t);
   }, []);

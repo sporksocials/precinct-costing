@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
-import { Banner, Chips, Segmented, Sheet } from "./ui";
+import { Banner, Chips, Sheet } from "./ui";
 import { VENUE_SHORT } from "./venue";
 
 type RecipeType = "item" | "prep";
@@ -46,11 +46,11 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
     const used = new Set(store.items.filter((i) => i.venue_id === venueId).map((i) => i.category));
     return [...MENU_CATEGORIES].sort((a, b) => Number(used.has(b)) - Number(used.has(a)));
   }, [store.items, venueId]);
-  const [category, setCategory] = useState<string>("");
-  useEffect(() => {
-    const v = store.venueById.get(venueId ?? -1);
-    setCategory((c) => c || (v?.slug === "gelato" ? "Gelato" : "Food"));
-  }, [venueId, store.venueById]);
+  // category follows a guess from the name until it's picked by hand
+  const [picked, setPicked] = useState<string | null>(null);
+  const guessed = useMemo(() => guessCategory(name, store.venueById.get(venueId ?? -1)?.slug, store.items.filter((i) => i.venue_id === venueId)), [name, venueId, store.venueById, store.items]);
+  const category = picked ?? guessed;
+  const setCategory = (c: string) => setPicked(c);
 
   const canCreate = name.trim().length > 0 && venueId != null && (type === "prep" || !!category) && !busy;
 
@@ -89,7 +89,7 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
   }
 
   return (
-    <Sheet open onClose={onClose} title="New recipe" action={{ label: busy ? "Creating…" : "Create", onClick: () => void create(), disabled: !canCreate }}>
+    <Sheet open onClose={onClose} title={type === "prep" ? "New Prep" : "New Menu Item"} action={{ label: busy ? "Creating…" : "Create", onClick: () => void create(), disabled: !canCreate }}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -101,14 +101,14 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
         <input
           autoFocus
           className="field !py-3.5 !text-[20px] font-semibold"
-          placeholder="Name"
+          placeholder={type === "prep" ? "Prep name, e.g. Hollandaise" : "Dish or drink name"}
           value={name}
           onChange={(e) => setName(e.target.value)}
           enterKeyHint="done"
-          aria-label="Recipe name"
+          aria-label="Recipe Name"
         />
         <div>
-          <p className="section-label !px-1">Venue{venueId == null ? <span className="text-danger"> · choose one</span> : null}</p>
+          <p className="section-label !px-1">Venue{venueId == null ? <span className="text-danger"> · Choose One</span> : null}</p>
           <Chips
             ariaLabel="Venue"
             value={venueId == null ? "" : String(venueId)}
@@ -117,30 +117,52 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
             className="[&>button:not([aria-checked=true])]:bg-fill"
           />
         </div>
-        <div>
-          <p className="section-label !px-1">Type</p>
-          <Segmented
-            ariaLabel="Type"
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "item", label: "Menu item" },
-              { value: "prep", label: "Prep (batch)" },
-            ]}
-          />
-        </div>
         {type === "item" ? (
           <div>
-            <p className="section-label !px-1">Category</p>
+            <p className="section-label !px-1">Category{!picked && name.trim() ? <span className="text-label-3"> · guessed from the name</span> : null}</p>
             <Chips ariaLabel="Category" value={category} onChange={setCategory} options={cats.map((c) => ({ value: c, label: c }))} className="flex-wrap [&>button:not([aria-checked=true])]:bg-fill" />
           </div>
         ) : (
-          <p className="px-1 text-[13px] text-label-2">Starts as a 1 kg batch — change the yield in the editor.</p>
+          <p className="px-1 text-[13px] text-label-2">A prep is a batch recipe (sauce, dough, mix) used inside menu items. It starts as a 1 kg batch; set the yield in the editor.</p>
         )}
+        <button type="button" onClick={() => setType((t) => (t === "item" ? "prep" : "item"))} className="px-1 text-[15px] font-medium text-accent">
+          {type === "item" ? "Make It a Prep Instead" : "Make It a Menu Item Instead"}
+        </button>
         <button type="submit" className="btn-primary w-full" disabled={!canCreate}>
           {busy ? "Creating…" : "Create"}
         </button>
       </form>
     </Sheet>
   );
+}
+
+const KEYWORDS: [RegExp, string][] = [
+  [/\b(nip|30 ?ml|shot)\b/i, "Spirits"],
+  [/\b(pint|pot|schooner|jug|middy|tap)\b/i, "Tap Beer"],
+  [/\b(stubby|can|bottle of beer|cider|seltzer)\b/i, "Packaged Beer & Cider"],
+  [/\b(rtd|premix|cruiser|smirnoff)\b/i, "RTD"],
+  [/\b(merlot|shiraz|sauv|sauvignon|pinot|chardonnay|ros[eé]|prosecco|riesling|moscato|cabernet|tempranillo|glass|carafe|bubbles|champagne)\b/i, "Wine"],
+  [/\b(virgin|mocktail|spider|shake|smoothie|lemonade|iced tea|soda)\b/i, "Mocktail"],
+  [/\b(margarita|spritz|martini|mojito|negroni|sour|daiquiri|colada|mule|paloma|old fashioned|cocktail|punch|highball|bellini|cosmo)\b/i, "Cocktail"],
+  [/\b(gelato|sorbet|scoop|cone|affogato)\b/i, "Gelato"],
+];
+
+/** Best guess at a new item's category: a similar existing name at this venue, then drink keywords, then the venue's usual. */
+function guessCategory(name: string, venueSlug: string | undefined, venueItems: MenuItem[]): string {
+  const n = name.trim().toLowerCase();
+  const fallback = venueSlug === "gelato" ? "Gelato" : venueItems.length ? mostCommon(venueItems.map((i) => i.category)) ?? "Food" : "Food";
+  if (n.length < 3) return fallback;
+  for (const [re, cat] of KEYWORDS) if (re.test(n)) return cat;
+  const words = n.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  const similar = venueItems.filter((i) => words.some((w) => i.name.toLowerCase().includes(w)));
+  return mostCommon(similar.map((i) => i.category)) ?? fallback;
+}
+
+function mostCommon(xs: string[]): string | null {
+  const m = new Map<string, number>();
+  for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
+  let best: string | null = null;
+  let n = 0;
+  for (const [k, v] of m) if (v > n) [best, n] = [k, v];
+  return best;
 }

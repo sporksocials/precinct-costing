@@ -9,7 +9,8 @@ import { DataTable } from "@/components/table";
 import { indexDoc, search } from "@/lib/search";
 import { blankIngredient, IngredientSheet } from "@/components/ingredient-sheet";
 import { Chips, cx, Empty, PageHeader, Row, SearchField } from "@/components/ui";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { catalogueGaps, ingredientsInUse, staleIngredients } from "@/lib/insights";
 
 const PAGE = 100;
 
@@ -20,9 +21,24 @@ export default function IngredientsPage() {
   const [cat, setCat] = useState("all");
   const [limit, setLimit] = useState(PAGE);
   const [adding, setAdding] = useState(false);
-  useEffect(() => setLimit(PAGE), [q, cat]);
+  const [showUnused, setShowUnused] = useState(false);
+  const params = useSearchParams();
+  const filter = params.get("filter") as "stale" | "catalogue" | null;
+  useEffect(() => setLimit(PAGE), [q, cat, showUnused, filter]);
+  useEffect(() => {
+    if (filter === "catalogue") store.loadPortalPrices();
+  }, [filter, store]);
 
-  const active = useMemo(() => store.ingredients.filter((i) => i.active), [store.ingredients]);
+  const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
+  const allActive = useMemo(() => store.ingredients.filter((i) => i.active), [store.ingredients]);
+  const unusedCount = useMemo(() => allActive.filter((i) => !inUse.has(i.id)).length, [allActive, inUse]);
+  const gaps = useMemo(() => (filter === "catalogue" ? catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate) : []), [filter, store.ingredients, store.portalPrices, store.settings.gst_rate]);
+  const gapById = useMemo(() => new Map(gaps.map((g) => [g.ingredient.id, g])), [gaps]);
+  const active = useMemo(() => {
+    if (filter === "stale") return staleIngredients(store.ingredients, inUse);
+    if (filter === "catalogue") return gaps.map((g) => g.ingredient);
+    return showUnused || q.trim() ? allActive : allActive.filter((i) => inUse.has(i.id));
+  }, [filter, store.ingredients, inUse, gaps, showUnused, q, allActive]);
   const cats = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of active) if (i.category) counts.set(i.category, (counts.get(i.category) ?? 0) + 1);
@@ -52,20 +68,45 @@ export default function IngredientsPage() {
       <PageHeader
         title="Ingredients"
         trailing={
-          <button type="button" className="btn-tinted" onClick={() => setAdding(true)} aria-label="Add ingredient">
+          <button type="button" className="btn-tinted" onClick={() => setAdding(true)} aria-label="Add Ingredient">
             <Plus className="h-4 w-4" strokeWidth={2.5} />
             <span className="hidden sm:inline">Add</span>
           </button>
         }
       />
+      {filter ? (
+        <div className="mb-3 flex items-center gap-3 rounded-2xl bg-accent-soft px-4 py-3">
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-accent">{filter === "stale" ? "Not Checked in 90 Days" : "Differs From the Supplier Catalogue"}</span>
+            <span className="block text-[13px] text-label-2">
+              {filter === "stale" ? "Used in recipes, price not updated in 90 days. Open one and tap Update Price." : "Same product code, different price per unit. Open one to update it."}
+            </span>
+          </span>
+          <button type="button" className="btn-plain !min-h-[36px] shrink-0" onClick={() => router.replace("/ingredients")}>
+            Show All
+          </button>
+        </div>
+      ) : null}
       <SearchField value={q} onChange={setQ} placeholder="Search ingredients or suppliers" />
-      <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />
+      {filter ? null : <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />}
 
       {rows.length === 0 ? (
-        <Empty title="No results" body={q ? `Nothing matches “${q}”.` : "No ingredients in this category."} />
+        <Empty
+          title={filter ? "All Caught Up" : "No Results"}
+          body={filter === "stale" ? "Every ingredient used in a recipe has a price checked in the last 90 days." : filter === "catalogue" ? "Every linked ingredient matches the supplier catalogue." : q ? `Nothing matches “${q}”.` : "No ingredients in this category."}
+        />
       ) : (
         <>
-          <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">{rows.length} ingredients</p>
+          <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
+            <p className="text-[13px] text-label-2">
+              {rows.length} {filter ? "to check" : showUnused || q.trim() ? "ingredients" : "in use"}
+            </p>
+            {!filter && !q.trim() && unusedCount ? (
+              <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowUnused((x) => !x)}>
+                {showUnused ? "Hide Unused" : `Show Unused (${unusedCount})`}
+              </button>
+            ) : null}
+          </div>
           <div className="hidden lg:block">
             <DataTable
               rows={rows.slice(0, limit)}
@@ -75,10 +116,10 @@ export default function IngredientsPage() {
                 { key: "name", label: "Ingredient", render: (i) => <span className="font-medium">{i.name}</span>, sort: (i) => i.name },
                 { key: "sup", label: "Supplier", render: (i) => <span className="text-label-2">{store.supplierById.get(i.supplier_id ?? -1)?.name ?? "—"}</span>, sort: (i) => store.supplierById.get(i.supplier_id ?? -1)?.name ?? "" },
                 { key: "pack", label: "Pack", align: "right", render: (i) => <span className="text-label-2">{packLabel(i.pack_size, i.pack_unit)}</span> },
-                { key: "price", label: "Pack price", align: "right", render: (i) => money(Number(i.pack_price)), sort: (i) => Number(i.pack_price) },
+                { key: "price", label: "Pack Price", align: "right", render: (i) => money(Number(i.pack_price)), sort: (i) => Number(i.pack_price) },
                 {
                   key: "unit",
-                  label: "Unit price",
+                  label: "Unit Price",
                   align: "right",
                   render: (i) => {
                     const u = ingredientCostPerBase(i, gst);
@@ -88,7 +129,7 @@ export default function IngredientsPage() {
                 },
                 {
                   key: "move",
-                  label: "Last move",
+                  label: "Last Move",
                   align: "right",
                   render: (i) => {
                     const m = (daysAgo(i.last_price_update) ?? 999) <= 30 ? priceMovePct(i.previous_price, i.pack_price) : null;
@@ -97,7 +138,7 @@ export default function IngredientsPage() {
                   sort: (i) => ((daysAgo(i.last_price_update) ?? 999) <= 30 ? priceMovePct(i.previous_price, i.pack_price) : null),
                 },
                 { key: "updated", label: "Updated", align: "right", render: (i) => <span className="text-label-2">{dateShort(i.last_price_update)}</span>, sort: (i) => i.last_price_update ?? "", hideBelow: "xl" },
-                { key: "used", label: "Used in", align: "right", render: (i) => <span className="text-label-2">{usedCount(i.id) || "—"}</span>, sort: (i) => usedCount(i.id) },
+                { key: "used", label: "Used In", align: "right", render: (i) => <span className="text-label-2">{usedCount(i.id) || "—"}</span>, sort: (i) => usedCount(i.id) },
               ]}
             />
           </div>
@@ -112,7 +153,13 @@ export default function IngredientsPage() {
                   key={i.id}
                   href={`/ingredients/${i.id}`}
                   title={i.name}
-                  sub={[sup, `${money(Number(i.pack_price))} per ${packLabel(i.pack_size, i.pack_unit)}`].filter(Boolean).join(" · ")}
+                  sub={
+                    gapById.get(i.id)
+                      ? `Catalogue ${money(gapById.get(i.id)!.theirs)}/${unitShort(i.pack_unit)} vs yours ${money(gapById.get(i.id)!.ours)} (${gapById.get(i.id)!.diffPct > 0 ? "+" : ""}${Math.round(gapById.get(i.id)!.diffPct * 100)}%)`
+                      : filter === "stale"
+                        ? `${sup ?? "No supplier"} · last updated ${i.last_price_update ? dateShort(i.last_price_update) : "never"}`
+                        : [sup, `${money(Number(i.pack_price))} per ${packLabel(i.pack_size, i.pack_unit)}`].filter(Boolean).join(" · ")
+                  }
                   trailing={
                     <span className="flex flex-col items-end leading-tight">
                       <span className="text-label">{unit ? `${money(unit)}/${unitShort(i.pack_unit)}` : <span className="text-label-3">No price</span>}</span>
@@ -125,7 +172,7 @@ export default function IngredientsPage() {
           </div>
           {rows.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
-              Show more ({rows.length - limit})
+              Show More ({rows.length - limit})
             </button>
           ) : null}
         </>

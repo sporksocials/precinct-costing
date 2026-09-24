@@ -77,7 +77,7 @@ export function GelatoFlavourPanel({ flavourId, mixCost, batchKg, lines }: { fla
       </Group>
 
       {batchKg > 0 && lines.length ? (
-        <Group title="Batch for the machine" trailing={<span className="text-[13px] text-label-2 tnum">{money(perKg * Number(batch))}</span>}>
+        <Group title="Batch for the Machine" trailing={<span className="text-[13px] text-label-2 tnum">{money(perKg * Number(batch))}</span>}>
           <div className="px-4 py-2">
             <Segmented size="sm" ariaLabel="Batch size" value={batch} onChange={setBatch} options={BATCHES.map((b) => ({ value: b, label: `${b} kg` }))} />
           </div>

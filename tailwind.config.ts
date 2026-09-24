@@ -38,7 +38,9 @@ const config: Config = {
         danger: v("danger"),
         "danger-soft": v("danger-soft"),
         warn: v("warn"),
+        "warn-soft": v("warn-soft"),
         good: v("good"),
+        "good-soft": v("good-soft"),
       },
       borderRadius: {
         "2xl": "1rem",

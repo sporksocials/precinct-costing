@@ -11,7 +11,7 @@ import { indexDoc, search } from "@/lib/search";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
 import type { ItemCost, PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueChips, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueSwitcher, VENUE_SHORT } from "@/components/venue";
 import { Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
@@ -117,12 +117,14 @@ export default function RecipesPage() {
       <PageHeader
         title="Recipes"
         trailing={
-          <button type="button" className="btn-primary hidden lg:inline-flex" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
-            <Plus className="h-4 w-4" strokeWidth={2.5} /> New recipe
-          </button>
+          <>
+            <VenueSwitcher className="lg:hidden" />
+            <button type="button" className="btn-primary hidden lg:inline-flex" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
+              <Plus className="h-4 w-4" strokeWidth={2.5} /> {tab === "preps" ? "New Prep" : "New Menu Item"}
+            </button>
+          </>
         }
       />
-      <VenueChips />
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <Segmented
           ariaLabel="Recipe type"
@@ -130,7 +132,7 @@ export default function RecipesPage() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "items", label: "Menu items" },
+            { value: "items", label: "Menu Items" },
             { value: "preps", label: "Preps" },
           ]}
         />
@@ -142,9 +144,9 @@ export default function RecipesPage() {
             items={[
               { label: "A–Z", onClick: () => setSort("az"), checked: sort === "az" },
               ...(tab === "items" ? [{ label: "Lowest GP", onClick: () => setSort("gp"), checked: sort === "gp" }] : []),
-              { label: "Highest cost", onClick: () => setSort("cost"), checked: sort === "cost" },
+              { label: "Highest Cost", onClick: () => setSort("cost"), checked: sort === "cost" },
               "sep" as const,
-              { label: "Show inactive", onClick: () => setShowInactive((s) => !s), checked: showInactive },
+              { label: "Show Inactive", onClick: () => setShowInactive((s) => !s), checked: showInactive },
             ]}
           />
         </div>
@@ -155,14 +157,14 @@ export default function RecipesPage() {
 
       {total === 0 ? (
         q ? (
-          <Empty title="No results" body={`Nothing matches “${q}”.`} />
+          <Empty title="No Results" body={`Nothing matches “${q}”.`} />
         ) : (
           <Empty
-            title={tab === "items" ? "No recipes yet" : "No preps yet"}
+            title={tab === "items" ? "No Menu Items Yet" : "No Preps Yet"}
             body={venue ? `Add the first ${tab === "items" ? "menu item" : "prep"} for ${venue.name}.` : undefined}
             action={
               <button className="btn-primary" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> New recipe
+                <Plus className="h-4 w-4" strokeWidth={2.5} /> {tab === "preps" ? "New Prep" : "New Menu Item"}
               </button>
             }
           />
@@ -176,7 +178,7 @@ export default function RecipesPage() {
                   {flavourRows.length} {flavourRows.length === 1 ? "flavour" : "flavours"} · each sold in {store.gelato.serves.length} serves
                 </p>
                 <Link href="/gelato" className="text-[13px] font-medium text-accent">
-                  All prices
+                  All Prices
                 </Link>
               </div>
               <div className="group-list">
@@ -191,7 +193,7 @@ export default function RecipesPage() {
               <Row
                 href="/gelato"
                 leading={<IceCreamCone className="h-5 w-5 text-label-2" strokeWidth={2} />}
-                title="Gelato Rumba flavours"
+                title="Gelato Rumba Flavours"
                 sub={`${store.gelato.flavours.filter((f) => f.active).length} flavours × ${store.gelato.serves.length} serves, priced automatically`}
                 chevron
               />
@@ -220,7 +222,7 @@ export default function RecipesPage() {
           ) : null}
           {rows.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
-              Show more ({rows.length - limit})
+              Show More ({rows.length - limit})
             </button>
           ) : null}
         </>
@@ -228,7 +230,7 @@ export default function RecipesPage() {
 
       <button
         type="button"
-        aria-label="New recipe"
+        aria-label={tab === "preps" ? "New Prep" : "New Menu Item"}
         onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}
         className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-accent-fill text-accent-on shadow-float transition active:scale-95 lg:hidden"
       >
@@ -278,7 +280,7 @@ function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: b
     return VENUE_SHORT[v?.slug ?? ""] ?? v?.name ?? "";
   };
   const columns: Column<ItemCost>[] = [
-    { key: "name", label: "Menu item", render: (c) => <span className={cx("font-medium", !c.item.active && "text-label-2")}>{c.item.name}</span>, sort: (c) => c.item.name },
+    { key: "name", label: "Menu Item", render: (c) => <span className={cx("font-medium", !c.item.active && "text-label-2")}>{c.item.name}</span>, sort: (c) => c.item.name },
     ...(showVenue
       ? [{ key: "venue", label: "Venue", render: (c: ItemCost) => <span className={cx(`v-${store.venueById.get(c.item.venue_id)?.slug}`, "inline-flex items-center gap-1.5 text-label-2")}><Dot className="bg-accent-fill" />{vName(c)}</span>, sort: vName }]
       : []),
@@ -314,7 +316,7 @@ function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: Item
       href={`/preps/${f.id}`}
       title={flavourName(f)}
       titleClassName={!f.active ? "text-label-2" : undefined}
-      sub={[pc ? `Mix ${money(pc.costPerUnit)}/kg` : null, `lowest GP of ${serves} menu serves`].filter(Boolean).join(" · ")}
+      sub={[pc ? `Mix ${money(pc.costPerUnit)}/kg` : null, `lowest of ${serves} serves`].filter(Boolean).join(" · ")}
       trailing={
         worst?.gpPct != null ? (
           <>
@@ -337,8 +339,8 @@ function PrepTable({ rows }: { rows: PrepCost[] }) {
     { key: "type", label: "Type", render: (p) => <span className="text-label-2">{p.prep.prep_type ?? "—"}</span>, sort: (p) => p.prep.prep_type ?? "" },
     { key: "venue", label: "Venue", render: (p) => <span className="text-label-2">{p.prep.venue_id == null ? "Shared" : VENUE_SHORT[store.venueById.get(p.prep.venue_id)?.slug ?? ""] ?? ""}</span> },
     { key: "batch", label: "Batch", align: "right", render: (p) => packLabel(p.prep.yield_qty, p.prep.yield_unit), sort: (p) => Number(p.prep.yield_qty) },
-    { key: "unit", label: "Cost per unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
-    { key: "total", label: "Batch cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
+    { key: "unit", label: "Cost per Unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
+    { key: "total", label: "Batch Cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
   ];
   return <DataTable rows={rows} columns={columns} rowKey={(p) => p.prep.id} href={(p) => `/preps/${p.prep.id}`} />;
 }

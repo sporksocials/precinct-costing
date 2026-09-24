@@ -142,6 +142,27 @@ export interface PortalPrice {
   batch: string | null;
 }
 
+export interface GelatoServe {
+  id: string;
+  venue_id: number;
+  name: string;
+  sort: number;
+  grams: number;
+  sell_price_inc: number | null;
+  on_menu: boolean;
+  active: boolean;
+  notes: string | null;
+}
+
+export interface GelatoServeLine {
+  id: string;
+  serve_id: string;
+  ingredient_id: string;
+  qty: number;
+  unit: LineUnit;
+  sort: number;
+}
+
 export interface AllowedUser {
   email: string;
 }
@@ -150,12 +171,15 @@ export interface CostingSettings {
   gst_rate: number;
   round_to: number;
   alert_pct: number;
+  /** share of gelato made but never sold, added to every serve's gelato cost */
+  gelato_wastage: number;
 }
 
 export const DEFAULT_SETTINGS: CostingSettings = {
   gst_rate: 0.1,
   round_to: 0.5,
   alert_pct: 0.05,
+  gelato_wastage: 0.05,
 };
 
 export const DEFAULT_TARGET_GP = 0.7;

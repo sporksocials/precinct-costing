@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { gpSummary, priceIncreases, underTarget, type GpSummary } from "@/lib/insights";
+import { gpSummary, priceIncreases, underTargetRows, type GpSummary } from "@/lib/insights";
 import { gp, movePct } from "@/lib/format";
 import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
@@ -27,11 +27,11 @@ export default function HomePage() {
 
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
   const perVenue = useMemo(() => store.venues.map((v) => ({ v, s: gpSummary(store.itemCosts.values(), v.id) })), [store.venues, store.itemCosts]);
-  const under = useMemo(() => underTarget(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
+  const under = useMemo(() => underTargetRows(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
   const itemById = useMemo(() => new Map(store.items.map((i) => [i.id, i])), [store.items]);
   const increases = useMemo(
-    () => priceIncreases(store.priceLogs, store.index.ingredients, store.lines, itemById, store.settings.alert_pct, venue?.id ?? null),
-    [store.priceLogs, store.index.ingredients, store.lines, itemById, store.settings.alert_pct, venue],
+    () => priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venue?.id ?? null),
+    [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venue],
   );
 
   const isGelato = venue?.slug === "gelato";
@@ -100,7 +100,7 @@ export default function HomePage() {
             href={`/alerts?view=under${qs}`}
             leading={<Dot className="bg-danger" />}
             title={`${under.length} ${under.length === 1 ? "dish" : "dishes"} below target GP`}
-            sub={`Worst: ${under[0].item.name} · ${gp(under[0].gpPct)}`}
+            sub={`Worst: ${under[0].cost.item.name} · ${gp(under[0].cost.gpPct)}`}
             chevron
           />
         ) : (

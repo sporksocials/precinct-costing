@@ -136,6 +136,35 @@ create table if not exists public.cost_portal_prices (
   batch text
 );
 
+-- Gelato Rumba: every flavour (a prep of type "Gelato flavour mix") is sold in these serves.
+-- The app builds each flavour x serve on the fly; nothing per flavour is stored here.
+create table if not exists public.cost_gelato_serves (
+  id uuid primary key default gen_random_uuid(),
+  venue_id integer not null references public.cost_venues(id),
+  name text not null,
+  sort integer not null default 0,
+  grams numeric not null default 0,
+  sell_price_inc numeric,
+  on_menu boolean not null default true,
+  active boolean not null default true,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (venue_id, name)
+);
+
+-- Packaging per serve (cup, cone, spoon, napkin, sleeve, choc dip).
+create table if not exists public.cost_gelato_serve_lines (
+  id uuid primary key default gen_random_uuid(),
+  serve_id uuid not null references public.cost_gelato_serves(id) on delete cascade,
+  ingredient_id uuid not null references public.cost_ingredients(id),
+  qty numeric not null default 1,
+  unit text not null default 'each' check (unit in ('g','kg','ml','L','each')),
+  sort integer not null default 0
+);
+
+insert into public.cost_settings (key, value) values ('gelato_wastage', 0.05) on conflict (key) do nothing;
+
 -- Price log trigger: the app never inserts into cost_price_log itself.
 create or replace function public.cost_ingredients_price_log()
 returns trigger language plpgsql security definer as $$
@@ -169,7 +198,8 @@ declare t text;
 begin
   foreach t in array array[
     'cost_allowed_users','cost_venues','cost_settings','cost_targets','cost_suppliers','cost_ingredients',
-    'cost_preps','cost_menu_items','cost_recipe_lines','cost_price_log','cost_specials','cost_portal_prices'
+    'cost_preps','cost_menu_items','cost_recipe_lines','cost_price_log','cost_specials','cost_portal_prices',
+    'cost_gelato_serves','cost_gelato_serve_lines'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists cost_allowed_all on public.%I', t);

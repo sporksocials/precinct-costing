@@ -10,12 +10,14 @@ import { gp, money, unitShort } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
 import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
+import { batchWeightKg, flavourName, isGelatoFlavour } from "@/lib/gelato";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
 import { VENUE_SHORT } from "../venue";
 import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
 import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
 import { ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
+import { GelatoFlavourPanel } from "./gelato-panel";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -173,11 +175,25 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     },
     [schedule],
   );
+  // gelato flavour mixes: the batch yield is always the mix's total weight
+  const gelatoVenueId = store.gelato.venue?.id;
+  const isFlavour = kind === "prep" && isGelatoFlavour(draft as Prep, gelatoVenueId);
+  const isFlavourRef = useRef(isFlavour);
+  isFlavourRef.current = isFlavour;
   const setLines = useCallback(
     (fn: (l: RecipeLine[]) => RecipeLine[]) => {
       const n = fn(linesRef.current);
       linesRef.current = n;
       setLinesState(n);
+      if (isFlavourRef.current) {
+        const kg = batchWeightKg(n.filter((l) => l.component_id));
+        const d = draftRef.current as Prep;
+        if (kg > 0 && (Number(d.yield_qty) !== kg || d.yield_unit !== "kg")) {
+          const nd = { ...d, yield_qty: kg, yield_unit: "kg" as PackUnit };
+          draftRef.current = nd;
+          setDraftState(nd);
+        }
+      }
       schedule();
     },
     [schedule],
@@ -295,7 +311,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   const statusText = status === "saving" ? "Saving…" : status === "pending" ? "Edited" : status === "error" ? "Not saved" : "Saved";
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
-  const backHref = kind === "item" ? "/recipes" : "/recipes?type=preps";
+  const backHref = isFlavour ? "/gelato" : kind === "item" ? "/recipes" : "/recipes?type=preps";
 
   const menuItems = [
     { label: "Duplicate to venue…", onClick: () => setSheet("duplicate") },
@@ -311,7 +327,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center justify-between px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
         <Link href={backHref} className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-          {kind === "item" ? "Recipes" : "Preps"}
+          {isFlavour ? "Gelato" : kind === "item" ? "Recipes" : "Preps"}
         </Link>
         <div className="flex items-center gap-1">
           <span className={cx("text-[13px]", status === "error" ? "text-danger" : "text-label-2")} aria-live="polite">
@@ -361,7 +377,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                 <ChevronDown className="h-3.5 w-3.5 text-label-2" strokeWidth={2.5} />
               </button>
             ) : (
-              <span className="inline-flex h-9 items-center rounded-full bg-fill px-3 text-[15px] font-medium">Prep</span>
+              <span className="inline-flex h-9 items-center rounded-full bg-fill px-3 text-[15px] font-medium">{isFlavour ? "Gelato flavour" : "Prep"}</span>
             )}
           </div>
 
@@ -369,6 +385,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             {item ? (
               <FieldRow label="Portions" sub={Number(item.portions) > 1 ? `${money(itemCost?.recipeCost)} for the whole recipe` : undefined}>
                 <Stepper value={Number(item.portions) || 1} min={1} onChange={(v) => setDraft((d) => ({ ...d, portions: v }))} />
+              </FieldRow>
+            ) : prep && isFlavour ? (
+              <FieldRow label="Batch weight" sub="Total of the mix ingredients — updates as you edit">
+                <span className="text-[17px] tnum text-label-2 sm:text-[15px]">{formatQty(batchWeightKg(lines.filter((l) => l.component_id)), "kg")}</span>
               </FieldRow>
             ) : prep ? (
               <FieldRow label="Batch yield">
@@ -456,8 +476,14 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
 
+          {isFlavour ? <GelatoFlavourPanel mixCost={recipe.total} batchKg={batchWeightKg(lines.filter((l) => l.component_id))} lines={recipe.lines.filter((c) => c.line.component_id)} /> : null}
+
           {/* prep: used in */}
-          {kind === "prep" ? (
+          {isFlavour ? (
+            <div className="group-list mt-6">
+              <Row href="/gelato" title={`Sold as ${flavourName(draft)} in ${store.gelato.serves.length} serves`} sub="All flavours on the Gelato screen" chevron />
+            </div>
+          ) : kind === "prep" ? (
             <div className="group-list mt-6">
               <Row onClick={() => setSheet("usedin")} title={`Used in ${usedIn.items.length} ${usedIn.items.length === 1 ? "recipe" : "recipes"}`} sub={usedIn.preps.length ? `and ${usedIn.preps.length} ${usedIn.preps.length === 1 ? "prep" : "preps"}` : undefined} chevron />
             </div>

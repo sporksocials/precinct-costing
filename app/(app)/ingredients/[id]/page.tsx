@@ -268,7 +268,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
     setError(null);
     const p: Partial<Ingredient> = { pack_price: price, source: note.trim() || "Invoice" };
     if (incGst !== ing.price_inc_gst) p.price_inc_gst = incGst;
-    const rows = ingredientChangeImpact(ing.id, p, store);
+    const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
     try {
       await store.updateIngredient(ing.id, p);
       setImpact(rows);

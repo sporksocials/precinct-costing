@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Settings, Sparkles, Store } from "lucide-react";
+import { Bell, IceCreamCone, Settings, Sparkles, Store } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Group, PageHeader, Row } from "@/components/ui";
 
@@ -15,6 +15,7 @@ export default function MorePage() {
     <div>
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
+        <Row href="/gelato" title="Gelato" leading={<Icon className="bg-[#c05a9f]"><IceCreamCone className={ic} /></Icon>} chevron />
         <Row href="/alerts" title="Alerts" leading={<Icon className="bg-[#C6102E]"><Bell className={ic} /></Icon>} chevron />
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#F26345]"><Sparkles className={ic} /></Icon>} chevron />
         <Row href="/portal-prices" title="Supplier prices" leading={<Icon className="bg-[#0A3848]"><Store className={ic} /></Icon>} chevron />

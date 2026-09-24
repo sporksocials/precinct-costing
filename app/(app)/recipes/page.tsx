@@ -2,7 +2,8 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Plus } from "lucide-react";
+import { ArrowUpDown, IceCreamCone, Plus } from "lucide-react";
+import { isVirtualItemId } from "@/lib/gelato";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
@@ -43,7 +44,7 @@ export default function RecipesPage() {
 
   // ---- menu items
   const itemPool = useMemo(() => {
-    let list = [...store.itemCosts.values()];
+    let list = [...store.itemCosts.values()].filter((c) => !isVirtualItemId(c.item.id));
     if (venue) list = list.filter((c) => c.item.venue_id === venue.id);
     if (!showInactive) list = list.filter((c) => c.item.active);
     return list;
@@ -84,6 +85,7 @@ export default function RecipesPage() {
   }, [prepPool, cat, q, sort]);
 
   const cats = tab === "items" ? itemCats : prepCats;
+  const showGelato = tab === "items" && !!store.gelato.venue && store.gelato.flavours.length > 0 && (!venue || venue.id === store.gelato.venue.id) && !q.trim();
   const rows = tab === "items" ? items : preps;
   const total = rows.length;
 
@@ -147,6 +149,17 @@ export default function RecipesPage() {
           <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
             {total} {tab === "items" ? (total === 1 ? "menu item" : "menu items") : total === 1 ? "prep" : "preps"}
           </p>
+          {showGelato ? (
+            <div className="group-list mb-4">
+              <Row
+                href="/gelato"
+                leading={<IceCreamCone className="h-5 w-5 text-label-2" strokeWidth={2} />}
+                title="Gelato Rumba flavours"
+                sub={`${store.gelato.flavours.filter((f) => f.active).length} flavours × ${store.gelato.serves.length} serves, priced automatically`}
+                chevron
+              />
+            </div>
+          ) : null}
           <div className="group-list">
             {tab === "items"
               ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)

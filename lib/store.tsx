@@ -16,6 +16,8 @@ import {
   DEFAULT_SETTINGS,
   type AllowedUser,
   type CostingSettings,
+  type GelatoServe,
+  type GelatoServeLine,
   type Ingredient,
   type MenuItem,
   type PortalPrice,
@@ -28,6 +30,7 @@ import {
   type Target,
   type Venue,
 } from "./types";
+import { buildGelato, type GelatoModel } from "./gelato";
 
 const PAGE = 1000;
 const LOG_WINDOW_DAYS = 90;
@@ -97,6 +100,8 @@ export interface StoreData {
   priceLogs: PriceLog[];
   specials: Special[];
   allowedUsers: AllowedUser[];
+  gelatoServes: GelatoServe[];
+  gelatoServeLines: GelatoServeLine[];
 }
 
 export interface UsedIn {
@@ -121,6 +126,11 @@ export interface StoreValue extends StoreData {
   reload: () => Promise<void>;
   signOut: () => Promise<void>;
   // derived
+  /** menu items as stored (items = these, minus the old gelato recipes, plus the virtual gelato flavour × serve items) */
+  storedItems: MenuItem[];
+  /** stored recipe lines plus the virtual gelato lines (for costing and insights) */
+  allLines: RecipeLine[];
+  gelato: GelatoModel;
   index: CostingIndex;
   itemCosts: Map<string, ItemCost>;
   prepCosts: Map<string, PrepCost>;
@@ -144,6 +154,10 @@ export interface StoreValue extends StoreData {
   deleteSpecial: (id: number) => Promise<void>;
   addAllowedUser: (email: string) => Promise<void>;
   removeAllowedUser: (email: string) => Promise<void>;
+  insertServe: (s: Omit<GelatoServe, "id">) => Promise<string>;
+  updateServe: (id: string, patch: Partial<GelatoServe>) => Promise<void>;
+  deleteServe: (id: string) => Promise<void>;
+  saveServeLines: (serveId: string, lines: GelatoServeLine[]) => Promise<void>;
 }
 
 const empty: StoreData = {
@@ -159,6 +173,8 @@ const empty: StoreData = {
   priceLogs: [],
   specials: [],
   allowedUsers: [],
+  gelatoServes: [],
+  gelatoServeLines: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -168,7 +184,7 @@ function settingsFromRows(rows: Setting[]): CostingSettings {
     const r = rows.find((s) => s.key === k);
     return r && r.value != null ? Number(r.value) : DEFAULT_SETTINGS[k];
   };
-  return { gst_rate: get("gst_rate"), round_to: get("round_to"), alert_pct: get("alert_pct") };
+  return { gst_rate: get("gst_rate"), round_to: get("round_to"), alert_pct: get("alert_pct"), gelato_wastage: get("gelato_wastage") };
 }
 
 function newId(): string {
@@ -202,7 +218,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } = await sb.auth.getUser();
       setUserEmail(user?.email ?? null);
       const since = new Date(Date.now() - LOG_WINDOW_DAYS * 86_400_000).toISOString();
-      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers] =
+      // gelato serve tables are optional so the app still loads against a database without them
+      const optional = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
+      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines] =
         await Promise.all([
           fetchAll<Venue>(sb, "cost_venues", "sort"),
           fetchAll<Setting>(sb, "cost_settings", "key"),
@@ -215,6 +233,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           fetchAll<PriceLog>(sb, "cost_price_log", "changed_at", { column: "changed_at", gte: since }),
           fetchAll<Special>(sb, "cost_specials", "id"),
           fetchAll<AllowedUser>(sb, "cost_allowed_users", "email"),
+          optional(fetchAll<GelatoServe>(sb, "cost_gelato_serves", "sort")),
+          optional(fetchAll<GelatoServeLine>(sb, "cost_gelato_serve_lines", "sort")),
         ]);
       setData({
         venues,
@@ -229,6 +249,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         priceLogs,
         specials,
         allowedUsers,
+        gelatoServes,
+        gelatoServeLines,
       });
       serverLoaded.current = true;
       setReady(true);
@@ -245,7 +267,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loadedOnce.current = true;
     const cached = readCache();
     if (cached) {
-      setData(cached.data);
+      setData({ ...empty, ...cached.data, settings: { ...DEFAULT_SETTINGS, ...cached.data.settings } });
       setUserEmail(cached.userEmail);
       setReady(true);
     }
@@ -296,7 +318,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [loading, refreshing, userEmail, data.allowedUsers]);
 
   // ---- derived ----
-  const index = useMemo(() => buildIndex(data.ingredients, data.preps, data.lines), [data.ingredients, data.preps, data.lines]);
+  const gelato = useMemo(
+    () =>
+      buildGelato({
+        venues: data.venues,
+        preps: data.preps,
+        items: data.items,
+        serves: data.gelatoServes,
+        serveLines: data.gelatoServeLines,
+        wastage: data.settings.gelato_wastage,
+      }),
+    [data.venues, data.preps, data.items, data.gelatoServes, data.gelatoServeLines, data.settings.gelato_wastage],
+  );
+  const items = useMemo(
+    () => (gelato.items.length || gelato.replacedItemIds.size ? [...data.items.filter((i) => !gelato.replacedItemIds.has(i.id)), ...gelato.items] : data.items),
+    [data.items, gelato],
+  );
+  const allLines = useMemo(() => (gelato.lines.length ? [...data.lines, ...gelato.lines] : data.lines), [data.lines, gelato.lines]);
+  const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines), [data.ingredients, data.preps, allLines]);
   const prepCosts = useMemo(() => {
     const cache = new Map<string, PrepCost>();
     const out = new Map<string, PrepCost>();
@@ -306,9 +345,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const itemCosts = useMemo(() => {
     const cache = new Map<string, PrepCost>();
     const out = new Map<string, ItemCost>();
-    for (const it of data.items) out.set(it.id, costItem(it, index, data.settings, data.targets, cache));
+    for (const it of items) out.set(it.id, costItem(it, index, data.settings, data.targets, cache));
     return out;
-  }, [data.items, index, data.settings, data.targets]);
+  }, [items, index, data.settings, data.targets]);
   const venueById = useMemo(() => new Map(data.venues.map((v) => [v.id, v])), [data.venues]);
   const supplierById = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s])), [data.suppliers]);
   const usedInIndex = useMemo(() => {
@@ -325,7 +364,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
     return m;
   }, [data.lines]);
-  const itemById = useMemo(() => new Map(data.items.map((i) => [i.id, i])), [data.items]);
+  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const usedIn = useCallback(
     (componentType: "ingredient" | "prep", componentId: string): UsedIn => {
       const e = usedInIndex.get(`${componentType}:${componentId}`);
@@ -553,6 +592,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb],
   );
 
+  const insertServe = useCallback(
+    async (s: Omit<GelatoServe, "id">) => {
+      const id = newId();
+      const row: GelatoServe = { ...s, id };
+      const { error } = await sb.from("cost_gelato_serves").insert(row);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, gelatoServes: [...d.gelatoServes, row] }));
+      return id;
+    },
+    [sb],
+  );
+
+  const updateServe = useCallback(
+    async (id: string, patch: Partial<GelatoServe>) => {
+      const { error } = await sb.from("cost_gelato_serves").update(patch).eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, gelatoServes: d.gelatoServes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
+    },
+    [sb],
+  );
+
+  const deleteServe = useCallback(
+    async (id: string) => {
+      const { error } = await sb.from("cost_gelato_serves").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, gelatoServes: d.gelatoServes.filter((s) => s.id !== id), gelatoServeLines: d.gelatoServeLines.filter((l) => l.serve_id !== id) }));
+    },
+    [sb],
+  );
+
+  const saveServeLines = useCallback(
+    async (serveId: string, next: GelatoServeLine[]) => {
+      const existing = data.gelatoServeLines.filter((l) => l.serve_id === serveId);
+      const nextIds = new Set(next.map((l) => l.id));
+      const removed = existing.filter((l) => !nextIds.has(l.id)).map((l) => l.id);
+      const normalised = next.map((l, i) => ({ ...l, serve_id: serveId, sort: i + 1, qty: Number(l.qty) || 0 }));
+      if (removed.length) {
+        const { error } = await sb.from("cost_gelato_serve_lines").delete().in("id", removed);
+        if (error) throw new Error(error.message);
+      }
+      if (normalised.length) {
+        const { error } = await sb.from("cost_gelato_serve_lines").upsert(normalised, { onConflict: "id" });
+        if (error) throw new Error(error.message);
+      }
+      setData((d) => ({ ...d, gelatoServeLines: [...d.gelatoServeLines.filter((l) => l.serve_id !== serveId), ...normalised] }));
+    },
+    [sb, data.gelatoServeLines],
+  );
+
   const value: StoreValue = {
     ...data,
     loading,
@@ -566,6 +654,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     accessDenied,
     reload,
     signOut,
+    items,
+    storedItems: data.items,
+    allLines,
+    gelato,
     index,
     itemCosts,
     prepCosts,
@@ -588,6 +680,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     deleteSpecial,
     addAllowedUser,
     removeAllowedUser,
+    insertServe,
+    updateServe,
+    deleteServe,
+    saveServeLines,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

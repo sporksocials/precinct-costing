@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Plus, Trash2, X } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { isVirtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { gpForPrice, parseGpInput, parsePriceInput, priceForGp } from "@/lib/solver";
@@ -76,7 +77,7 @@ function SpecialCard({ s, onError }: { s: Special; onError: (m: string | null) =
   const patch = (p: Partial<Special>) => store.updateSpecial(s.id, p).catch((e) => onError(e instanceof Error ? e.message : String(e)));
 
   const docs = useMemo(
-    () => [...store.itemCosts.values()].filter((c) => c.item.active && (!s.venue_id || c.item.venue_id === s.venue_id)).map((c) => ({ ...indexDoc({ kind: "item" as const, id: c.item.id, title: c.item.name, sub: "", href: "" }), c })),
+    () => [...store.itemCosts.values()].filter((c) => c.item.active && !isVirtualItemId(c.item.id) && (!s.venue_id || c.item.venue_id === s.venue_id)).map((c) => ({ ...indexDoc({ kind: "item" as const, id: c.item.id, title: c.item.name, sub: "", href: "" }), c })),
     [store.itemCosts, s.venue_id],
   );
   const hits = useMemo(() => (q.trim() ? search(docs, q, 6).map((h) => h.doc.c) : []), [docs, q]);

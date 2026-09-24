@@ -23,6 +23,8 @@ const TABLE_KEYS: Record<string, string> = {
   cost_specials: "specials",
   cost_allowed_users: "allowedUsers",
   cost_portal_prices: "portalPrices",
+  cost_gelato_serves: "gelatoServes",
+  cost_gelato_serve_lines: "gelatoServeLines",
 };
 
 let tablesPromise: Promise<Tables> | null = null;

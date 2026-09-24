@@ -1,5 +1,6 @@
 import { buildIndex, costItem, priceMovePct, type ItemCost, type PrepCost } from "./costing";
 import type { CostingSettings, Ingredient, MenuItem, Prep, PriceLog, RecipeLine, Target } from "./types";
+import { parseVirtualItemId } from "./gelato";
 
 export const FOOD_CATEGORIES = new Set(["Food"]);
 export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
@@ -39,6 +40,42 @@ export function underTarget(costs: Iterable<ItemCost>, venueId?: number | null):
     out.push(c);
   }
   return out.sort((a, b) => (a.gpPct ?? 0) - a.targetGp - ((b.gpPct ?? 0) - b.targetGp));
+}
+
+export interface UnderRow {
+  cost: ItemCost;
+  /** for gelato: how many flavours are under target in this serve (the row shows the worst one) */
+  flavours: number;
+}
+
+/**
+ * Under-target list for display: gelato flavour × serve rows are folded into one row per serve
+ * (its worst flavour), so a serve priced too low shows once, not once per flavour.
+ */
+export function underTargetRows(costs: Iterable<ItemCost>, venueId?: number | null): UnderRow[] {
+  const out: UnderRow[] = [];
+  const byServe = new Map<string, UnderRow>();
+  for (const c of underTarget(costs, venueId)) {
+    const v = parseVirtualItemId(c.item.id);
+    if (!v) {
+      out.push({ cost: c, flavours: 1 });
+      continue;
+    }
+    const cur = byServe.get(v.serveId);
+    if (cur) cur.flavours += 1;
+    else {
+      const row = { cost: c, flavours: 1 };
+      byServe.set(v.serveId, row);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/** Recipe key for counting: every serve of one gelato flavour counts as that one flavour. */
+function recipeKey(itemId: string): string {
+  const v = parseVirtualItemId(itemId);
+  return v ? `gelato:${v.prepId}` : itemId;
 }
 
 /** Menu items that use a component directly or through any depth of preps. */
@@ -105,7 +142,8 @@ export function priceIncreases(
       if (!used.length) continue;
     }
     const delta = Number(log.new_price) - Number(log.old_price);
-    out.push({ ingredient: ing, log, movePct: m, delta, recipeCount: used.length, impact: delta * Math.max(used.length, 0.01) });
+    const recipes = new Set(used.map((i) => recipeKey(i.id))).size;
+    out.push({ ingredient: ing, log, movePct: m, delta, recipeCount: recipes, impact: delta * Math.max(recipes, 0.01) });
   }
   return out.sort((a, b) => b.impact - a.impact);
 }

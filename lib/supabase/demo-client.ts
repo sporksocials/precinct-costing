@@ -25,6 +25,9 @@ const TABLE_KEYS: Record<string, string> = {
   cost_portal_prices: "portalPrices",
   cost_gelato_serves: "gelatoServes",
   cost_gelato_serve_lines: "gelatoServeLines",
+  cost_beer_serves: "beerServes",
+  cost_beers: "beers",
+  cost_beer_prices: "beerPrices",
 };
 
 let tablesPromise: Promise<Tables> | null = null;

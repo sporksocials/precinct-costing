@@ -165,6 +165,35 @@ export interface GelatoServeLine {
   sort: number;
 }
 
+export interface BeerServe {
+  id: string;
+  name: string;
+  sort: number;
+  ml: number;
+  active: boolean;
+}
+
+export interface Beer {
+  id: string;
+  venue_id: number;
+  name: string;
+  /** the keg (ingredient, priced per L with its own yield for wastage) */
+  ingredient_id: string | null;
+  target_gp: number | null;
+  active: boolean;
+  sort: number;
+  notes: string | null;
+}
+
+export interface BeerPrice {
+  id: string;
+  beer_id: string;
+  serve_id: string;
+  sell_price_inc: number | null;
+  hh_price_inc: number | null;
+  legacy_item_id?: string | null;
+}
+
 export interface AllowedUser {
   email: string;
 }

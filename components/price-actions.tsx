@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useStore } from "@/lib/store";
 import { parseVirtualItemId } from "@/lib/gelato";
+import { parseBeerItemId } from "@/lib/beer";
 import { money } from "@/lib/format";
 import type { ItemCost } from "@/lib/costing";
 import { cx, useToast } from "./ui";
@@ -17,10 +18,13 @@ export function useApplyPrice() {
   return useCallback(
     async (c: ItemCost, price: number) => {
       const g = parseVirtualItemId(c.item.id);
+      const b = parseBeerItemId(c.item.id);
       const before = c.sellInc;
       try {
         if (g) {
           await store.updateServe(g.serveId, { sell_price_inc: price });
+        } else if (b) {
+          await store.setBeerPrice(b.beerId, b.serveId, { sell_price_inc: price });
         } else {
           await store.updateItem(c.item.id, { sell_price_inc: price });
         }
@@ -29,7 +33,11 @@ export function useApplyPrice() {
           action: {
             label: "Undo",
             onClick: () => {
-              void (g ? store.updateServe(g.serveId, { sell_price_inc: before }) : store.updateItem(c.item.id, { sell_price_inc: before }));
+              void (g
+                ? store.updateServe(g.serveId, { sell_price_inc: before })
+                : b
+                  ? store.setBeerPrice(b.beerId, b.serveId, { sell_price_inc: before })
+                  : store.updateItem(c.item.id, { sell_price_inc: before }));
             },
           },
         });

@@ -166,6 +166,43 @@ create table if not exists public.cost_gelato_serve_lines (
 
 insert into public.cost_settings (key, value) values ('gelato_wastage', 0.05) on conflict (key) do nothing;
 
+-- Tap beer: every beer is one keg poured in the same serves; prices per beer x serve.
+-- Wastage stays on the keg ingredient (its yield). The app builds each beer x serve on the fly.
+create table if not exists public.cost_beer_serves (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  sort integer not null default 0,
+  ml numeric not null,
+  active boolean not null default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+insert into public.cost_beer_serves (name, sort, ml) values ('Pot',1,285),('Schooner',2,425),('Pint',3,570),('Jug',4,1140) on conflict (name) do nothing;
+
+create table if not exists public.cost_beers (
+  id uuid primary key default gen_random_uuid(),
+  venue_id integer not null references public.cost_venues(id),
+  name text not null,
+  ingredient_id uuid references public.cost_ingredients(id),
+  target_gp numeric check (target_gp is null or (target_gp >= 0 and target_gp < 1)),
+  active boolean not null default true,
+  sort integer not null default 0,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (venue_id, name)
+);
+
+create table if not exists public.cost_beer_prices (
+  id uuid primary key default gen_random_uuid(),
+  beer_id uuid not null references public.cost_beers(id) on delete cascade,
+  serve_id uuid not null references public.cost_beer_serves(id) on delete cascade,
+  sell_price_inc numeric,
+  hh_price_inc numeric,
+  legacy_item_id uuid,
+  unique (beer_id, serve_id)
+);
+
 -- Price log trigger: the app never inserts into cost_price_log itself.
 create or replace function public.cost_ingredients_price_log()
 returns trigger language plpgsql security definer as $$
@@ -200,7 +237,7 @@ begin
   foreach t in array array[
     'cost_allowed_users','cost_venues','cost_settings','cost_targets','cost_suppliers','cost_ingredients',
     'cost_preps','cost_menu_items','cost_recipe_lines','cost_price_log','cost_specials','cost_portal_prices',
-    'cost_gelato_serves','cost_gelato_serve_lines'
+    'cost_gelato_serves','cost_gelato_serve_lines','cost_beer_serves','cost_beers','cost_beer_prices'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists cost_allowed_all on public.%I', t);

@@ -1,6 +1,7 @@
 import { buildIndex, costItem, ingredientExGstPackPrice, parsePackFromUom, priceMovePct, type ItemCost, type PrepCost } from "./costing";
 import type { CostingSettings, Ingredient, MenuItem, PortalPrice, Prep, PriceLog, RecipeLine, Target } from "./types";
 import { parseVirtualItemId } from "./gelato";
+import { parseBeerItemId } from "./beer";
 
 export const FOOD_CATEGORIES = new Set(["Food"]);
 export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
@@ -75,7 +76,9 @@ export function underTargetRows(costs: Iterable<ItemCost>, venueId?: number | nu
 /** Recipe key for counting: every serve of one gelato flavour counts as that one flavour. */
 function recipeKey(itemId: string): string {
   const v = parseVirtualItemId(itemId);
-  return v ? `gelato:${v.prepId}` : itemId;
+  if (v) return `gelato:${v.prepId}`;
+  const b = parseBeerItemId(itemId);
+  return b ? `beer:${b.beerId}` : itemId;
 }
 
 /** Menu items that use a component directly or through any depth of preps. */

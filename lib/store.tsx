@@ -18,6 +18,9 @@ import {
   type CostingSettings,
   type GelatoServe,
   type GelatoServeLine,
+  type Beer,
+  type BeerPrice,
+  type BeerServe,
   type Ingredient,
   type MenuItem,
   type PortalPrice,
@@ -31,6 +34,7 @@ import {
   type Venue,
 } from "./types";
 import { buildGelato, type GelatoModel } from "./gelato";
+import { buildBeer, type BeerModel } from "./beer";
 
 const PAGE = 1000;
 const LOG_WINDOW_DAYS = 90;
@@ -102,6 +106,9 @@ export interface StoreData {
   allowedUsers: AllowedUser[];
   gelatoServes: GelatoServe[];
   gelatoServeLines: GelatoServeLine[];
+  beerServes: BeerServe[];
+  beers: Beer[];
+  beerPrices: BeerPrice[];
 }
 
 export interface UsedIn {
@@ -131,6 +138,7 @@ export interface StoreValue extends StoreData {
   /** stored recipe lines plus the virtual gelato lines (for costing and insights) */
   allLines: RecipeLine[];
   gelato: GelatoModel;
+  beer: BeerModel;
   index: CostingIndex;
   itemCosts: Map<string, ItemCost>;
   prepCosts: Map<string, PrepCost>;
@@ -158,6 +166,11 @@ export interface StoreValue extends StoreData {
   updateServe: (id: string, patch: Partial<GelatoServe>) => Promise<void>;
   deleteServe: (id: string) => Promise<void>;
   saveServeLines: (serveId: string, lines: GelatoServeLine[]) => Promise<void>;
+  insertBeer: (b: Omit<Beer, "id">, prices: { serve_id: string; sell_price_inc: number | null }[]) => Promise<string>;
+  updateBeer: (id: string, patch: Partial<Beer>) => Promise<void>;
+  deleteBeer: (id: string) => Promise<void>;
+  setBeerPrice: (beerId: string, serveId: string, patch: { sell_price_inc?: number | null; hh_price_inc?: number | null }) => Promise<void>;
+  updateBeerServe: (id: string, patch: Partial<BeerServe>) => Promise<void>;
 }
 
 const empty: StoreData = {
@@ -175,6 +188,9 @@ const empty: StoreData = {
   allowedUsers: [],
   gelatoServes: [],
   gelatoServeLines: [],
+  beerServes: [],
+  beers: [],
+  beerPrices: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -220,7 +236,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const since = new Date(Date.now() - LOG_WINDOW_DAYS * 86_400_000).toISOString();
       // gelato serve tables are optional so the app still loads against a database without them
       const optional = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines] =
+      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices] =
         await Promise.all([
           fetchAll<Venue>(sb, "cost_venues", "sort"),
           fetchAll<Setting>(sb, "cost_settings", "key"),
@@ -235,6 +251,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           fetchAll<AllowedUser>(sb, "cost_allowed_users", "email"),
           optional(fetchAll<GelatoServe>(sb, "cost_gelato_serves", "sort")),
           optional(fetchAll<GelatoServeLine>(sb, "cost_gelato_serve_lines", "sort")),
+          optional(fetchAll<BeerServe>(sb, "cost_beer_serves", "sort")),
+          optional(fetchAll<Beer>(sb, "cost_beers", "name")),
+          optional(fetchAll<BeerPrice>(sb, "cost_beer_prices", "beer_id")),
         ]);
       setData({
         venues,
@@ -251,6 +270,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         allowedUsers,
         gelatoServes,
         gelatoServeLines,
+        beerServes,
+        beers,
+        beerPrices,
       });
       serverLoaded.current = true;
       setReady(true);
@@ -330,11 +352,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }),
     [data.venues, data.preps, data.items, data.gelatoServes, data.gelatoServeLines, data.settings.gelato_wastage],
   );
+  const beer = useMemo(() => buildBeer({ beers: data.beers, serves: data.beerServes, prices: data.beerPrices }), [data.beers, data.beerServes, data.beerPrices]);
   const items = useMemo(
-    () => (gelato.items.length || gelato.replacedItemIds.size ? [...data.items.filter((i) => !gelato.replacedItemIds.has(i.id)), ...gelato.items] : data.items),
-    [data.items, gelato],
+    () =>
+      gelato.items.length || gelato.replacedItemIds.size || beer.items.length
+        ? [...data.items.filter((i) => !gelato.replacedItemIds.has(i.id) && !beer.replacedItemIds.has(i.id)), ...gelato.items, ...beer.items]
+        : data.items,
+    [data.items, gelato, beer],
   );
-  const allLines = useMemo(() => (gelato.lines.length ? [...data.lines, ...gelato.lines] : data.lines), [data.lines, gelato.lines]);
+  const allLines = useMemo(() => (gelato.lines.length || beer.lines.length ? [...data.lines, ...gelato.lines, ...beer.lines] : data.lines), [data.lines, gelato.lines, beer.lines]);
   const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines), [data.ingredients, data.preps, allLines]);
   const prepCosts = useMemo(() => {
     const cache = new Map<string, PrepCost>();
@@ -641,6 +667,61 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, data.gelatoServeLines],
   );
 
+  const insertBeer = useCallback(
+    async (b: Omit<Beer, "id">, prices: { serve_id: string; sell_price_inc: number | null }[]) => {
+      const id = newId();
+      const row: Beer = { ...b, id };
+      const { error } = await sb.from("cost_beers").insert(row);
+      if (error) throw new Error(error.message);
+      const priceRows: BeerPrice[] = prices.map((p) => ({ id: newId(), beer_id: id, serve_id: p.serve_id, sell_price_inc: p.sell_price_inc, hh_price_inc: null }));
+      if (priceRows.length) {
+        const { error: e2 } = await sb.from("cost_beer_prices").insert(priceRows);
+        if (e2) throw new Error(e2.message);
+      }
+      setData((d) => ({ ...d, beers: [...d.beers, row], beerPrices: [...d.beerPrices, ...priceRows] }));
+      return id;
+    },
+    [sb],
+  );
+
+  const updateBeer = useCallback(
+    async (id: string, patch: Partial<Beer>) => {
+      const { error } = await sb.from("cost_beers").update(patch).eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, beers: d.beers.map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
+    },
+    [sb],
+  );
+
+  const deleteBeer = useCallback(
+    async (id: string) => {
+      const { error } = await sb.from("cost_beers").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, beers: d.beers.filter((b) => b.id !== id), beerPrices: d.beerPrices.filter((p) => p.beer_id !== id) }));
+    },
+    [sb],
+  );
+
+  const setBeerPrice = useCallback(
+    async (beerId: string, serveId: string, patch: { sell_price_inc?: number | null; hh_price_inc?: number | null }) => {
+      const cur = data.beerPrices.find((p) => p.beer_id === beerId && p.serve_id === serveId);
+      const row: BeerPrice = { id: cur?.id ?? newId(), beer_id: beerId, serve_id: serveId, sell_price_inc: cur?.sell_price_inc ?? null, hh_price_inc: cur?.hh_price_inc ?? null, legacy_item_id: cur?.legacy_item_id ?? null, ...patch };
+      const { error } = await sb.from("cost_beer_prices").upsert(row, { onConflict: "beer_id,serve_id" });
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, beerPrices: [...d.beerPrices.filter((p) => !(p.beer_id === beerId && p.serve_id === serveId)), row] }));
+    },
+    [sb, data.beerPrices],
+  );
+
+  const updateBeerServe = useCallback(
+    async (id: string, patch: Partial<BeerServe>) => {
+      const { error } = await sb.from("cost_beer_serves").update(patch).eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, beerServes: d.beerServes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
+    },
+    [sb],
+  );
+
   const value: StoreValue = {
     ...data,
     loading,
@@ -658,6 +739,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     storedItems: data.items,
     allLines,
     gelato,
+    beer,
     index,
     itemCosts,
     prepCosts,
@@ -684,6 +766,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateServe,
     deleteServe,
     saveServeLines,
+    insertBeer,
+    updateBeer,
+    deleteBeer,
+    setBeerPrice,
+    updateBeerServe,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

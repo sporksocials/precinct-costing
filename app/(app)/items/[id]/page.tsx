@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { parseBeerItemId } from "@/lib/beer";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { flavourName, parseVirtualItemId } from "@/lib/gelato";
@@ -14,6 +16,8 @@ export default function ItemPage() {
   const { id } = useParams<{ id: string }>();
   const decoded = decodeURIComponent(id);
   if (parseVirtualItemId(decoded)) return <GelatoServeView id={decoded} />;
+  const beer = parseBeerItemId(decoded);
+  if (beer) return <BeerRedirect to={`/beers/${beer.beerId}`} />;
   return <RecipeEditorPage kind="item" id={id} />;
 }
 
@@ -76,4 +80,11 @@ function GelatoServeView({ id }: { id: string }) {
       </div>
     </div>
   );
+}
+
+/** A tap beer × serve lives on its beer's page. */
+function BeerRedirect({ to }: { to: string }) {
+  const router = useRouter();
+  useEffect(() => router.replace(to), [router, to]);
+  return null;
 }

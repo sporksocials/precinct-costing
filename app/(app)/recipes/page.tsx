@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpDown, IceCreamCone, Plus } from "lucide-react";
 import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
+import { beerItemId } from "@/lib/beer";
 import type { Prep } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
@@ -52,7 +53,8 @@ export default function RecipesPage() {
     if (!showInactive) list = list.filter((c) => c.item.active);
     return list;
   }, [store.itemCosts, venue, showInactive]);
-  const itemCats = useMemo(() => [...new Set(itemPool.map((c) => c.item.category))].sort(), [itemPool]);
+  const hasBeers = store.beer.beers.some((b) => !venue || b.venue_id === venue.id);
+  const itemCats = useMemo(() => [...new Set([...itemPool.map((c) => c.item.category), ...(hasBeers ? ["Tap Beer"] : [])])].sort(), [itemPool, hasBeers]);
 
   const items = useMemo(() => {
     let list = cat === "all" ? itemPool : itemPool.filter((c) => c.item.category === cat);
@@ -110,7 +112,21 @@ export default function RecipesPage() {
     return out;
   }, [inGelato, cat, store.gelato, store.itemCosts, showInactive, q, sort]);
   const rows = tab === "items" ? items : preps;
-  const total = rows.length + flavourRows.length;
+  // tap beers: one row per beer (its four serves live on the beer's page)
+  const beerRows = useMemo(() => {
+    if (tab !== "items" || (cat !== "all" && cat !== "Tap Beer")) return [];
+    let list = store.beer.beers.filter((b) => (!venue || b.venue_id === venue.id) && (showInactive || b.active));
+    if (q.trim()) {
+      const docs = list.map((b) => ({ ...indexDoc({ kind: "item" as const, id: b.id, title: b.name, sub: "", href: "", extra: "tap beer keg" }), b }));
+      list = search(docs, q, 200).map((h) => h.doc.b);
+    }
+    return list.map((b) => {
+      const cs = store.beer.serves.map((s) => store.itemCosts.get(beerItemId(b.id, s.id))).filter((c): c is ItemCost => !!c);
+      const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
+      return { b, cs, worst };
+    });
+  }, [tab, cat, store.beer, store.itemCosts, venue, showInactive, q]);
+  const total = rows.length + flavourRows.length + beerRows.length;
 
   return (
     <div>
@@ -182,6 +198,37 @@ export default function RecipesPage() {
               <div className="group-list">
                 {flavourRows.map((r) => (
                   <FlavourRow key={r.f.id} f={r.f} serves={r.serves} worst={r.worst} />
+                ))}
+              </div>
+            </>
+          ) : null}
+          {beerRows.length ? (
+            <>
+              <div className="flex items-end justify-between px-4 pb-1.5 pt-5">
+                <p className="text-[13px] text-label-2">
+                  {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.map((s) => s.name).join(", ")}
+                </p>
+                <Link href="/beers" className="text-[13px] font-medium text-accent">
+                  All Tap Beers
+                </Link>
+              </div>
+              <div className="group-list">
+                {beerRows.map(({ b, cs, worst }) => (
+                  <Row
+                    key={b.id}
+                    href={`/beers/${b.id}`}
+                    title={<span className={cx(!b.active && "text-label-2")}>{b.name}</span>}
+                    sub={[!venue ? VENUE_SHORT[store.venueById.get(b.venue_id)?.slug ?? ""] : null, cs.map((c) => (c.sellInc != null ? money(c.sellInc) : "—")).join(" · ")].filter(Boolean).join(" · ")}
+                    trailing={
+                      worst?.gpPct != null ? (
+                        <span className={cx("flex items-center gap-1.5 font-semibold", worst.underTarget ? "text-danger" : "text-label")}>
+                          {worst.underTarget ? <Dot className="bg-danger" /> : null}
+                          {gp(worst.gpPct)}
+                        </span>
+                      ) : null
+                    }
+                    chevron
+                  />
                 ))}
               </div>
             </>

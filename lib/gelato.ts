@@ -22,12 +22,14 @@ export function virtualItemId(prepId: string, serveId: string): string {
   return `${VIRTUAL_PREFIX}${prepId}~${serveId}`;
 }
 
+/** Any computed (not stored) menu item: a gelato flavour × serve or a tap beer × serve. */
 export function isVirtualItemId(id: string | null | undefined): boolean {
-  return !!id && id.startsWith(VIRTUAL_PREFIX);
+  return !!id && (id.startsWith(VIRTUAL_PREFIX) || id.startsWith("beer~"));
 }
 
+/** Gelato flavour × serve ids only. */
 export function parseVirtualItemId(id: string): { prepId: string; serveId: string } | null {
-  if (!isVirtualItemId(id)) return null;
+  if (!id.startsWith(VIRTUAL_PREFIX)) return null;
   const [prepId, serveId] = id.slice(VIRTUAL_PREFIX.length).split("~");
   return prepId && serveId ? { prepId, serveId } : null;
 }

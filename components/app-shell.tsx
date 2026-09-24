@@ -7,7 +7,6 @@ import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settin
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
-import { VenueList, VenueSync } from "./venue";
 import { PrecinctMark } from "./brand";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
 
@@ -24,7 +23,7 @@ const MORE = [
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/recipes") return pathname.startsWith("/recipes") || pathname.startsWith("/items") || pathname.startsWith("/preps");
+  if (href === "/recipes") return pathname.startsWith("/recipes") || pathname.startsWith("/beers") || pathname.startsWith("/items") || pathname.startsWith("/preps");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -58,10 +57,6 @@ function Sidebar() {
         <kbd className="rounded bg-surface px-1.5 py-0.5 font-sans text-[11px] text-label-2">⌘K</kbd>
       </button>
       <nav className="space-y-0.5">{MAIN.map(link)}</nav>
-      <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">Venue</p>
-      <Suspense fallback={null}>
-        <VenueList />
-      </Suspense>
       <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">More</p>
       <nav className="space-y-0.5">{MORE.map(link)}</nav>
       <div className="mt-auto px-2.5">
@@ -185,9 +180,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <StoreProvider>
       <ToastProvider>
         <NewRecipeProvider>
-          <Suspense fallback={null}>
-            <VenueSync />
-          </Suspense>
           <Sidebar />
           <Suspense fallback={null}>
             <Frame>{children}</Frame>

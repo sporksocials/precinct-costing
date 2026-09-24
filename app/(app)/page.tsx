@@ -11,7 +11,7 @@ import { DataTable } from "@/components/table";
 import { SetPriceButton } from "@/components/price-actions";
 import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueStrip, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
 import { PrecinctMark, VenueLogo } from "@/components/brand";
 
@@ -49,7 +49,7 @@ function Split({ s, className }: { s: GpSummary; className?: string }) {
 
 export default function HomePage() {
   const store = useStore();
-  const { venue, setVenue } = useVenue();
+  const { venue } = useVenue();
   const newRecipe = useNewRecipe();
 
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
@@ -70,7 +70,7 @@ export default function HomePage() {
         <p aria-hidden className="display hidden text-[44px] text-label lg:block">{venue ? venue.name : "All Venues"}</p>
       </header>
 
-      <VenueStrip className="mb-4 lg:hidden" />
+      <VenueFilter className="mb-4" />
 
       {/* 1. headline */}
       <section className="relative overflow-hidden rounded-3xl bg-surface px-5 pb-6 pt-6 lg:px-8 lg:pt-8">
@@ -104,7 +104,7 @@ export default function HomePage() {
           <h2 className="px-1 text-[22px] font-bold tracking-tight">By Venue</h2>
           <div className="anim-stagger mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {perVenue.map(({ v, s, under }) => (
-              <VenueCard key={v.id} v={v} s={s} under={under} onOpen={() => setVenue(v.slug)} onAdd={() => newRecipe.open({ venueId: v.id })} />
+              <VenueCard key={v.id} v={v} s={s} under={under} onAdd={() => newRecipe.open({ venueId: v.id })} />
             ))}
           </div>
         </section>
@@ -291,11 +291,11 @@ function rowName(r: UnderRow): string {
   return `${r.cost.item.section} (${r.cost.item.name.split(" - ")[0]}${r.flavours > 1 ? ` +${r.flavours - 1}` : ""})`;
 }
 
-function VenueCard({ v, s, under, onOpen, onAdd }: { v: Venue; s: GpSummary; under: UnderRow[]; onOpen: () => void; onAdd: () => void }) {
+function VenueCard({ v, s, under, onAdd }: { v: Venue; s: GpSummary; under: UnderRow[]; onAdd: () => void }) {
   const gelato = v.slug === "gelato";
   return (
     <div className={cx(`v-${v.slug}`, "relative flex flex-col overflow-hidden rounded-2xl bg-surface")}>
-      <button type="button" onClick={onOpen} aria-label={`${v.name}: open`} className="block w-full px-4 pb-3 pt-5 text-left transition duration-200 hover:bg-surface-2 active:scale-[0.99]">
+      <Link href={`/?venue=${v.slug}`} aria-label={`${v.name}: open`} className="block w-full px-4 pb-3 pt-5 text-left transition duration-200 hover:bg-surface-2 active:scale-[0.99]">
         <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-accent-fill" />
         <span className="flex h-[52px] items-center">
           <VenueLogo slug={v.slug} height={40} />
@@ -312,7 +312,7 @@ function VenueCard({ v, s, under, onOpen, onAdd }: { v: Venue; s: GpSummary; und
             <span className="mt-0.5 block text-[13px] text-label-2">No recipes yet</span>
           </>
         )}
-      </button>
+      </Link>
       {s.count ? (
         <p className={cx("mt-auto px-4 pb-4 text-[13px]", under.length ? "text-danger" : "text-label-2")}>
           {under.length ? `${under.length} below target` : "All on target"}

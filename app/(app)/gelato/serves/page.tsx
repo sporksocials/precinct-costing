@@ -32,7 +32,7 @@ export default function GelatoServesPage() {
   if (!venue) return <PageHeader title="Serves" subtitle="There’s no Gelato Rumba venue in the system." />;
 
   return (
-    <div className="v-gelato max-w-2xl">
+    <div className="max-w-2xl">
       <div className="pt-2 lg:pt-6">
         <Link href="/gelato" className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />

@@ -1,63 +1,27 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { VenueLogo } from "./brand";
+import { useCallback, useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
 import { cx } from "./ui";
 
-const KEY = "precinct-venue";
-const EVT = "precinct-venue";
-
 export const VENUE_SHORT: Record<string, string> = { drift: "Drift", chiobu: "Chiobu", greedy: "Greedy", gelato: "Gelato" };
 
-function readLs(): string {
-  try {
-    return window.localStorage.getItem(KEY) || "all";
-  } catch {
-    return "all";
-  }
-}
-function writeLs(slug: string) {
-  try {
-    window.localStorage.setItem(KEY, slug);
-  } catch {
-    /* ignore */
-  }
-  window.dispatchEvent(new Event(EVT));
-}
-
-function useStoredVenue(): string {
-  return useSyncExternalStore(
-    (cb) => {
-      window.addEventListener(EVT, cb);
-      window.addEventListener("storage", cb);
-      return () => {
-        window.removeEventListener(EVT, cb);
-        window.removeEventListener("storage", cb);
-      };
-    },
-    readLs,
-    () => "all",
-  );
-}
-
-/** Selected venue: ?venue=slug in the URL, falling back to the last choice (localStorage). Null = all venues. */
-export function useVenue(): { venue: Venue | null; slug: string; setVenue: (slug: string) => void; venues: Venue[]; hasUrl: boolean } {
+/**
+ * The venue filter: ?venue=slug in the URL and nothing else (no stored choice, no silent restore).
+ * Absent or unknown means All. Only pages that render <VenueFilter> read it.
+ */
+export function useVenue(): { venue: Venue | null; slug: string; setVenue: (slug: string) => void; venues: Venue[] } {
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const { venues } = useStore();
-  const stored = useStoredVenue();
-  const urlSlug = params.get("venue");
-  const raw = urlSlug ?? stored;
-  const venue = venues.find((v) => v.slug === raw) ?? null;
+  const venue = venues.find((v) => v.slug === params.get("venue")) ?? null;
   const slug = venue ? venue.slug : "all";
 
   const setVenue = useCallback(
     (next: string) => {
-      writeLs(next || "all");
       const p = new URLSearchParams(params.toString());
       if (!next || next === "all") p.delete("venue");
       else p.set("venue", next);
@@ -67,92 +31,66 @@ export function useVenue(): { venue: Venue | null; slug: string; setVenue: (slug
     [params, router, pathname],
   );
 
-  return { venue, slug, setVenue, venues, hasUrl: urlSlug != null };
+  return { venue, slug, setVenue, venues };
 }
 
-/** Keeps <html data-venue> (accent colour) and localStorage in step with the URL. */
-export function VenueSync() {
-  const params = useSearchParams();
-  const stored = useStoredVenue();
-  const urlSlug = params.get("venue");
-  const slug = urlSlug ?? stored;
+/** `?venue=slug` suffix for links that should keep the current filter ("" when All). */
+export function venueQuery(venue: Venue | null | undefined): string {
+  return venue ? `?venue=${venue.slug}` : "";
+}
+
+/** Sets the accent colour (<html data-venue>) while mounted; back to the neutral sand accent on unmount. */
+function useAccent(slug: string) {
   useEffect(() => {
-    document.documentElement.setAttribute("data-venue", slug || "all");
-    if (urlSlug && urlSlug !== readLs()) writeLs(urlSlug);
-  }, [slug, urlSlug]);
+    document.documentElement.setAttribute("data-venue", slug);
+    return () => document.documentElement.setAttribute("data-venue", "all");
+  }, [slug]);
+}
+
+/** For record pages (menu item, prep, beer, gelato serve): the accent is the record's own venue; sand when it has none. */
+export function VenueAccent({ slug }: { slug: string | null | undefined }) {
+  useAccent(slug || "all");
   return null;
 }
 
 /**
- * The venue picker, always in view: All + the four venue logos as one row of tiles.
- * The chosen tile sits on its venue's masthead colours; the others are dimmed until touched.
+ * The visible venue filter for Home, Recipes and Beers: All / Drift / Chiobu / Greedy / Gelato,
+ * each with its colour dot and name. Scrolls sideways if it ever runs out of room.
+ * While it is on screen, the app accent follows the chosen venue; leave the page and it goes back to sand.
  */
-const TILE_H: Record<string, number> = { drift: 27, chiobu: 25, greedy: 24, gelato: 27 };
-
-export function VenueStrip({ className }: { className?: string }) {
+export function VenueFilter({ className }: { className?: string }) {
   const { slug, setVenue, venues } = useVenue();
-  const tiles = [{ slug: "all", name: "All Venues" }, ...venues.map((v) => ({ slug: v.slug, name: v.name }))];
+  useAccent(slug);
+  const ref = useRef<HTMLDivElement>(null);
+  // keep the chosen venue in view when the row scrolls (phones)
+  useEffect(() => {
+    ref.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [slug]);
+  const options = [{ slug: "all", name: "All" }, ...venues.map((v) => ({ slug: v.slug, name: VENUE_SHORT[v.slug] ?? v.name }))];
   return (
-    <div role="radiogroup" aria-label="Venue" className={cx("grid grid-cols-5 gap-1.5 rounded-2xl bg-surface p-1.5 lg:gap-2", className)}>
-      {tiles.map((t) => {
-        const on = slug === t.slug;
-        return (
-          <button
-            key={t.slug}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            aria-label={t.name}
-            title={t.name}
-            onClick={() => setVenue(t.slug)}
-            className={cx(
-              t.slug !== "all" && `v-${t.slug}`,
-              "group relative flex h-16 items-center justify-center overflow-hidden rounded-xl px-1 transition duration-200 ease-ios active:scale-[0.96] lg:h-16",
-              on ? (t.slug === "all" ? "bg-surface-2" : "masthead") : "hover:bg-fill",
-            )}
-          >
-            {t.slug === "all" ? (
-              <span className={cx("display text-[26px] leading-none transition-opacity", on ? "text-label opacity-100" : "text-label opacity-55 group-hover:opacity-85")}>All</span>
-            ) : (
-              <span className={cx("flex max-w-full items-center justify-center transition-opacity [&_img]:max-w-full", on ? "opacity-100" : "opacity-55 group-hover:opacity-85")}>
-                <VenueLogo slug={t.slug} height={TILE_H[t.slug] ?? 22} className="object-center" />
-              </span>
-            )}
-            <span aria-hidden className={cx("absolute inset-x-2 bottom-1 h-[3px] rounded-full transition-opacity", t.slug === "all" ? "precinct-strip" : "bg-accent-fill", on ? "opacity-100" : "opacity-0")} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Desktop sidebar version: one row per venue, logo + name, the chosen one highlighted. */
-export function VenueList({ className }: { className?: string }) {
-  const { slug, setVenue, venues } = useVenue();
-  const rows = [{ slug: "all", name: "All Venues" }, ...venues.map((v) => ({ slug: v.slug, name: VENUE_SHORT[v.slug] ?? v.name }))];
-  return (
-    <div role="radiogroup" aria-label="Venue" className={cx("space-y-0.5", className)}>
-      {rows.map((r) => {
-        const on = slug === r.slug;
-        return (
-          <button
-            key={r.slug}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            onClick={() => setVenue(r.slug)}
-            className={cx(
-              r.slug !== "all" && `v-${r.slug}`,
-              "relative flex h-10 w-full items-center gap-2.5 overflow-hidden rounded-lg px-2.5 text-left text-[15px] transition-colors",
-              on ? "bg-fill-2 font-semibold" : "text-label-2 hover:bg-fill hover:text-label",
-            )}
-          >
-            <span aria-hidden className={cx("h-2.5 w-2.5 shrink-0 rounded-full", r.slug === "all" ? "precinct-strip" : "bg-accent-fill", !on && "opacity-60")} />
-            {r.name}
-            {on ? <span aria-hidden className={cx("absolute inset-y-2 left-0 w-[3px] rounded-full", r.slug === "all" ? "bg-sand" : "bg-accent-fill")} /> : null}
-          </button>
-        );
-      })}
+    <div ref={ref} role="radiogroup" aria-label="Venue" className={cx("no-scrollbar -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0", className)}>
+      <div className="flex w-max min-w-full gap-1 rounded-[12px] bg-fill p-[3px] sm:w-full">
+        {options.map((o) => {
+          const on = o.slug === slug;
+          return (
+            <button
+              key={o.slug}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setVenue(o.slug)}
+              className={cx(
+                o.slug !== "all" && `v-${o.slug}`,
+                "flex min-h-[44px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3.5 text-[15px] font-medium transition-[background-color,box-shadow,color] duration-200 ease-ios active:scale-[0.98] lg:min-h-[38px]",
+                on ? "bg-elevated text-label shadow-[0_1px_3px_rgba(0,0,0,0.35),0_0_0_0.5px_rgba(255,255,255,0.04)]" : "text-label-2 hover:text-label",
+              )}
+            >
+              <span aria-hidden className={cx("h-2.5 w-2.5 shrink-0 rounded-full", o.slug === "all" ? "precinct-strip" : "bg-accent-fill", !on && "opacity-70")} />
+              {o.name}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

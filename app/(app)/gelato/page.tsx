@@ -52,9 +52,9 @@ export default function GelatoPage() {
   if (!venue) return <Empty title="Gelato Rumba Isn’t Set Up" body="There’s no Gelato Rumba venue in the system." />;
 
   return (
-    <div className="v-gelato">
+    <div>
       <PageHeader
-        title="Gelato"
+        title={venue.name}
         subtitle={`${g.flavours.filter((f) => f.active).length} flavours · ${g.serves.length} serves · target ${gp(target, 0)} · ${gp(store.settings.gelato_wastage, 0)} wastage`}
         trailing={
           <>

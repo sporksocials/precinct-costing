@@ -26,6 +26,7 @@ import {
   type PortalPrice,
   type Prep,
   type PriceLog,
+  type SellPriceLog,
   type RecipeLine,
   type Setting,
   type Special,
@@ -89,6 +90,35 @@ async function fetchAll<T>(sb: SupabaseClient, table: string, order: string, sin
     from += PAGE;
   }
   return out;
+}
+
+export interface SellPriceLogFilter {
+  kind: SellPriceLog["kind"];
+  /** menu item id (kind "item") */
+  itemId?: string;
+  /** beer id (kind "beer_serve") */
+  beerId?: string;
+  /** beer serve id or gelato serve id */
+  serveId?: string;
+  limit?: number;
+}
+
+/**
+ * Loads sell price history on demand (never at startup). Newest first.
+ * Returns [] if the table doesn't exist yet or the request fails, so screens never crash before the migration is applied.
+ */
+export async function fetchSellPriceLog(sb: SupabaseClient, f: SellPriceLogFilter): Promise<SellPriceLog[]> {
+  try {
+    let q = sb.from("cost_sell_price_log").select("*").eq("kind", f.kind);
+    if (f.itemId) q = q.eq("item_id", f.itemId);
+    if (f.beerId) q = q.eq("beer_id", f.beerId);
+    if (f.serveId) q = q.eq("serve_id", f.serveId);
+    const { data, error } = await q.order("changed_at", { ascending: false }).limit(f.limit ?? 50);
+    if (error) return [];
+    return (data ?? []) as SellPriceLog[];
+  } catch {
+    return [];
+  }
 }
 
 export interface StoreData {

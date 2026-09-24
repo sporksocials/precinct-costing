@@ -214,3 +214,23 @@ export const DEFAULT_SETTINGS: CostingSettings = {
 };
 
 export const DEFAULT_TARGET_GP = 0.7;
+
+export type SellPriceKind = "item" | "beer_serve" | "gelato_serve";
+
+/** One logged change to a sell price (written by DB triggers; cost_sell_price_log). */
+export interface SellPriceLog {
+  id: number;
+  kind: SellPriceKind;
+  item_id: string | null;
+  beer_id: string | null;
+  serve_id: string | null;
+  venue_id: number | null;
+  old_price: number | null;
+  new_price: number | null;
+  old_hh_price: number | null;
+  new_hh_price: number | null;
+  cost_per_portion: number | null;
+  gp_pct: number | null;
+  changed_by: string | null;
+  changed_at: string;
+}

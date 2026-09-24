@@ -11,7 +11,7 @@ import { indexDoc, search } from "@/lib/search";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
 import type { ItemCost, PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueSwitcher, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueStrip, VENUE_SHORT } from "@/components/venue";
 import { Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
@@ -118,13 +118,13 @@ export default function RecipesPage() {
         title="Recipes"
         trailing={
           <>
-            <VenueSwitcher className="lg:hidden" />
             <button type="button" className="btn-primary hidden lg:inline-flex" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
               <Plus className="h-4 w-4" strokeWidth={2.5} /> {tab === "preps" ? "New Prep" : "New Menu Item"}
             </button>
           </>
         }
       />
+      <VenueStrip className="mb-4 lg:hidden" />
       <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
         <Segmented
           ariaLabel="Recipe type"

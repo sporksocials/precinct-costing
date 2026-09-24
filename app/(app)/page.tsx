@@ -11,7 +11,7 @@ import { DataTable } from "@/components/table";
 import { SetPriceButton } from "@/components/price-actions";
 import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueSwitcher, VENUE_SHORT } from "@/components/venue";
+import { useVenue, VenueStrip, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
 import { PrecinctMark, VenueLogo } from "@/components/brand";
 
@@ -64,10 +64,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <div className="flex h-12 items-center justify-end lg:hidden">
-        <VenueSwitcher />
-      </div>
-      <header className="pb-5 lg:pt-8">
+      <header className="pb-4 pt-3 lg:pt-8">
         {venue ? (
           <>
             <h1 className="sr-only">{venue.name}</h1>
@@ -86,6 +83,8 @@ export default function HomePage() {
           </>
         )}
       </header>
+
+      <VenueStrip className="mb-4 lg:hidden" />
 
       {/* 1. headline */}
       <section className="relative overflow-hidden rounded-3xl bg-surface px-5 pb-6 pt-6 lg:px-8 lg:pt-8">

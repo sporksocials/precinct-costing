@@ -1,12 +1,11 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { VenueLogo } from "./brand";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
-import { cx, Sheet } from "./ui";
+import { cx } from "./ui";
 
 const KEY = "precinct-venue";
 const EVT = "precinct-venue";
@@ -85,74 +84,76 @@ export function VenueSync() {
 }
 
 /**
- * The one venue switcher. Shows where you are (the venue's logo, or "All Venues") and opens a
- * sheet to switch. The whole app follows the choice; it is remembered and kept in the URL.
+ * The venue picker, always in view: All + the four venue logos as one row of tiles.
+ * The chosen tile sits on its venue's masthead colours; the others are dimmed until touched.
  */
-export function VenueSwitcher({ variant = "pill", className }: { variant?: "pill" | "card"; className?: string }) {
-  const { venue, slug, setVenue, venues } = useVenue();
-  const [open, setOpen] = useState(false);
-  const pick = (s: string) => {
-    setVenue(s);
-    setOpen(false);
-  };
-  const trigger =
-    variant === "card" ? (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={`Venue: ${venue?.name ?? "All Venues"}. Change venue`}
-        className={cx(venue ? `v-${venue.slug} masthead` : "bg-surface", "relative flex h-[68px] w-full items-center gap-3 overflow-hidden rounded-xl px-3.5 text-left transition hover:brightness-110 active:scale-[0.99]", className)}
-      >
-        {venue ? <VenueLogo slug={venue.slug} height={30} /> : <span className="text-[15px] font-semibold">All Venues</span>}
-        <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-label/70" strokeWidth={2.25} aria-hidden />
-        <span aria-hidden className={cx("absolute inset-x-0 bottom-0 h-1", venue ? "masthead-strip" : "precinct-strip")} />
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={`Venue: ${venue?.name ?? "All Venues"}. Change venue`}
-        className={cx(venue ? `v-${venue.slug}` : "", "inline-flex h-10 items-center gap-2 rounded-full bg-surface pl-3 pr-2.5 text-[15px] font-semibold shadow-[inset_0_0_0_0.5px_var(--separator)] transition active:scale-[0.97]", className)}
-      >
-        <span aria-hidden className={cx("h-2.5 w-2.5 rounded-full", venue ? "bg-accent-fill" : "precinct-strip")} />
-        <span className="max-w-[9rem] truncate">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "All Venues"}</span>
-        <ChevronDown className="h-4 w-4 text-label-2" strokeWidth={2.5} aria-hidden />
-      </button>
-    );
+const TILE_H: Record<string, number> = { drift: 27, chiobu: 25, greedy: 24, gelato: 27 };
+
+export function VenueStrip({ className }: { className?: string }) {
+  const { slug, setVenue, venues } = useVenue();
+  const tiles = [{ slug: "all", name: "All Venues" }, ...venues.map((v) => ({ slug: v.slug, name: v.name }))];
   return (
-    <>
-      {trigger}
-      <Sheet open={open} onClose={() => setOpen(false)} title="Venue" cancelLabel={null} action={{ label: "Done", onClick: () => setOpen(false) }} size="sm">
-        <div className="space-y-2 pb-2 pt-3">
+    <div role="radiogroup" aria-label="Venue" className={cx("grid grid-cols-5 gap-1.5 rounded-2xl bg-surface p-1.5 lg:gap-2", className)}>
+      {tiles.map((t) => {
+        const on = slug === t.slug;
+        return (
           <button
+            key={t.slug}
             type="button"
-            onClick={() => pick("all")}
-            className="relative flex h-[72px] w-full items-center gap-3 overflow-hidden rounded-2xl bg-surface px-4 text-left transition active:scale-[0.99]"
+            role="radio"
+            aria-checked={on}
+            aria-label={t.name}
+            title={t.name}
+            onClick={() => setVenue(t.slug)}
+            className={cx(
+              t.slug !== "all" && `v-${t.slug}`,
+              "group relative flex h-16 items-center justify-center overflow-hidden rounded-xl px-1 transition duration-200 ease-ios active:scale-[0.96] lg:h-16",
+              on ? (t.slug === "all" ? "bg-surface-2" : "masthead") : "hover:bg-fill",
+            )}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/precinct.png" alt="" className="h-11 w-auto" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[17px] font-semibold">All Venues</span>
-              <span className="block text-[13px] text-label-2">Caloundra Food Precinct</span>
-            </span>
-            {slug === "all" ? <Check className="h-5 w-5 text-sand" strokeWidth={2.5} /> : null}
-            <span aria-hidden className="precinct-strip absolute inset-x-0 bottom-0 h-1" />
+            {t.slug === "all" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/brand/precinct.png" alt="" className={cx("h-9 w-auto transition-opacity", on ? "opacity-100" : "opacity-55 group-hover:opacity-85")} draggable={false} />
+            ) : (
+              <span className={cx("flex max-w-full items-center justify-center transition-opacity [&_img]:max-w-full", on ? "opacity-100" : "opacity-55 group-hover:opacity-85")}>
+                <VenueLogo slug={t.slug} height={TILE_H[t.slug] ?? 22} className="object-center" />
+              </span>
+            )}
+            <span aria-hidden className={cx("absolute inset-x-2 bottom-1 h-[3px] rounded-full transition-opacity", t.slug === "all" ? "precinct-strip" : "bg-accent-fill", on ? "opacity-100" : "opacity-0")} />
           </button>
-          {venues.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => pick(v.slug)}
-              className={cx(`v-${v.slug}`, "masthead relative flex h-[72px] w-full items-center gap-3 overflow-hidden rounded-2xl px-4 text-left transition active:scale-[0.99]")}
-            >
-              <VenueLogo slug={v.slug} height={34} />
-              <span className="sr-only">{v.name}</span>
-              <span className="ml-auto">{slug === v.slug ? <Check className="h-5 w-5 text-accent" strokeWidth={2.5} /> : null}</span>
-              <span aria-hidden className="masthead-strip absolute inset-x-0 bottom-0 h-1" />
-            </button>
-          ))}
-        </div>
-      </Sheet>
-    </>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Desktop sidebar version: one row per venue, logo + name, the chosen one highlighted. */
+export function VenueList({ className }: { className?: string }) {
+  const { slug, setVenue, venues } = useVenue();
+  const rows = [{ slug: "all", name: "All Venues" }, ...venues.map((v) => ({ slug: v.slug, name: VENUE_SHORT[v.slug] ?? v.name }))];
+  return (
+    <div role="radiogroup" aria-label="Venue" className={cx("space-y-0.5", className)}>
+      {rows.map((r) => {
+        const on = slug === r.slug;
+        return (
+          <button
+            key={r.slug}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => setVenue(r.slug)}
+            className={cx(
+              r.slug !== "all" && `v-${r.slug}`,
+              "relative flex h-10 w-full items-center gap-2.5 overflow-hidden rounded-lg px-2.5 text-left text-[15px] transition-colors",
+              on ? "bg-fill-2 font-semibold" : "text-label-2 hover:bg-fill hover:text-label",
+            )}
+          >
+            <span aria-hidden className={cx("h-2.5 w-2.5 shrink-0 rounded-full", r.slug === "all" ? "precinct-strip" : "bg-accent-fill", !on && "opacity-60")} />
+            {r.name}
+            {on ? <span aria-hidden className={cx("absolute inset-y-2 left-0 w-[3px] rounded-full", r.slug === "all" ? "bg-sand" : "bg-accent-fill")} /> : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }

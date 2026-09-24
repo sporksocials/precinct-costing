@@ -7,7 +7,7 @@ import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settin
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
-import { VenueSwitcher, VenueSync } from "./venue";
+import { VenueList, VenueSync } from "./venue";
 import { PrecinctMark } from "./brand";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
 
@@ -51,15 +51,17 @@ function Sidebar() {
       <Link href="/" className="mb-5 block px-2.5" aria-label="Caloundra Food Precinct Costing: Home">
         <PrecinctMark size="sm" sub="Costing" />
       </Link>
-      <Suspense fallback={null}>
-        <VenueSwitcher variant="card" className="mb-3" />
-      </Suspense>
+
       <button type="button" onClick={openSearch} className="mb-4 flex h-9 items-center gap-2 rounded-lg bg-fill px-2.5 text-[15px] text-label-2 hover:bg-fill-2">
         <Search className="h-4 w-4" strokeWidth={2.25} />
         <span className="flex-1 text-left">Search</span>
         <kbd className="rounded bg-surface px-1.5 py-0.5 font-sans text-[11px] text-label-2">⌘K</kbd>
       </button>
       <nav className="space-y-0.5">{MAIN.map(link)}</nav>
+      <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">Venue</p>
+      <Suspense fallback={null}>
+        <VenueList />
+      </Suspense>
       <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">More</p>
       <nav className="space-y-0.5">{MORE.map(link)}</nav>
       <div className="mt-auto px-2.5">

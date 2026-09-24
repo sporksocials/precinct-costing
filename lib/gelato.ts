@@ -1,5 +1,5 @@
-import { costLines, gpFromPrice, suggestedPrice, UNIT_FACTORS, unitBase, type CostingIndex } from "./costing";
-import type { CostingSettings, GelatoServe, GelatoServeLine, MenuItem, Prep, RecipeLine, Venue } from "./types";
+import { costLines, gpFromPrice, resolveTargetGp, suggestedPrice, SUSPICIOUS_GP, UNIT_FACTORS, unitBase, type CostingIndex } from "./costing";
+import type { CostingSettings, GelatoServe, GelatoServeLine, MenuItem, Prep, RecipeLine, Target, Venue } from "./types";
 
 /**
  * Gelato Rumba: a flavour is its mix (a prep). Every flavour is sold in the same serves
@@ -46,6 +46,15 @@ export function batchWeightKg(lines: Pick<RecipeLine, "qty" | "unit">[]): number
   return Math.round(kg * 100000) / 100000;
 }
 
+/**
+ * The ONE gelato target resolver: the serve's own target_gp, else the venue's Gelato category target
+ * (else the default). Panel, page and virtual items all use this so they agree.
+ */
+export function resolveGelatoTarget(serve: Pick<GelatoServe, "target_gp"> | null | undefined, venueId: number, targets: Target[]): number {
+  if (serve?.target_gp != null && !Number.isNaN(Number(serve.target_gp))) return Number(serve.target_gp);
+  return resolveTargetGp({ venue_id: venueId, category: "Gelato", target_override: null }, targets);
+}
+
 export interface GelatoModel {
   venue: Venue | null;
   /** active serves, in menu order */
@@ -64,6 +73,8 @@ export function buildGelato(input: {
   serves: GelatoServe[];
   serveLines: GelatoServeLine[];
   wastage: number;
+  /** when given, each virtual item's target_override is pinned to resolveGelatoTarget (same value costItem would resolve) */
+  targets?: Target[];
 }): GelatoModel {
   const venue = input.venues.find((v) => v.slug === GELATO_SLUG) ?? null;
   const empty: GelatoModel = { venue, serves: [], flavours: [], items: [], lines: [], replacedItemIds: new Set() };
@@ -92,7 +103,7 @@ export function buildGelato(input: {
         section: s.name,
         portions: 1,
         sell_price_inc: s.sell_price_inc,
-        target_override: s.target_gp != null ? Number(s.target_gp) : null,
+        target_override: input.targets ? resolveGelatoTarget(s, venue.id, input.targets) : s.target_gp != null ? Number(s.target_gp) : null,
         hh_price_inc: null,
         active: f.active && s.active,
         source: "gelato",
@@ -149,6 +160,8 @@ export interface ServeCost {
   gpPct: number | null;
   suggestedInc: number;
   underTarget: boolean;
+  /** cost sanity flags, same idea as ItemCost.costWarnings */
+  costWarnings: string[];
 }
 
 /** Cost one serve of a mix costing `mixCostPerKg` (ex GST). Used for live previews before a mix is saved. */
@@ -165,8 +178,15 @@ export function costServe(
   const mixCost = (mixGrams / 1000) * mixCostPerKg;
   const packagingCost = costLines(packagingLines(serve.id, serveLines), index, settings.gst_rate).total;
   const cost = mixCost + packagingCost;
+  const costWarnings: string[] = [];
+  for (const l of costLines(packagingLines(serve.id, serveLines), index, settings.gst_rate).lines) {
+    if (l.costIssue) costWarnings.push(`Zero cost line, ${l.costIssue}`);
+  }
+  if (!(mixCostPerKg > 0)) costWarnings.push("Mix costs $0 per kg");
+  if (!(Number(serve.grams) > 0)) costWarnings.push("Serve grams is 0");
   const price = serve.sell_price_inc != null ? Number(serve.sell_price_inc) : null;
   const gpPct = price && price > 0 ? gpFromPrice(cost, price, settings.gst_rate).gpPct : null;
+  if (gpPct != null && gpPct > SUSPICIOUS_GP) costWarnings.push(`GP is ${Math.round(gpPct * 100)}%, check the recipe cost`);
   return {
     serve,
     mixGrams,
@@ -176,5 +196,6 @@ export function costServe(
     gpPct,
     suggestedInc: suggestedPrice(cost, targetGp, settings.gst_rate, settings.round_to),
     underTarget: gpPct != null && gpPct < targetGp - 1e-9,
+    costWarnings,
   };
 }

@@ -40,8 +40,12 @@ describe("ingredient pricing", () => {
     expect(ingredientExGstPackPrice(ing({ pack_price: 11, price_inc_gst: true, gst_free: true }), 0.1)).toBeCloseTo(11);
   });
   it("computes cost per base unit with rebate and yield", () => {
-    // 22 inc → 20 ex, rebate 2 → 18, /10kg → 1.8, /0.9 yield → 2
-    expect(ingredientCostPerBase(ing({ rebate: 2, yield_pct: 0.9 }), 0.1)).toBeCloseTo(2);
+    // inc-GST basis: rebate is inc-GST too. (22 - 2) / 1.1 = 18.18 ex, /10kg, /0.9 yield → 2.0202
+    expect(ingredientCostPerBase(ing({ rebate: 2, yield_pct: 0.9 }), 0.1)).toBeCloseTo(2.0202, 3);
+    // ex-GST price: rebate used as entered. (20 - 2) / 10 / 0.9 = 2
+    expect(ingredientCostPerBase(ing({ pack_price: 20, price_inc_gst: false, rebate: 2, yield_pct: 0.9 }), 0.1)).toBeCloseTo(2);
+    // GST-free price: no conversion either
+    expect(ingredientCostPerBase(ing({ pack_price: 20, gst_free: true, rebate: 2, yield_pct: 0.9 }), 0.1)).toBeCloseTo(2);
   });
 });
 

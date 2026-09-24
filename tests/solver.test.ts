@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gpForPrice, parseGpInput, parsePriceInput, priceForGp } from "@/lib/solver";
+import { gpForPrice, parseGpInput, parsePercentInput, parsePriceInput, priceForGp } from "@/lib/solver";
 
 const GST = 0.1;
 
@@ -34,6 +34,18 @@ describe("GP ↔ price solver", () => {
       const gp = gpForPrice(4.2, price, GST)!;
       expect(priceForGp(4.2, gp - 1e-12, GST, 0.5)).toBe(price);
     }
+  });
+
+  it("treats a bare number >= 1 as percent points and 0 < x < 1 as a fraction", () => {
+    expect(parseGpInput("72")).toBeCloseTo(0.72);
+    expect(parseGpInput("1")).toBeCloseTo(0.01);
+    expect(parseGpInput("5")).toBeCloseTo(0.05);
+    expect(parseGpInput("100")).toBe(1);
+    expect(parseGpInput("0.72")).toBeCloseTo(0.72);
+    expect(parseGpInput("0")).toBe(0);
+    expect(parseGpInput("-5")).toBeNull();
+    expect(parseGpInput("1%")).toBeCloseTo(0.01);
+    expect(parsePercentInput("90")).toBeCloseTo(0.9);
   });
 
   it("parses typed values", () => {

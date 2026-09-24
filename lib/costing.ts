@@ -43,13 +43,32 @@ export function ingredientExGstPackPrice(ing: Pick<Ingredient, "pack_price" | "g
   return price;
 }
 
+/**
+ * Ex-GST rebate per pack. ASSUMPTION: the rebate is typed on the same basis as the pack price
+ * (a supplier rebate off an inc-GST price is itself inc-GST), so it is divided by (1 + gst) when
+ * the price is inc-GST and not GST-free. Otherwise it is used as entered.
+ */
+export function ingredientExGstRebate(ing: Pick<Ingredient, "rebate" | "gst_free" | "price_inc_gst">, gst: number): number {
+  const rebate = Number(ing.rebate) || 0;
+  if (!ing.gst_free && ing.price_inc_gst) return rebate / (1 + gst);
+  return rebate;
+}
+
+/** Why an ingredient prices at $0 per unit (null when it prices normally). */
+export function ingredientCostIssue(ing: Pick<Ingredient, "pack_price" | "pack_size" | "yield_pct">): string | null {
+  if (!(Number(ing.pack_price) > 0)) return "pack price is 0";
+  if (!(Number(ing.pack_size) > 0)) return "pack size is 0";
+  if (!(Number(ing.yield_pct) > 0)) return "yield is 0";
+  return null;
+}
+
 /** Cost per base unit (per kg / per L / per each) after rebate and yield. */
 export function ingredientCostPerBase(
   ing: Pick<Ingredient, "pack_price" | "gst_free" | "price_inc_gst" | "rebate" | "pack_size" | "yield_pct">,
   gst: number,
 ): number {
   const ex = ingredientExGstPackPrice(ing, gst);
-  const rebate = Number(ing.rebate) || 0;
+  const rebate = ingredientExGstRebate(ing, gst);
   const size = Number(ing.pack_size) || 0;
   const yieldPct = Number(ing.yield_pct) || 0;
   if (size <= 0 || yieldPct <= 0) return 0;
@@ -71,6 +90,8 @@ export interface LineCost {
   /** cost of this line (qty × factor × unitCost) */
   cost: number;
   warning: LineWarning | null;
+  /** set when the line has a quantity but its component costs $0 (bad price, pack size, yield or empty prep) */
+  costIssue?: string | null;
 }
 
 export interface RecipeCost {
@@ -129,6 +150,7 @@ export function costLines(
     let componentName = "(missing)";
     let componentBase: PackUnit | null = null;
     let warning: LineWarning | null = null;
+    let costIssue: string | null = null;
 
     if (line.component_type === "ingredient") {
       const ing = index.ingredients.get(line.component_id);
@@ -138,6 +160,7 @@ export function costLines(
         componentName = ing.name;
         componentBase = ing.pack_unit;
         unitCost = ingredientCostPerBase(ing, gst);
+        if (unitCost <= 0 && qty > 0) costIssue = `${ing.name}: ${ingredientCostIssue(ing) ?? "costs $0"}`;
       }
     } else {
       const prep = index.preps.get(line.component_id);
@@ -153,6 +176,7 @@ export function costLines(
         } else {
           const pc = costPrep(prep, index, gst, stack, cache);
           unitCost = pc.costPerUnit;
+          if (unitCost <= 0 && qty > 0) costIssue = `${prep.name}: ${(Number(prep.yield_qty) || 0) > 0 ? "prep costs $0" : "prep yield is 0"}`;
           if (pc.recipe.nested || pc.recipe.lines.some((l) => l.line.component_type === "prep")) nested = true;
           for (const w of pc.recipe.warnings) {
             if (w.kind === "cycle" || w.kind === "depth") warnings.push({ ...w, lineId: line.id });
@@ -172,7 +196,7 @@ export function costLines(
     const cost = qty * factor * unitCost;
     total += cost;
     if (warning) warnings.push(warning);
-    out.push({ line, componentName, componentBase, unitCost, cost, warning });
+    out.push({ line, componentName, componentBase, unitCost, cost, warning, costIssue });
   }
 
   return { lines: out, total, warnings, nested };
@@ -220,7 +244,25 @@ export interface ItemCost {
   targetGp: number;
   suggestedInc: number;
   underTarget: boolean;
+  /**
+   * Cost sanity flags (human-readable). Empty = cost looks trustworthy. Raised for: a line whose
+   * ingredient/prep costs $0, a beer serve with no keg, an item with no lines, portions <= 0
+   * (costed as 1), and a suspicious GP above SUSPICIOUS_GP (92%).
+   * Items with any warning are excluded from headline GP averages (see insights.gpSummary)
+   * and listed in the 'check_cost' feed.
+   */
+  costWarnings: string[];
+  /** convenience: costWarnings.length > 0 */
+  needsCheck: boolean;
+  /** happy hour: price (inc GST) when set, its GP%, whether it misses the SAME target, and whether it is below cost */
+  hhSellInc: number | null;
+  hhGpPct: number | null;
+  hhUnderTarget: boolean;
+  hhBelowCost: boolean;
 }
+
+/** GP above this is treated as a likely costing error rather than a healthy margin. */
+export const SUSPICIOUS_GP = 0.92;
 
 export function sellExGst(sellInc: number, gst: number): number {
   return sellInc / (1 + gst);
@@ -232,12 +274,67 @@ export function gpFromPrice(cost: number, sellInc: number, gst: number): { gpDol
   return { gpDollars, gpPct: ex > 0 ? gpDollars / ex : 0 };
 }
 
-/** Suggested inc-GST price at a target GP, rounded UP to nearest `roundTo`. */
-export function suggestedPrice(cost: number, targetGp: number, gst: number, roundTo: number): number {
-  if (targetGp >= 1) return 0;
+export interface SuggestOptions {
+  /** 'up' (default) never lands below target GP; 'nearest' rounds to the closest step */
+  mode?: "up" | "nearest";
+  /** price step in dollars (overrides the roundTo argument) */
+  step?: number;
+}
+
+/**
+ * Suggested inc-GST price at a target GP, rounded to `roundTo` (or `opts.step`).
+ * Default mode 'up' rounds UP so GP lands at or above target; 'nearest' may land slightly under.
+ * Returns 0 when target >= 1 (unachievable) and for a cost of 0 or less.
+ */
+export function suggestedPrice(cost: number, targetGp: number, gst: number, roundTo: number, opts: SuggestOptions = {}): number {
+  if (targetGp >= 1 || !(cost > 0)) return 0;
   const raw = (cost / (1 - targetGp)) * (1 + gst);
-  if (roundTo <= 0) return raw;
-  return Math.ceil(raw / roundTo - 1e-9) * roundTo;
+  const step = opts.step ?? roundTo;
+  if (!(step > 0)) return raw;
+  const q = raw / step;
+  const n = opts.mode === "nearest" ? Math.round(q) : Math.ceil(q - 1e-9);
+  return Math.round(n * step * 100) / 100;
+}
+
+export interface PriceStep {
+  price: number;
+  gpPct: number;
+  gpDollars: number;
+  /** true for the suggested (rounded-up) price */
+  isSuggested: boolean;
+  meetsTarget: boolean;
+}
+
+/**
+ * Candidate prices around the suggestion, on `step` increments: 2 below, the suggestion, then
+ * `above` (default 3) higher. Prices <= 0 are dropped. Empty when cost <= 0 or target >= 1.
+ */
+export function priceLadder(cost: number, targetGp: number, gst: number, step: number, above = 3): PriceStep[] {
+  const base = suggestedPrice(cost, targetGp, gst, step, { mode: "up" });
+  if (!(base > 0) || !(step > 0)) return [];
+  const out: PriceStep[] = [];
+  for (let k = -2; k <= above; k++) {
+    const price = Math.round((base + k * step) * 100) / 100;
+    if (price <= 0) continue;
+    const { gpDollars, gpPct } = gpFromPrice(cost, price, gst);
+    out.push({ price, gpPct, gpDollars, isSuggested: k === 0, meetsTarget: gpPct >= targetGp - 1e-9 });
+  }
+  return out;
+}
+
+/** Smallest price >= `price` whose cents are `ending` (0, 0.5 or 0.9). */
+export function roundToEnding(price: number, ending: 0 | 0.5 | 0.9): number {
+  if (!(price > 0)) return 0;
+  const cents = Math.round(ending * 100);
+  const whole = Math.floor(price + 1e-9);
+  let cand = whole + cents / 100;
+  if (cand < price - 1e-9) cand = whole + 1 + cents / 100;
+  return Math.round(cand * 100) / 100;
+}
+
+/** Charm-price options at or above `price`: { whole: x.00, half: x.50, ninety: x.90 }. */
+export function chargePoints(price: number): { whole: number; half: number; ninety: number } {
+  return { whole: roundToEnding(price, 0), half: roundToEnding(price, 0.5), ninety: roundToEnding(price, 0.9) };
 }
 
 export function resolveTargetGp(item: Pick<MenuItem, "venue_id" | "category" | "target_override">, targets: Target[]): number {
@@ -257,7 +354,8 @@ export function costItem(
 ): ItemCost {
   const lines = linesOverride ?? index.linesByParent.get(parentKey("item", item.id)) ?? [];
   const recipe = costLines(lines, index, settings.gst_rate, [], cache);
-  const portions = Number(item.portions) > 0 ? Number(item.portions) : 1;
+  const portionsOk = Number(item.portions) > 0;
+  const portions = portionsOk ? Number(item.portions) : 1;
   const costPerPortion = recipe.total / portions;
   const targetGp = resolveTargetGp(item, targets);
   const sellInc = item.sell_price_inc != null ? Number(item.sell_price_inc) : null;
@@ -272,7 +370,51 @@ export function costItem(
   }
   const suggestedInc = suggestedPrice(costPerPortion, targetGp, settings.gst_rate, settings.round_to);
   const underTarget = gpPct != null ? gpPct < targetGp - 1e-9 : false;
-  return { item, recipe, recipeCost: recipe.total, costPerPortion, sellInc, sellEx, gpDollars, gpPct, targetGp, suggestedInc, underTarget };
+  const hhRaw = item.hh_price_inc != null ? Number(item.hh_price_inc) : null;
+  const hhSellInc = hhRaw != null && hhRaw > 0 ? hhRaw : null;
+  let hhGpPct: number | null = null;
+  let hhBelowCost = false;
+  if (hhSellInc != null) {
+    hhGpPct = gpFromPrice(costPerPortion, hhSellInc, settings.gst_rate).gpPct;
+    hhBelowCost = costPerPortion > 0 && sellExGst(hhSellInc, settings.gst_rate) < costPerPortion;
+  }
+  const hhUnderTarget = hhGpPct != null && hhGpPct < targetGp - 1e-9;
+
+  const costWarnings: string[] = [];
+  if (item.source === "beer" && lines.length === 0) costWarnings.push("No keg linked to this beer");
+  else if (lines.length === 0) costWarnings.push("No recipe lines, so cost is $0");
+  if (!portionsOk) costWarnings.push("Portions is 0 or blank, costed as 1 portion");
+  for (const l of recipe.lines) if (l.costIssue) costWarnings.push(`Zero cost line, ${l.costIssue}`);
+  if (gpPct != null && gpPct > SUSPICIOUS_GP) costWarnings.push(`GP is ${Math.round(gpPct * 100)}%, check the recipe cost`);
+
+  return {
+    item, recipe, recipeCost: recipe.total, costPerPortion, sellInc, sellEx, gpDollars, gpPct, targetGp, suggestedInc, underTarget,
+    costWarnings, needsCheck: costWarnings.length > 0, hhSellInc, hhGpPct, hhUnderTarget, hhBelowCost,
+  };
+}
+
+export interface CostDriver {
+  name: string;
+  /** $ per portion (ex GST) */
+  cost: number;
+  /** share of the item's total cost, 0..1 */
+  pct: number;
+}
+
+/**
+ * Top cost drivers of an item, per portion, biggest first (same ingredient/prep on several lines is merged).
+ * For "why is this under target" UI. Prep lines are shown as the prep (not expanded).
+ */
+export function costBreakdown(ic: Pick<ItemCost, "recipe" | "recipeCost" | "item">, top = 3): CostDriver[] {
+  const portions = Number(ic.item.portions) > 0 ? Number(ic.item.portions) : 1;
+  const total = ic.recipeCost;
+  const byName = new Map<string, number>();
+  for (const l of ic.recipe.lines) byName.set(l.componentName, (byName.get(l.componentName) ?? 0) + l.cost);
+  return [...byName.entries()]
+    .filter(([, c]) => c > 0)
+    .map(([name, c]) => ({ name, cost: c / portions, pct: total > 0 ? c / total : 0 }))
+    .sort((a, b) => b.cost - a.cost)
+    .slice(0, Math.max(0, top));
 }
 
 /** Percent move between two prices; null when the old price is missing/zero. */

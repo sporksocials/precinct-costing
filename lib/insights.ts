@@ -6,12 +6,17 @@ import { parseBeerItemId } from "./beer";
 export const FOOD_CATEGORIES = new Set(["Food"]);
 export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
 
+/** Kinds of Today-feed entries. 'check_cost' and 'happy_hour' are new; the rest are unchanged. */
+export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "happy_hour";
+
 export interface GpSummary {
   /** simple average of item GP% across active priced items (every item counts equally) */
   avg: number | null;
   count: number;
   food: number | null;
   drinks: number | null;
+  /** active priced items left out of the averages because their cost needs checking (ItemCost.needsCheck) */
+  excluded: number;
 }
 
 function mean(xs: number[]): number | null {
@@ -22,14 +27,21 @@ export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null): G
   const all: number[] = [];
   const food: number[] = [];
   const drinks: number[] = [];
+  let excluded = 0;
   for (const c of costs) {
     if (!c.item.active || c.gpPct == null) continue;
     if (venueId != null && c.item.venue_id !== venueId) continue;
+    // DECISION: items with cost warnings (zero-cost line, no lines, GP > 92%...) are excluded from
+    // headline averages rather than counted at a fake ~100% GP; they are counted in `excluded`.
+    if (c.needsCheck) {
+      excluded += 1;
+      continue;
+    }
     all.push(c.gpPct);
     if (FOOD_CATEGORIES.has(c.item.category)) food.push(c.gpPct);
     else if (DRINK_CATEGORIES.has(c.item.category)) drinks.push(c.gpPct);
   }
-  return { avg: mean(all), count: all.length, food: mean(food), drinks: mean(drinks) };
+  return { avg: mean(all), count: all.length, food: mean(food), drinks: mean(drinks), excluded };
 }
 
 /** Active items under target, worst gap first. */
@@ -41,6 +53,44 @@ export function underTarget(costs: Iterable<ItemCost>, venueId?: number | null):
     out.push(c);
   }
   return out.sort((a, b) => (a.gpPct ?? 0) - a.targetGp - ((b.gpPct ?? 0) - b.targetGp));
+}
+
+export interface CheckCostRow {
+  kind: "check_cost";
+  cost: ItemCost;
+  warnings: string[];
+}
+
+/** Active items whose cost looks untrustworthy (feed kind 'check_cost'), most warnings first. Virtual items included. */
+export function checkCostRows(costs: Iterable<ItemCost>, venueId?: number | null): CheckCostRow[] {
+  const out: CheckCostRow[] = [];
+  for (const c of costs) {
+    if (!c.item.active || !c.needsCheck) continue;
+    if (venueId != null && c.item.venue_id !== venueId) continue;
+    out.push({ kind: "check_cost", cost: c, warnings: c.costWarnings });
+  }
+  return out.sort((a, b) => b.warnings.length - a.warnings.length || a.cost.item.name.localeCompare(b.cost.item.name));
+}
+
+export interface HappyHourRow {
+  kind: "happy_hour";
+  cost: ItemCost;
+  hhPrice: number;
+  hhGpPct: number;
+  /** true when the happy-hour price is below cost (a loss), not just below target */
+  belowCost: boolean;
+}
+
+/** Active items with a happy-hour price under the same target (feed kind 'happy_hour'), below-cost first, then worst GP. */
+export function happyHourRows(costs: Iterable<ItemCost>, venueId?: number | null): HappyHourRow[] {
+  const out: HappyHourRow[] = [];
+  for (const c of costs) {
+    if (!c.item.active || c.hhSellInc == null || c.hhGpPct == null) continue;
+    if (!c.hhUnderTarget && !c.hhBelowCost) continue;
+    if (venueId != null && c.item.venue_id !== venueId) continue;
+    out.push({ kind: "happy_hour", cost: c, hhPrice: c.hhSellInc, hhGpPct: c.hhGpPct, belowCost: c.hhBelowCost });
+  }
+  return out.sort((a, b) => Number(b.belowCost) - Number(a.belowCost) || a.hhGpPct - b.hhGpPct);
 }
 
 export interface UnderRow {

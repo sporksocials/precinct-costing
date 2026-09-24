@@ -67,3 +67,8 @@ drop trigger if exists cost_gelato_serves_sell_price_log on public.cost_gelato_s
 create trigger cost_gelato_serves_sell_price_log
 after update on public.cost_gelato_serves
 for each row execute function public.cost_gelato_serves_sell_price_log();
+
+-- Trigger functions are not meant to be called over the API.
+revoke execute on function public.cost_menu_items_sell_price_log() from public, anon, authenticated;
+revoke execute on function public.cost_beer_prices_sell_price_log() from public, anon, authenticated;
+revoke execute on function public.cost_gelato_serves_sell_price_log() from public, anon, authenticated;

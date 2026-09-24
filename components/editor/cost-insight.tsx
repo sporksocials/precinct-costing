@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Scissors, TrendingUp } from "lucide-react";
+import { Scissors } from "lucide-react";
 import { sellExGst, type ItemCost, type LineCost } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
@@ -84,44 +84,22 @@ export function trimFix(cost: ItemCost, lines: LineCost[], gst: number): TrimFix
   return { line: big.line, name: big.componentName, from: qty, to, gpAfter: (ex - newCost) / ex };
 }
 
-/** The two ways back to target, side by side, each one tap. */
-export function FixCard({ cost, fix, onRaise, onTrim }: { cost: ItemCost; fix: TrimFix | null; onRaise: () => void; onTrim: () => void }) {
-  if (!cost.underTarget || cost.gpPct == null) return null;
-  const gap = Math.round((cost.targetGp - cost.gpPct) * 1000) / 10;
+/** The other way back to target (the price fix is the chip on the GP): trim the biggest cost. */
+export function FixCard({ fix, onTrim }: { fix: TrimFix | null; onTrim: () => void }) {
+  if (!fix) return null;
   return (
-    <section className="mt-6 overflow-hidden rounded-2xl bg-danger-soft">
-      <p className="px-4 pb-1 pt-3.5 text-[15px] font-semibold text-danger">
-        {gap} points under the {gp(cost.targetGp, 0)} target
-      </p>
-      <p className="px-4 text-[13px] text-label-2">Two ways back. Either one is a single tap and can be changed again.</p>
-      <div className="mt-3 grid gap-px bg-[color:var(--separator)] sm:grid-cols-2">
-        <button type="button" onClick={onRaise} className="flex items-center gap-3 bg-surface px-4 py-3 text-left transition hover:bg-surface-2 active:scale-[0.99]">
-          <TrendingUp className="h-5 w-5 shrink-0 text-accent" strokeWidth={2.25} />
-          <span className="min-w-0">
-            <span className="block text-[15px] font-semibold">Raise Price to {money(cost.suggestedInc)}</span>
-            <span className="block text-[13px] text-label-2">from {money(cost.sellInc)}</span>
-          </span>
-        </button>
-        {fix ? (
-          <button type="button" onClick={onTrim} className="flex items-center gap-3 bg-surface px-4 py-3 text-left transition hover:bg-surface-2 active:scale-[0.99]">
-            <Scissors className="h-5 w-5 shrink-0 text-accent" strokeWidth={2.25} />
-            <span className="min-w-0">
-              <span className="block truncate text-[15px] font-semibold">
-                Trim {fix.name} to {formatQty(fix.to, fix.line.unit)}
-              </span>
-              <span className="block text-[13px] text-label-2">
-                from {formatQty(fix.from, fix.line.unit)} · GP {gp(fix.gpAfter)}
-              </span>
-            </span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-3 bg-surface px-4 py-3">
-            <Scissors className="h-5 w-5 shrink-0 text-label-3" strokeWidth={2.25} />
-            <span className="text-[13px] text-label-2">A portion trim alone won’t get there. Look at the price or swap the biggest cost.</span>
-          </div>
-        )}
-      </div>
-    </section>
+    <button type="button" onClick={onTrim} className="mt-6 flex w-full items-center gap-3 rounded-2xl bg-surface px-4 py-3.5 text-left transition hover:bg-surface-2 active:scale-[0.99]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
+        <Scissors className="h-[18px] w-[18px]" strokeWidth={2.25} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[17px] font-semibold sm:text-[15px]">
+          Or Trim {fix.name} to {formatQty(fix.to, fix.line.unit)}
+        </span>
+        <span className="block text-[13px] text-label-2">
+          from {formatQty(fix.from, fix.line.unit)} · brings GP to {gp(fix.gpAfter)} at today’s price
+        </span>
+      </span>
+    </button>
   );
 }
-

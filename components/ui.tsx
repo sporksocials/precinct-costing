@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React, { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, Plus, Search, X } from "lucide-react";
 
 export function cx(...xs: (string | false | null | undefined)[]): string {
   return xs.filter(Boolean).join(" ");
@@ -25,11 +25,29 @@ export function PageHeader({
   return (
     <header className={cx("flex items-end justify-between gap-3 pb-3 pt-3 lg:pt-8", className)}>
       <div className="min-w-0">
-        <h1 className="venue-title truncate pt-1 text-label">{title}</h1>
+        <h1 className="display truncate pt-1 text-[40px] text-label lg:text-[44px]">{title}</h1>
         {subtitle ? <p className="mt-1.5 truncate text-[15px] text-label-2">{subtitle}</p> : null}
       </div>
       {trailing ? <div className="flex shrink-0 items-center gap-2 pb-1">{trailing}</div> : null}
     </header>
+  );
+}
+
+/** The one "add" control: a round + at the top right of a screen (labelled on desktop). */
+export function AddButton({ label, onClick, className }: { label: string; onClick: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={cx(
+        "inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-full bg-accent-fill px-0 text-[15px] font-semibold text-accent-on transition active:scale-95 lg:px-4",
+        className,
+      )}
+    >
+      <Plus className="h-5 w-5" strokeWidth={2.5} />
+      <span className="hidden lg:inline">{label}</span>
+    </button>
   );
 }
 

@@ -12,7 +12,7 @@ import { gp, money, packLabel, unitShort } from "@/lib/format";
 import type { ItemCost, PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueStrip, VENUE_SHORT } from "@/components/venue";
-import { Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
+import { AddButton, Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
 type Tab = "items" | "preps";
@@ -118,9 +118,7 @@ export default function RecipesPage() {
         title="Recipes"
         trailing={
           <>
-            <button type="button" className="btn-primary hidden lg:inline-flex" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
-              <Plus className="h-4 w-4" strokeWidth={2.5} /> {tab === "preps" ? "New Prep" : "New Menu Item"}
-            </button>
+            <AddButton label={tab === "preps" ? "New Prep" : "New Menu Item"} onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })} />
           </>
         }
       />
@@ -228,15 +226,6 @@ export default function RecipesPage() {
         </>
       )}
 
-      <button
-        type="button"
-        aria-label={tab === "preps" ? "New Prep" : "New Menu Item"}
-        onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}
-        className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-accent-fill text-accent-on shadow-float transition active:scale-95 lg:hidden"
-      >
-        <Plus className="h-7 w-7" strokeWidth={2.25} />
-      </button>
-      <div aria-hidden className="h-20 lg:hidden" />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, Ellipsis, GripVertical } from "lucide-react";
+import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
 import { gp, money, unitShort } from "@/lib/format";
@@ -337,11 +337,6 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           <span className={cx("text-[13px]", status === "error" ? "text-danger" : "text-label-2")} aria-live="polite">
             {statusText}
           </span>
-          {kind === "item" ? (
-            <button type="button" onClick={() => setSheet("whatif")} className="btn-text px-2 font-semibold">
-              What If
-            </button>
-          ) : null}
           <Menu label="More Actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
         </div>
       </div>
@@ -374,23 +369,13 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             className="mt-2 block w-full resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-tight tracking-tight outline-none placeholder:text-label-3 lg:text-[32px]"
           />
           {!draft.active ? <p className="mt-1 text-[13px] font-medium text-label-2">Inactive — hidden from averages</p> : null}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setSheet("venue")} className={cx(venue ? `v-${venue.slug}` : "", "inline-flex h-9 items-center gap-1.5 rounded-full bg-accent-soft px-3 text-[15px] font-semibold text-accent")}>
-              <Dot className="bg-accent-fill" />
-              {venue ? venue.name : "Shared"}
-              <ChevronDown className="h-3.5 w-3.5" strokeWidth={2.5} />
-            </button>
-            {item ? (
-              <button type="button" onClick={() => setSheet("category")} className="inline-flex h-9 items-center gap-1 rounded-full bg-fill px-3 text-[15px] font-medium">
-                {item.category}
-                <ChevronDown className="h-3.5 w-3.5 text-label-2" strokeWidth={2.5} />
-              </button>
-            ) : (
-              <span className="inline-flex h-9 items-center rounded-full bg-fill px-3 text-[15px] font-medium">{isFlavour ? "Gelato flavour" : "Prep"}</span>
-            )}
-          </div>
+          <p className="mt-1 text-[15px] text-label-2">
+            {[venue ? venue.name : "Shared prep", item ? item.category : isFlavour ? "Gelato flavour" : "Prep"].join(" · ")}
+          </p>
 
           <div className="group-list mt-5">
+            <Row onClick={() => setSheet("venue")} title="Venue" trailing={<span className="text-label-2">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "Shared"}</span>} chevron />
+            {item ? <Row onClick={() => setSheet("category")} title="Category" trailing={<span className="text-label-2">{item.category}</span>} chevron /> : null}
             {item ? (
               <FieldRow label="Portions" sub={Number(item.portions) > 1 ? `${money(itemCost?.recipeCost)} for the whole recipe` : undefined}>
                 <Stepper value={Number(item.portions) || 1} min={1} onChange={(v) => setDraft((d) => ({ ...d, portions: v }))} />
@@ -486,15 +471,29 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
           {itemCost && item ? (
             <FixCard
-              cost={itemCost}
               fix={fix}
-              onRaise={() => setDraft((d) => ({ ...d, sell_price_inc: itemCost.suggestedInc }))}
               onTrim={() => {
                 if (!fix) return;
                 patchLine(fix.line.id, { qty: fix.to });
                 toast.show({ message: `${fix.name} trimmed to ${formatQty(fix.to, fix.line.unit)}`, action: { label: "Undo", onClick: () => patchLine(fix.line.id, { qty: fix.from }) } });
               }}
             />
+          ) : null}
+
+          {item && itemCost ? (
+            <div className="group-list mt-6">
+              <Row
+                onClick={() => setSheet("whatif")}
+                leading={
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
+                    <FlaskConical className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                  </span>
+                }
+                title="What If"
+                sub="Try a price or portion size without changing the recipe"
+                chevron
+              />
+            </div>
           ) : null}
 
           {isFlavour ? <GelatoFlavourPanel flavourId={id} mixCost={recipe.total} batchKg={batchWeightKg(lines.filter((l) => l.component_id))} lines={recipe.lines.filter((c) => c.line.component_id)} /> : null}

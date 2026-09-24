@@ -112,8 +112,7 @@ export function VenueStrip({ className }: { className?: string }) {
             )}
           >
             {t.slug === "all" ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src="/brand/precinct.png" alt="" className={cx("h-9 w-auto transition-opacity", on ? "opacity-100" : "opacity-55 group-hover:opacity-85")} draggable={false} />
+              <span className={cx("display text-[26px] leading-none transition-opacity", on ? "text-label opacity-100" : "text-label opacity-55 group-hover:opacity-85")}>All</span>
             ) : (
               <span className={cx("flex max-w-full items-center justify-center transition-opacity [&_img]:max-w-full", on ? "opacity-100" : "opacity-55 group-hover:opacity-85")}>
                 <VenueLogo slug={t.slug} height={TILE_H[t.slug] ?? 22} className="object-center" />

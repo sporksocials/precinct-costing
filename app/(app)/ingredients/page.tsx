@@ -8,7 +8,7 @@ import { dateShort, daysAgo, money, movePct, packLabel, unitShort } from "@/lib/
 import { DataTable } from "@/components/table";
 import { indexDoc, search } from "@/lib/search";
 import { blankIngredient, IngredientSheet } from "@/components/ingredient-sheet";
-import { Chips, cx, Empty, PageHeader, Row, SearchField } from "@/components/ui";
+import { AddButton, Chips, cx, Empty, PageHeader, Row, SearchField } from "@/components/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { catalogueGaps, ingredientsInUse, staleIngredients } from "@/lib/insights";
 
@@ -68,10 +68,7 @@ export default function IngredientsPage() {
       <PageHeader
         title="Ingredients"
         trailing={
-          <button type="button" className="btn-tinted" onClick={() => setAdding(true)} aria-label="Add Ingredient">
-            <Plus className="h-4 w-4" strokeWidth={2.5} />
-            <span className="hidden sm:inline">Add</span>
-          </button>
+          <AddButton label="New Ingredient" onClick={() => setAdding(true)} />
         }
       />
       {filter ? (

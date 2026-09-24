@@ -9,7 +9,7 @@ import { resolveTargetGp, type ItemCost } from "@/lib/costing";
 import { FLAVOUR_PREP_TYPE, flavourName, virtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
 import type { GelatoServe, Prep } from "@/lib/types";
-import { Banner, cx, Dot, Empty, Group, PageHeader, Row, Segmented, Sheet } from "@/components/ui";
+import { AddButton, Banner, cx, Dot, Empty, Group, PageHeader, Row, Segmented, Sheet } from "@/components/ui";
 
 type View = "menu" | "all";
 
@@ -61,9 +61,7 @@ export default function GelatoPage() {
             <Link href="/gelato/serves" className="btn-plain hidden lg:inline-flex">
               <SlidersHorizontal className="h-4 w-4" strokeWidth={2.25} /> Serves
             </Link>
-            <button type="button" className="btn-primary hidden lg:inline-flex" onClick={() => setNewOpen(true)}>
-              <Plus className="h-4 w-4" strokeWidth={2.5} /> New flavour
-            </button>
+            <AddButton label="New Flavour" onClick={() => setNewOpen(true)} />
           </>
         }
       />
@@ -141,7 +139,7 @@ export default function GelatoPage() {
             body="Add a flavour and write its mix — the serve prices follow."
             action={
               <button className="btn-primary" onClick={() => setNewOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> New flavour
+                <Plus className="h-4 w-4" strokeWidth={2.5} /> New Flavour
               </button>
             }
           />
@@ -195,16 +193,7 @@ export default function GelatoPage() {
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="New Flavour"
-        onClick={() => setNewOpen(true)}
-        className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-accent-fill text-accent-on shadow-float transition active:scale-95 lg:hidden"
-      >
-        <Plus className="h-7 w-7" strokeWidth={2.25} />
-      </button>
 
-      <div aria-hidden className="h-20 lg:hidden" />
       {newOpen ? <NewFlavourSheet venueId={venue.id} onClose={() => setNewOpen(false)} /> : null}
     </div>
   );

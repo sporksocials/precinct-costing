@@ -65,23 +65,9 @@ export default function HomePage() {
   return (
     <div>
       <header className="pb-4 pt-3 lg:pt-8">
-        {venue ? (
-          <>
-            <h1 className="sr-only">{venue.name}</h1>
-            <div className="masthead relative overflow-hidden rounded-3xl px-5 pb-7 pt-6 lg:px-8 lg:pb-9 lg:pt-8">
-              <div className="flex min-h-[84px] items-center lg:min-h-[104px]">
-                <VenueLogo slug={venue.slug} height={72} className="lg:!h-[92px]" />
-              </div>
-              <span aria-hidden className="masthead-strip absolute inset-x-0 bottom-0 h-1.5" />
-            </div>
-          </>
-        ) : (
-          <>
-            <h1 className="sr-only">Caloundra Food Precinct costing</h1>
-            <PrecinctMark size="lg" sub="Costing" className="lg:hidden" />
-            <p aria-hidden className="venue-title hidden text-label lg:block">All Venues</p>
-          </>
-        )}
+        <h1 className="sr-only">{venue ? venue.name : "Caloundra Food Precinct costing"}</h1>
+        <PrecinctMark size="md" sub="Costing" className="lg:hidden" />
+        <p aria-hidden className="display hidden text-[44px] text-label lg:block">{venue ? venue.name : "All Venues"}</p>
       </header>
 
       <VenueStrip className="mb-4 lg:hidden" />
@@ -109,17 +95,20 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* 2. venue cards (all-venues view only) */}
-      {!venue ? (
-        <section className="anim-stagger mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {perVenue.map(({ v, s, under }) => (
-            <VenueCard key={v.id} v={v} s={s} under={under} onOpen={() => setVenue(v.slug)} onAdd={() => newRecipe.open({ venueId: v.id })} />
-          ))}
-        </section>
-      ) : null}
-
       {/* 3. today: what needs doing, with the fix one tap away */}
       {empty ? null : <Today venueId={venue?.id ?? null} />}
+
+      {/* by venue (all-venues view only): a way in to each venue */}
+      {!venue ? (
+        <section className="mt-8">
+          <h2 className="px-1 text-[22px] font-bold tracking-tight">By Venue</h2>
+          <div className="anim-stagger mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {perVenue.map(({ v, s, under }) => (
+              <VenueCard key={v.id} v={v} s={s} under={under} onOpen={() => setVenue(v.slug)} onAdd={() => newRecipe.open({ venueId: v.id })} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -325,31 +314,9 @@ function VenueCard({ v, s, under, onOpen, onAdd }: { v: Venue; s: GpSummary; und
         )}
       </button>
       {s.count ? (
-        <div className="mt-auto px-4 pb-4 pt-1">
-          <div className="border-t-[0.5px] border-sep pt-3">
-            {under.length ? (
-              <>
-                <p className="text-[12px] font-medium text-label-2">
-                  {under.length} below target
-                </p>
-                <ul className="mt-1.5 space-y-1">
-                  {under.slice(0, 3).map((r) => (
-                    <li key={r.cost.item.id}>
-                      <Link href={`/items/${r.cost.item.id}`} className="flex items-baseline gap-2 text-[13px] leading-snug hover:underline">
-                        <span className="min-w-0 flex-1 truncate text-label">{rowName(r)}</span>
-                        <span className="shrink-0 tnum text-danger">{gp(r.cost.gpPct, 0)}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="flex items-center gap-1.5 text-[13px] text-label-2">
-                <Dot className="bg-[color:var(--good)]" /> All on target
-              </p>
-            )}
-          </div>
-        </div>
+        <p className={cx("mt-auto px-4 pb-4 text-[13px]", under.length ? "text-danger" : "text-label-2")}>
+          {under.length ? `${under.length} below target` : "All on target"}
+        </p>
       ) : null}
       {!s.count ? (
         <button type="button" onClick={onAdd} aria-label={`Add recipe to ${v.name}`} className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent transition active:scale-95">

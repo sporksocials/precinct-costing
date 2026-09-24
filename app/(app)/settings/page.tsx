@@ -1,18 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { gp } from "@/lib/format";
 import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
-import { Banner, FieldRow, Group, InlineInput, PageHeader, Row, Segmented, Sheet } from "@/components/ui";
+import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
+import { GUIDE_GP, targetGrid } from "@/lib/targets";
 
 export default function SettingsPage() {
   const store = useStore();
   const [error, setError] = useState<string | null>(null);
-  const [venueId, setVenueId] = useState(String(store.venues[0]?.id ?? 1));
   const [email, setEmail] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
+
+  const grid = useMemo(
+    () => targetGrid(store.venues.map((v) => v.id), MENU_CATEGORIES, store.targets, store.items, store.itemCosts),
+    [store.venues, store.targets, store.items, store.itemCosts],
+  );
 
   const run = (p: Promise<void>) => {
     setError(null);
@@ -44,26 +49,46 @@ export default function SettingsPage() {
 
       <section className="mt-6">
         <h2 className="section-label">Target GP</h2>
-        <Segmented ariaLabel="Venue" value={venueId} onChange={setVenueId} options={store.venues.map((v) => ({ value: String(v.id), label: VENUE_SHORT[v.slug] ?? v.name }))} />
-        <div className="group-list mt-2">
-          {MENU_CATEGORIES.map((cat) => {
-            const t = store.targets.find((x) => x.venue_id === Number(venueId) && x.category === cat);
+        <div className="group-list">
+          <div className="grid grid-cols-[minmax(0,1fr)_repeat(4,3.5rem)] sm:grid-cols-[minmax(0,1fr)_repeat(4,5rem)] items-end gap-x-1 px-3.5 pb-1.5 pt-2.5">
+            <span />
+            {store.venues.map((v) => (
+              <span key={v.id} className={cx("v-" + v.slug, "flex items-center justify-center gap-1 text-[12px] font-semibold text-label-2")}>
+                <Dot className="bg-accent-fill" />
+                {VENUE_SHORT[v.slug] ?? v.name}
+              </span>
+            ))}
+          </div>
+          {grid.map((cells, r) => {
+            const cat = MENU_CATEGORIES[r];
             return (
-              <FieldRow key={cat} label={cat}>
-                <InlineInput
-                  value={t ? pctIn(Number(t.target_gp)) : ""}
-                  placeholder={String(DEFAULT_TARGET_GP * 100)}
-                  suffix="%"
-                  onCommit={(txt) => {
-                    const v = pctOut(txt);
-                    if (v != null) run(store.upsertTarget(Number(venueId), cat, v));
-                  }}
-                />
-              </FieldRow>
+              <div key={cat} className="grid grid-cols-[minmax(0,1fr)_repeat(4,3.5rem)] sm:grid-cols-[minmax(0,1fr)_repeat(4,5rem)] items-start gap-x-1 px-3.5 py-2">
+                <span className="min-w-0 pt-1.5">
+                  <span className="block text-[15px] leading-tight">{cat}</span>
+                  <span className="block text-[12px] text-label-3">Guide {pctIn(GUIDE_GP[cat])}%</span>
+                </span>
+                {cells.map((c) => (
+                  <span key={c.venueId} className={cx("flex flex-col items-center", c.items === 0 && "opacity-50")}>
+                    <InlineInput
+                      value={c.target != null ? pctIn(c.target) : ""}
+                      placeholder={pctIn(DEFAULT_TARGET_GP)}
+                      suffix="%"
+                      width="w-14 sm:w-[4.5rem]"
+                      onCommit={(txt) => {
+                        const v = pctOut(txt);
+                        if (v != null) run(store.upsertTarget(c.venueId, cat, v));
+                      }}
+                    />
+                    <span className={cx("mt-0.5 text-[11px] leading-none", c.under > 0 ? "text-danger" : "text-label-3")}>
+                      {c.under > 0 ? `${c.under} under` : c.items > 0 ? `${c.items} items` : "\u00a0"}
+                    </span>
+                  </span>
+                ))}
+              </div>
             );
           })}
         </div>
-        <p className="px-4 pt-1.5 text-[13px] text-label-2">Blank uses {gp(DEFAULT_TARGET_GP, 0)}. A recipe can override its own target under Details.</p>
+        <p className="px-4 pt-1.5 text-[13px] text-label-2">Blank uses {gp(DEFAULT_TARGET_GP, 0)}. “Under” counts menu items priced below their target now. A recipe can override its own target under Details.</p>
       </section>
 
       <Group title="Who Can Sign In" footer="Only these emails can sign in and see prices.">

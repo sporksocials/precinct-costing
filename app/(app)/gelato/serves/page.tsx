@@ -8,6 +8,7 @@ import { costLines } from "@/lib/costing";
 import { packagingLines } from "@/lib/gelato";
 import { gp, money, unitShort } from "@/lib/format";
 import type { GelatoServe, GelatoServeLine } from "@/lib/types";
+import { PriceHistory } from "@/components/editor/price-history";
 import { SmartAdd } from "@/components/editor/smart-add";
 import { Banner, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, Toggle, useToast } from "@/components/ui";
 
@@ -202,6 +203,8 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
             }}
           />
         </Group>
+
+        {serve ? <PriceHistory filter={{ kind: "gelato_serve", serveId: serve.id, limit: 10 }} refreshKey={serve.sell_price_inc} /> : null}
 
         {serve ? (
           <div className="mt-6">

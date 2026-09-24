@@ -28,6 +28,7 @@ const TABLE_KEYS: Record<string, string> = {
   cost_beer_serves: "beerServes",
   cost_beers: "beers",
   cost_beer_prices: "beerPrices",
+  cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
 };
 
 let tablesPromise: Promise<Tables> | null = null;

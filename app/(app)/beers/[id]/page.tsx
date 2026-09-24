@@ -11,6 +11,7 @@ import { gp, money } from "@/lib/format";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "@/components/venue";
 import { KegPicker } from "@/components/beer-parts";
+import { PriceHistory } from "@/components/editor/price-history";
 import { SetPriceButton } from "@/components/price-actions";
 import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, Toggle } from "@/components/ui";
 
@@ -113,6 +114,12 @@ export default function BeerPage() {
           );
         })}
       </Group>
+
+      <PriceHistory
+        filter={{ kind: "beer_serve", beerId: beer.id, limit: 30 }}
+        refreshKey={store.beer.serves.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}
+        serveNames={Object.fromEntries(store.beer.serves.map((s) => [s.id, s.name]))}
+      />
 
       <div className="mt-8">
         {confirmDelete ? (

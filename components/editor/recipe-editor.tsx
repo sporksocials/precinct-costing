@@ -18,6 +18,7 @@ import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
 import { ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
 import { GelatoFlavourPanel } from "./gelato-panel";
+import { PriceHistory } from "./price-history";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
 import { WhatIfSheet } from "./what-if";
 
@@ -545,6 +546,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               </div>
             </div>
           </Disclosure>
+          {item ? <PriceHistory filter={{ kind: "item", itemId: item.id }} refreshKey={`${item.sell_price_inc}|${item.hh_price_inc}`} cost={itemCost?.costPerPortion} gst={store.settings.gst_rate} /> : null}
         </div>
 
         {/* summary: desktop column */}

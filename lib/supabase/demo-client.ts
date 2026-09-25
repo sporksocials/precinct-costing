@@ -33,7 +33,6 @@ const TABLE_KEYS: Record<string, string> = {
   cost_ingredient_deals: "deals", // not in older demo data: empty
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
-  cost_audit_log: "auditLog", // not in demo data: always empty
 };
 
 let tablesPromise: Promise<Tables> | null = null;

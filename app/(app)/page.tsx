@@ -12,11 +12,10 @@ import { gp, money, movePct } from "@/lib/format";
 import { DataTable } from "@/components/table";
 import { PriceSheet, SetPriceButton } from "@/components/price-actions";
 import { ReviewSheet } from "@/components/price-review";
-import type { Venue } from "@/lib/types";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
-import { PrecinctMark, VenueLogo } from "@/components/brand";
+import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
 import { liveOffersUnderTarget } from "@/lib/offers";
 
@@ -58,10 +57,6 @@ export default function HomePage() {
   const newRecipe = useNewRecipe();
 
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
-  const perVenue = useMemo(
-    () => store.venues.map((v) => ({ v, s: gpSummary(store.itemCosts.values(), v.id), under: underTargetRows(store.itemCosts.values(), v.id) })),
-    [store.venues, store.itemCosts],
-  );
 
   const shownAvg = useCountUp(headline.avg);
   const isGelato = venue?.slug === "gelato";
@@ -113,18 +108,6 @@ export default function HomePage() {
 
       {/* 3. today: what needs doing, with the fix one tap away */}
       {empty && !headline.excluded ? null : <Today venueId={venue?.id ?? null} />}
-
-      {/* by venue (all-venues view only): a way in to each venue */}
-      {!venue ? (
-        <section className="mt-8">
-          <h2 className="px-1 text-[22px] font-bold tracking-tight">By Venue</h2>
-          <div className="anim-stagger mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {perVenue.map(({ v, s, under }) => (
-              <VenueCard key={v.id} v={v} s={s} under={under} onAdd={() => newRecipe.open({ venueId: v.id })} />
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -428,40 +411,4 @@ function rowName(r: UnderRow): string {
   const v = parseVirtualItemId(r.cost.item.id);
   if (!v) return r.cost.item.name;
   return `${r.cost.item.section} (${r.cost.item.name.split(" - ")[0]}${r.flavours > 1 ? ` +${r.flavours - 1}` : ""})`;
-}
-
-function VenueCard({ v, s, under, onAdd }: { v: Venue; s: GpSummary; under: UnderRow[]; onAdd: () => void }) {
-  const gelato = v.slug === "gelato";
-  return (
-    <div className={cx(`v-${v.slug}`, "relative flex flex-col overflow-hidden rounded-2xl bg-surface")}>
-      <Link href={`/?venue=${v.slug}`} aria-label={`${v.name}: open`} className="block w-full px-4 pb-3 pt-5 text-left transition duration-200 hover:bg-surface-2 active:scale-[0.99]">
-        <span aria-hidden className="absolute inset-x-0 top-0 h-1 bg-accent-fill" />
-        <span className="flex h-[52px] items-center">
-          <VenueLogo slug={v.slug} height={40} />
-        </span>
-        <span className="sr-only">{VENUE_SHORT[v.slug] ?? v.name}</span>
-        {s.count ? (
-          <>
-            <span className="display mt-3 block text-[46px] tnum text-accent">{gp(s.avg)}</span>
-            {!gelato ? <Split s={s} className="mt-0.5 text-[13px] leading-snug" /> : <span className="mt-0.5 block text-[13px] text-label-2">{s.count} priced serves</span>}
-          </>
-        ) : (
-          <>
-            <span className="display mt-3 block text-[46px] text-label-3">—</span>
-            <span className="mt-0.5 block text-[13px] text-label-2">No recipes yet</span>
-          </>
-        )}
-      </Link>
-      {s.count ? (
-        <p className={cx("mt-auto px-4 pb-4 text-[13px]", under.length ? "text-danger" : "text-label-2")}>
-          {under.length ? `${under.length} below target` : "All on target"}
-        </p>
-      ) : null}
-      {!s.count ? (
-        <button type="button" onClick={onAdd} aria-label={`Add recipe to ${v.name}`} className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-accent-soft text-accent transition active:scale-95">
-          <Plus className="h-4 w-4" strokeWidth={2.5} />
-        </button>
-      ) : null}
-    </div>
-  );
 }

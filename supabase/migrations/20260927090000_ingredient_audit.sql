@@ -8,16 +8,17 @@ create trigger cost_ingredients_audit after update on public.cost_ingredients
     'pack_size', 'pack_unit', 'yield_pct', 'rebate', 'price_inc_gst', 'gst_free', 'active', 'name', 'supplier_id', 'supplier_code'
   );
 
--- Same function as before, except last_price_update now uses the Brisbane date (it used the server's UTC date).
-create or replace function public.cost_ingredients_price_log()
-returns trigger language plpgsql security definer as $$
+-- Same behaviour as the live cost_log_price() trigger function (keeps its 'app' / 'system' defaults), except
+-- last_price_update now uses the Brisbane date instead of the server's UTC date. Applied 27 Sep 2026.
+create or replace function public.cost_log_price()
+returns trigger
+language plpgsql
+set search_path to 'public'
+as $function$
 begin
   if new.pack_price is distinct from old.pack_price then
-    insert into public.cost_price_log (ingredient_id, old_price, new_price, source, entered_by)
-    values (new.id, old.pack_price, new.pack_price, new.source, auth.jwt() ->> 'email');
-    new.previous_price := old.pack_price;
-    new.last_price_update := (now() at time zone 'Australia/Brisbane')::date;
-  end if;
-  new.updated_at := now();
-  return new;
-end $$;
+    insert into cost_price_log(ingredient_id, old_price, new_price, source, entered_by)
+    values (new.id, old.pack_price, new.pack_price, coalesce(new.source,'app'), coalesce(auth.jwt()->>'email','system'));
+    new.previous_price = old.pack_price; new.last_price_update = (now() at time zone 'Australia/Brisbane')::date;
+  end if; return new;
+end $function$;

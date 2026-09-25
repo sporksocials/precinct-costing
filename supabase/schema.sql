@@ -564,3 +564,18 @@ create trigger cost_ingredients_audit after update on public.cost_ingredients
   for each row execute function public.cost_audit(
     'pack_size', 'pack_unit', 'yield_pct', 'rebate', 'price_inc_gst', 'gst_free', 'active', 'name', 'supplier_id', 'supplier_code'
   );
+
+-- NOTE: the live database's price log trigger is cost_ing_price_log -> cost_log_price() (the definition near the top of this
+-- file predates it). Brisbane-date version, applied 27 Sep 2026; keeps the live 'app' / 'system' defaults.
+create or replace function public.cost_log_price()
+returns trigger
+language plpgsql
+set search_path to 'public'
+as $function$
+begin
+  if new.pack_price is distinct from old.pack_price then
+    insert into cost_price_log(ingredient_id, old_price, new_price, source, entered_by)
+    values (new.id, old.pack_price, new.pack_price, coalesce(new.source,'app'), coalesce(auth.jwt()->>'email','system'));
+    new.previous_price = old.pack_price; new.last_price_update = (now() at time zone 'Australia/Brisbane')::date;
+  end if; return new;
+end $function$;

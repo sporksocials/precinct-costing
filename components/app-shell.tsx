@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect, useRef } from "react";
 import { BookOpen, Carrot, Ellipsis, HeartPulse, House, LogOut, Search, Settings, Store, Tag, Wheat } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
-import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
+import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
 
 const MAIN = [
   { href: "/", label: "Home", icon: House },
@@ -181,11 +181,25 @@ function Frame({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** One quiet toast when a date rollover changed a deal price while the app was open. */
+function DealRolloverToast() {
+  const { dealRollover } = useStore();
+  const toast = useToast();
+  const seen = useRef<number | null>(null);
+  useEffect(() => {
+    if (!dealRollover || seen.current === dealRollover.id) return;
+    seen.current = dealRollover.id;
+    toast.show({ message: dealRollover.message }, 7000);
+  }, [dealRollover, toast]);
+  return null;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <StoreProvider>
       <ToastProvider>
         <NewRecipeProvider>
+          <DealRolloverToast />
           <Sidebar />
           <Suspense fallback={null}>
             <Frame>{children}</Frame>

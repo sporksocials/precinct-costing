@@ -18,7 +18,6 @@ import { cx, Dot, Group, Row } from "@/components/ui";
 import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
 import { DealsFeed } from "@/components/deals-feed";
-import { brisbaneToday } from "@/lib/deals";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { liveOffersToCheck, liveOffersUnderTarget } from "@/lib/offers";
 
@@ -156,11 +155,12 @@ function Today({ venueId }: { venueId: number | null }) {
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
   const stale = useMemo(() => staleIngredients(store.ingredients, inUse), [store.ingredients, inUse]);
   const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById), [store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById]);
-  const dealRows = useMemo(() => dealFeedRows(store.deals, store.ingredients, inUse, brisbaneToday()), [store.deals, store.ingredients, inUse]);
+  const dealRows = useMemo(() => dealFeedRows(store.deals, store.ingredients, inUse, store.today), [store.deals, store.ingredients, inUse, store.today]);
 
   const offersBelow = useMemo(() => liveOffersUnderTarget(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
   const offersCheck = useMemo(() => liveOffersToCheck(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
-  const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", timeZone: "Australia/Brisbane" });
+  // the heading date follows the store's Brisbane `today`, so it moves at midnight in a tab left open
+  const today = new Date(`${store.today}T12:00:00Z`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
   const clear = !offersBelow.length && !offersCheck.length && !missing.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
   const shownUnder = allUnder ? under : under.slice(0, 5);
   const shownRises = allRises ? rises : rises.slice(0, 3);

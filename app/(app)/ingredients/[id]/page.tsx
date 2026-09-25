@@ -94,8 +94,8 @@ function Detail({ ing }: { ing: Ingredient }) {
   const patch = (p: Partial<Ingredient>) => {
     if (COST_KEYS.some((k) => k in p)) {
       const next = { ...ing, ...p };
-      const before = ingredientCostPerBase(withEffectivePrice(ing, store.deals), gst);
-      const after = ingredientCostPerBase(withEffectivePrice(next, store.deals), gst);
+      const before = ingredientCostPerBase(withEffectivePrice(ing, store.deals, store.today), gst);
+      const after = ingredientCostPerBase(withEffectivePrice(next, store.deals, store.today), gst);
       const change = before > 0 ? (after - before) / before : after > 0 ? 1 : 0;
       const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
       const unitChanged = p.pack_unit !== undefined && p.pack_unit !== ing.pack_unit;

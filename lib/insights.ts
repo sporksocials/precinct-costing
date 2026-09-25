@@ -337,16 +337,19 @@ export function ingredientChangeImpact(
     deals?: IngredientDeal[];
     /** deals to use for the "after" side instead of `deals`, to preview adding, changing or removing a deal */
     dealsAfter?: IngredientDeal[];
+    /** Brisbane date the deals are judged on (the store's `today`); defaults to the clock */
+    today?: string;
   },
 ): ImpactRow[] {
   const affected = itemsUsing("ingredient", ingredientId, data.lines);
   if (!affected.size) return [];
-  const beforeIdx = buildIndex(data.ingredients, data.preps, data.lines, data.deals);
+  const beforeIdx = buildIndex(data.ingredients, data.preps, data.lines, data.deals, data.today);
   const afterIdx = buildIndex(
     data.ingredients.map((i) => (i.id === ingredientId ? { ...i, ...patch } : i)),
     data.preps,
     data.lines,
     data.dealsAfter ?? data.deals,
+    data.today,
   );
   const cb = new Map<string, PrepCost>();
   const ca = new Map<string, PrepCost>();

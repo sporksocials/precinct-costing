@@ -57,7 +57,7 @@ export function VenueAccent({ slug }: { slug: string | null | undefined }) {
 }
 
 /**
- * The venue selector for Home, Recipes, Beers, Gelato and Ingredients: five separate tiles
+ * The venue selector for Home, Menu, Ingredients (Preps) and Specials: five separate tiles
  * (All / Drift / Chiobu / Greedy / Gelato). Each carries a venue colour bar; the chosen one fills with
  * the venue accent, shows a check and a ring. Desktop tiles add average GP and how many are under target
  * (`stats`, on by default; pass `stats={false}` to hide). Phones get compact tiles in one snap-scrolling row.

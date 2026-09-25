@@ -26,7 +26,7 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
 - `lib/insights.ts` — Today feed: price rises, below target, stale prices (90 days), catalogue gaps.
 - `components/ui.tsx` — design primitives (PageHeader, Group, Row, FieldRow, InlineInput, Sheet, Chips, AddButton, Toggle…). Reuse them; don't invent new one-off styles.
 - Information architecture: every kind of thing has one home. **Menu** (`app/(app)/menu`) lists everything sold (food, drinks, tap beer rows, gelato flavours); venue tiles and category chips only filter it. **Ingredients** has an Ingredients | Preps control (`?type=preps`). Tap beer detail is `/beers/[id]`, gelato Price Grid `/gelato`, serves `/gelato/serves`; old `/recipes`, `/beers`, `/items`, `/preps` redirect (next.config.mjs).
-- `components/venue.tsx` — VenueFilter (All / Drift / Chiobu / Greedy / Gelato, dot + name) sits on Home, Recipes and Beers only; the choice lives in `?venue=` (no storage, default All) and the accent follows it only on those pages. Record pages use `VenueAccent` (the record's own venue); everything else is neutral sand.
+- `components/venue.tsx` — VenueFilter (five separate tiles: All / Drift / Chiobu / Greedy / Gelato; selected tile fills with the venue colour and a tick) sits on Home, Menu, Ingredients > Preps and Specials; the choice lives in `?venue=` (no storage, default All) and the accent follows it only on those pages. Targets in the DB stay at 72% everywhere (Troy's call). Record pages use `VenueAccent` (the record's own venue); everything else is neutral sand.
 - Demo mode for local visual QA: `NEXT_PUBLIC_DEMO=1 npx next dev -p 3100` (reads `.demo/`, local only).
 
 ## Design rules (Apple HIG thinking)
@@ -41,11 +41,12 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
 Food 70, Cocktail 75, Mocktail 80, Gelato 72 (take-home ½L/1L 60, 4.5L wholesale 50), Tap beer 70 (Chiobu 72; per-beer overrides 68–75), Packaged beer/cider 70, Wine 80, Spirits 70, RTD 70.
 
 ## Backlog (Oct 2026)
-1. Redo the Settings target GP grid (least polished screen).
+1. (Done) Settings target GP grid. Also done: price picker, price history, Review and Apply, Specials and combos.
 2. Supplier price matching: apply the 224 matches Troy approves in ~/SPORK (sheet), then refresh the Price check and Naming sheets.
 3. Naming clean-up: 482 ingredient renames awaiting sign-off; needs `cost_preps` unique(name) → unique(name, venue_id).
 4. Differing (64) and missing (40) prices from the client price check sheet (pepper and bacon typos first).
 5. After Troy confirms: back up, then delete the 296 old gelato and 116 old tap beer menu items.
-6. Add chefs/managers under Settings → Who Can Sign In.
-7. Phase 2: invoice upload → match supplier + code → update price → Today feed.
+6. (Done) Matt, Mon and Brendan added under Who Can Sign In. Add more there as needed.
+7. Supplier volume deals (effective price), prep-first costing, variants, allergen tags, import from old sheets.
+8. Phase 2: invoice upload → match supplier + code → update price → Today feed.
 Open client questions: which cocoa is "130 or 250"; replacements for Latte Xtra (Mixed Berry, Rum & Raisin, Strawberry mixes) and Mascargel (Caramelised Fig Mascarpone).

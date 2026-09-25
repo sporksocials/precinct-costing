@@ -273,3 +273,29 @@ export interface OfferLine {
   price_inc_override: number | null;
   sort: number;
 }
+
+export type DealKind = "buy_x_get_y" | "volume" | "special_price" | "percent_off";
+
+/** A supplier deal on one ingredient (cost_ingredient_deals). The pack price itself never changes. */
+export interface IngredientDeal {
+  id: string;
+  ingredient_id: string;
+  kind: DealKind;
+  /** buy_x_get_y: pay for buy_qty, get free_qty extra */
+  buy_qty: number | null;
+  free_qty: number | null;
+  /** volume: packs to buy to qualify */
+  min_qty: number | null;
+  /** percent_off and volume: 0-1 */
+  pct_off: number | null;
+  /** volume: pack price at min_qty (alternative to pct_off) */
+  unit_price: number | null;
+  /** special_price: fixed pack price */
+  special_pack_price: number | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  note: string | null;
+  active: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { beerItemId } from "@/lib/beer";
-import { ingredientCostPerBase, resolveTargetGp } from "@/lib/costing";
+import { costPerBaseFromIndex, resolveTargetGp } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { parsePriceInput } from "@/lib/solver";
 import { VenueAccent, VENUE_SHORT } from "@/components/venue";
@@ -38,7 +38,7 @@ export default function BeerPage() {
 
   const venue = store.venueById.get(beer.venue_id);
   const keg = store.ingredients.find((i) => i.id === beer.ingredient_id);
-  const perL = keg ? ingredientCostPerBase(keg, store.settings.gst_rate) : 0;
+  const perL = keg ? costPerBaseFromIndex(store.index, keg, store.settings.gst_rate) : 0;
   const defaultTarget = resolveTargetGp({ venue_id: beer.venue_id, category: "Tap Beer", target_override: null }, store.targets);
   const run = (p: Promise<void>) => {
     setError(null);

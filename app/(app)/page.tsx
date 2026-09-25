@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, Clock, Plus, Store, Tag, TrendingUp } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { catalogueGaps, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInUse, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
+import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInUse, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
 import { costBreakdown, type ItemCost } from "@/lib/costing";
 import { buildReviewChanges, gelatoServeStats } from "@/lib/price-review";
 import { parseVirtualItemId } from "@/lib/gelato";
@@ -17,6 +17,8 @@ import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
 import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
+import { DealsFeed } from "@/components/deals-feed";
+import { brisbaneToday } from "@/lib/deals";
 import { liveOffersUnderTarget } from "@/lib/offers";
 
 /** Counts a number up from where it last was (first paint from ~92%), eased; static under reduced motion. */
@@ -139,10 +141,11 @@ function Today({ venueId }: { venueId: number | null }) {
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
   const stale = useMemo(() => staleIngredients(store.ingredients, inUse), [store.ingredients, inUse]);
   const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate), [store.ingredients, store.portalPrices, store.settings.gst_rate]);
+  const dealRows = useMemo(() => dealFeedRows(store.deals, store.ingredients, inUse, brisbaneToday()), [store.deals, store.ingredients, inUse]);
 
   const offersBelow = useMemo(() => liveOffersUnderTarget(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
   const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", timeZone: "Australia/Brisbane" });
-  const clear = !offersBelow.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length;
+  const clear = !offersBelow.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
   const shownUnder = allUnder ? under : under.slice(0, 5);
   const shownRises = allRises ? rises : rises.slice(0, 3);
   const shownCheck = allCheck ? check : check.slice(0, 4);
@@ -174,6 +177,7 @@ function Today({ venueId }: { venueId: number | null }) {
       ) : null}
 
       <OffersFeed rows={offersBelow} showVenue={venueId == null} />
+      <DealsFeed rows={dealRows} />
 
       {/* price rises: the cause, before the symptoms */}
       {rises.length ? (

@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ReviewSheet } from "@/components/price-review";
+import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
+import { withEffectivePrice } from "@/lib/deals";
 import { dateShort, gp, money, movePct, num, packLabel, unitShort } from "@/lib/format";
 import { ingredientChangeImpact, type ImpactRow } from "@/lib/insights";
 import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
@@ -44,9 +46,9 @@ function Detail({ ing }: { ing: Ingredient }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingEdit | null>(null);
   const [review, setReview] = useState<ReviewChange[] | null>(null);
+  const [addingDeal, setAddingDeal] = useState(false);
   const gst = store.settings.gst_rate;
   const supplier = store.supplierById.get(ing.supplier_id ?? -1);
-  const unitCost = ingredientCostPerBase(ing, gst);
 
   useEffect(() => {
     addRecent({ kind: "ingredient", id: ing.id, title: ing.name, sub: supplier?.name ?? "Ingredient", href: `/ingredients/${ing.id}` });
@@ -91,8 +93,8 @@ function Detail({ ing }: { ing: Ingredient }) {
   const patch = (p: Partial<Ingredient>) => {
     if (COST_KEYS.some((k) => k in p)) {
       const next = { ...ing, ...p };
-      const before = ingredientCostPerBase(ing, gst);
-      const after = ingredientCostPerBase(next, gst);
+      const before = ingredientCostPerBase(withEffectivePrice(ing, store.deals), gst);
+      const after = ingredientCostPerBase(withEffectivePrice(next, store.deals), gst);
       const change = before > 0 ? (after - before) / before : after > 0 ? 1 : 0;
       const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
       const unitChanged = p.pack_unit !== undefined && p.pack_unit !== ing.pack_unit;
@@ -134,16 +136,18 @@ function Detail({ ing }: { ing: Ingredient }) {
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-8">
         <div>
           <section className="mt-5 rounded-3xl bg-surface p-5">
-            <p className="text-[15px] font-medium text-label-2">Pack price</p>
-            <p className="display mt-1 text-[64px] tnum text-accent">{money(ing.pack_price)}</p>
-            <p className="mt-2 text-[15px] text-label-2 tnum">
-              {ing.gst_free ? "GST-free" : ing.price_inc_gst ? "inc GST" : "ex GST"} · {money(unitCost)}/{unitShort(ing.pack_unit)}
-              {ing.last_price_update ? ` · updated ${dateShort(ing.last_price_update)}` : ""}
-            </p>
-            <button type="button" className="btn-primary mt-5 w-full sm:w-auto" onClick={() => setUpdating(true)}>
-              Update Price
-            </button>
+            <DealPriceBlock ing={ing} updatedText={ing.last_price_update ? ` · updated ${dateShort(ing.last_price_update)}` : ""} />
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => setUpdating(true)}>
+                Update Price
+              </button>
+              <button type="button" className="btn-tinted w-full sm:w-auto" onClick={() => setAddingDeal(true)}>
+                Add Deal
+              </button>
+            </div>
           </section>
+
+          <DealsSection ing={ing} adding={addingDeal} onAddingChange={setAddingDeal} renderImpact={(rows) => <ImpactPreview rows={rows} />} />
 
           <Group title="Price History" className="mt-7">
             {logs === null ? (

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase } from "@/lib/costing";
+import { costPerBaseFromIndex } from "@/lib/costing";
 import { money } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
@@ -39,7 +39,7 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
               }}
               title={i.name}
               sub={[store.supplierById.get(i.supplier_id ?? -1)?.name, `${Number(i.pack_size)} L`].filter(Boolean).join(" · ")}
-              trailing={<span className="text-label-2">{money(ingredientCostPerBase(i, store.settings.gst_rate))}/L</span>}
+              trailing={<span className="text-label-2">{money(costPerBaseFromIndex(store.index, i, store.settings.gst_rate))}/L</span>}
             />
           ))}
           {rows.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">No keg matches. Add the keg as an ingredient priced per litre first.</p> : null}

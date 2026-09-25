@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
+import { costPerBaseFromIndex, priceMovePct } from "@/lib/costing";
 import { dateShort, daysAgo, money, movePct, packLabel, unitShort } from "@/lib/format";
 import { DataTable } from "@/components/table";
 import { indexDoc, search } from "@/lib/search";
@@ -162,10 +162,10 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
                   label: "Unit Price",
                   align: "right",
                   render: (i) => {
-                    const u = ingredientCostPerBase(i, gst);
+                    const u = costPerBaseFromIndex(store.index, i, gst);
                     return u ? <span className="font-semibold">{`${money(u)}/${unitShort(i.pack_unit)}`}</span> : <span className="text-label-3">No price</span>;
                   },
-                  sort: (i) => ingredientCostPerBase(i, gst),
+                  sort: (i) => costPerBaseFromIndex(store.index, i, gst),
                 },
                 {
                   key: "move",
@@ -187,7 +187,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
               const sup = store.supplierById.get(i.supplier_id ?? -1)?.name;
               const recent = (daysAgo(i.last_price_update) ?? 999) <= 30;
               const move = recent ? priceMovePct(i.previous_price, i.pack_price) : null;
-              const unit = ingredientCostPerBase(i, gst);
+              const unit = costPerBaseFromIndex(store.index, i, gst);
               return (
                 <Row
                   key={i.id}

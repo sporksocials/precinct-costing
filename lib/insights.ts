@@ -1,5 +1,6 @@
 import { buildIndex, costItem, ingredientExGstPackPrice, parsePackFromUom, priceMovePct, type ItemCost, type PrepCost } from "./costing";
-import type { CostingSettings, Ingredient, MenuItem, PortalPrice, Prep, PriceLog, RecipeLine, Target } from "./types";
+import type { CostingSettings, Ingredient, IngredientDeal, MenuItem, PortalPrice, Prep, PriceLog, RecipeLine, Target } from "./types";
+import { dealStatus, daysBetween } from "./deals";
 import { parseVirtualItemId } from "./gelato";
 import { parseBeerItemId } from "./beer";
 
@@ -7,7 +8,7 @@ export const FOOD_CATEGORIES = new Set(["Food"]);
 export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
 
 /** Kinds of Today-feed entries. 'check_cost' and 'happy_hour' are new; the rest are unchanged. */
-export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "happy_hour";
+export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "happy_hour" | "deal_ending" | "deal_expired";
 
 export interface GpSummary {
   /** simple average of item GP% across active priced items (every item counts equally) */
@@ -264,15 +265,27 @@ export interface ImpactRow {
 export function ingredientChangeImpact(
   ingredientId: string,
   patch: Partial<Ingredient>,
-  data: { ingredients: Ingredient[]; preps: Prep[]; lines: RecipeLine[]; items: MenuItem[]; settings: CostingSettings; targets: Target[] },
+  data: {
+    ingredients: Ingredient[];
+    preps: Prep[];
+    lines: RecipeLine[];
+    items: MenuItem[];
+    settings: CostingSettings;
+    targets: Target[];
+    /** supplier deals in force today (optional) */
+    deals?: IngredientDeal[];
+    /** deals to use for the "after" side instead of `deals`, to preview adding, changing or removing a deal */
+    dealsAfter?: IngredientDeal[];
+  },
 ): ImpactRow[] {
   const affected = itemsUsing("ingredient", ingredientId, data.lines);
   if (!affected.size) return [];
-  const beforeIdx = buildIndex(data.ingredients, data.preps, data.lines);
+  const beforeIdx = buildIndex(data.ingredients, data.preps, data.lines, data.deals);
   const afterIdx = buildIndex(
     data.ingredients.map((i) => (i.id === ingredientId ? { ...i, ...patch } : i)),
     data.preps,
     data.lines,
+    data.dealsAfter ?? data.deals,
   );
   const cb = new Map<string, PrepCost>();
   const ca = new Map<string, PrepCost>();
@@ -332,4 +345,33 @@ export function catalogueGaps(ingredients: Ingredient[], portal: PortalPrice[] |
     if (Math.abs(diffPct) > tolerance) out.push({ ingredient: i, portal: p, ours, theirs, diffPct });
   }
   return out.sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
+}
+
+export interface DealFeedRow {
+  kind: "deal_ending" | "deal_expired";
+  deal: IngredientDeal;
+  ingredient: Ingredient;
+  /** days until it ends (ending) or since it ended (expired); 0 = today / yesterday boundary */
+  days: number;
+}
+
+/**
+ * Today-feed rows for supplier deals: "Deals Ending" (live, ending within 14 days) and "Deal Expired"
+ * (switched on, ended in the last 30 days, still on file). Costing has already reverted to the base price
+ * for expired deals. Only ingredients used in a recipe are listed.
+ */
+export function dealFeedRows(deals: IngredientDeal[], ingredients: Ingredient[], inUse: Set<string>, today: string, expiredWindowDays = 30): DealFeedRow[] {
+  const byId = new Map(ingredients.map((i) => [i.id, i]));
+  const out: DealFeedRow[] = [];
+  for (const d of deals) {
+    const ing = byId.get(d.ingredient_id);
+    if (!ing || !ing.active || !inUse.has(ing.id) || !d.ends_on) continue;
+    const s = dealStatus(d, today);
+    if (s === "ending_soon") out.push({ kind: "deal_ending", deal: d, ingredient: ing, days: daysBetween(today, d.ends_on) });
+    else if (s === "expired") {
+      const ago = daysBetween(d.ends_on, today);
+      if (ago <= expiredWindowDays) out.push({ kind: "deal_expired", deal: d, ingredient: ing, days: ago });
+    }
+  }
+  return out.sort((a, b) => (a.kind === b.kind ? a.days - b.days : a.kind === "deal_expired" ? -1 : 1));
 }

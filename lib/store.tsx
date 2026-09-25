@@ -23,6 +23,7 @@ import {
   type BeerServe,
   type Ingredient,
   type MenuItem,
+  type IngredientDeal,
   type Offer,
   type OfferLine,
   type PortalPrice,
@@ -38,6 +39,7 @@ import {
 } from "./types";
 import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
+import { groupDeals } from "./deals";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
 
 const PAGE = 1000;
@@ -145,6 +147,8 @@ export interface StoreData {
   /** specials & combos (cost_offers); [] until the offers migration is applied */
   offers: Offer[];
   offerLines: OfferLine[];
+  /** supplier deals (cost_ingredient_deals); [] until the deals migration is applied */
+  deals: IngredientDeal[];
 }
 
 export interface UsedIn {
@@ -179,6 +183,8 @@ export interface StoreValue extends StoreData {
   itemCosts: Map<string, ItemCost>;
   /** costing of every offer (id -> OfferCost), from the same itemCosts as the menu */
   offerCosts: Map<string, OfferCost>;
+  /** supplier deals grouped by ingredient id */
+  dealsByIngredient: Map<string, IngredientDeal[]>;
   prepCosts: Map<string, PrepCost>;
   venueById: Map<number, Venue>;
   supplierById: Map<number, Supplier>;
@@ -216,6 +222,9 @@ export interface StoreValue extends StoreData {
   setOfferLines: (offerId: string, lines: Omit<OfferLine, "id" | "offer_id">[]) => Promise<void>;
   duplicateOffer: (id: string) => Promise<string>;
   setOfferStatus: (id: string, status: Offer["status"]) => Promise<void>;
+  addDeal: (deal: Omit<IngredientDeal, "id">) => Promise<string>;
+  updateDeal: (id: string, patch: Partial<IngredientDeal>) => Promise<void>;
+  deleteDeal: (id: string) => Promise<void>;
 }
 
 const empty: StoreData = {
@@ -238,6 +247,7 @@ const empty: StoreData = {
   beerPrices: [],
   offers: [],
   offerLines: [],
+  deals: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -283,7 +293,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const since = new Date(Date.now() - LOG_WINDOW_DAYS * 86_400_000).toISOString();
       // gelato serve tables are optional so the app still loads against a database without them
       const optional = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices, offers, offerLines] =
+      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices, offers, offerLines, deals] =
         await Promise.all([
           fetchAll<Venue>(sb, "cost_venues", "sort"),
           fetchAll<Setting>(sb, "cost_settings", "key"),
@@ -303,6 +313,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           optional(fetchAll<BeerPrice>(sb, "cost_beer_prices", "beer_id")),
           optional(fetchAll<Offer>(sb, "cost_offers", "created_at")),
           optional(fetchAll<OfferLine>(sb, "cost_offer_lines", "sort")),
+          optional(fetchAll<IngredientDeal>(sb, "cost_ingredient_deals", "created_at")),
         ]);
       setData({
         venues,
@@ -324,6 +335,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         beerPrices,
         offers,
         offerLines,
+        deals,
       });
       serverLoaded.current = true;
       setReady(true);
@@ -413,7 +425,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [data.items, gelato, beer],
   );
   const allLines = useMemo(() => (gelato.lines.length || beer.lines.length ? [...data.lines, ...gelato.lines, ...beer.lines] : data.lines), [data.lines, gelato.lines, beer.lines]);
-  const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines), [data.ingredients, data.preps, allLines]);
+  // deals are applied by date inside buildIndex (Brisbane today), so an expired deal reverts to the base price on its own
+  const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines, data.deals), [data.ingredients, data.preps, allLines, data.deals]);
+  const dealsByIngredient = useMemo(() => groupDeals(data.deals), [data.deals]);
   const prepCosts = useMemo(() => {
     const cache = new Map<string, PrepCost>();
     const out = new Map<string, PrepCost>();
@@ -849,6 +863,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const setOfferStatus = useCallback((id: string, status: Offer["status"]) => updateOffer(id, { status }), [updateOffer]);
 
+  // ---- supplier deals (optimistic; rolled back if the save fails) ----
+  const addDeal = useCallback(
+    async (deal: Omit<IngredientDeal, "id">) => {
+      const row: IngredientDeal = { ...deal, id: newId() };
+      setData((d) => ({ ...d, deals: [...d.deals, row] }));
+      const { error } = await sb.from("cost_ingredient_deals").insert(row);
+      if (error) {
+        setData((d) => ({ ...d, deals: d.deals.filter((x) => x.id !== row.id) }));
+        throw new Error(error.message);
+      }
+      return row.id;
+    },
+    [sb],
+  );
+
+  const updateDeal = useCallback(
+    async (id: string, patch: Partial<IngredientDeal>) => {
+      let before: IngredientDeal | undefined;
+      setData((d) => {
+        before = d.deals.find((x) => x.id === id);
+        return { ...d, deals: d.deals.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+      });
+      const { error } = await sb.from("cost_ingredient_deals").update(patch).eq("id", id);
+      if (error) {
+        if (before) setData((d) => ({ ...d, deals: d.deals.map((x) => (x.id === id ? (before as IngredientDeal) : x)) }));
+        throw new Error(error.message);
+      }
+    },
+    [sb],
+  );
+
+  const deleteDeal = useCallback(
+    async (id: string) => {
+      let before: IngredientDeal | undefined;
+      setData((d) => {
+        before = d.deals.find((x) => x.id === id);
+        return { ...d, deals: d.deals.filter((x) => x.id !== id) };
+      });
+      const { error } = await sb.from("cost_ingredient_deals").delete().eq("id", id);
+      if (error) {
+        if (before) setData((d) => ({ ...d, deals: [...d.deals, before as IngredientDeal] }));
+        throw new Error(error.message);
+      }
+    },
+    [sb],
+  );
+
   const value: StoreValue = {
     ...data,
     loading,
@@ -870,6 +931,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     index,
     itemCosts,
     offerCosts,
+    dealsByIngredient,
     prepCosts,
     venueById,
     supplierById,
@@ -905,6 +967,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setOfferLines,
     duplicateOffer,
     setOfferStatus,
+    addDeal,
+    updateDeal,
+    deleteDeal,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

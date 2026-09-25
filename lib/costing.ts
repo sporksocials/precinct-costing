@@ -2,6 +2,7 @@ import {
   DEFAULT_TARGET_GP,
   type CostingSettings,
   type Ingredient,
+  type IngredientDeal,
   type LineUnit,
   type MenuItem,
   type PackUnit,
@@ -9,6 +10,8 @@ import {
   type RecipeLine,
   type Target,
 } from "./types";
+
+import { brisbaneToday, groupDeals, withEffectivePrice } from "./deals";
 
 export const MAX_PREP_DEPTH = 5;
 
@@ -75,6 +78,11 @@ export function ingredientCostPerBase(
   return (ex - rebate) / size / yieldPct;
 }
 
+/** Cost per base unit using the index's effective (deal-adjusted) price for this ingredient; falls back to the ingredient as given. */
+export function costPerBaseFromIndex(index: CostingIndex, ing: Parameters<typeof ingredientCostPerBase>[0] & { id: string }, gst: number): number {
+  return ingredientCostPerBase(index.ingredients.get(ing.id) ?? ing, gst);
+}
+
 export interface LineWarning {
   lineId: string;
   kind: "unit_mismatch" | "missing_component" | "cycle" | "depth";
@@ -113,7 +121,17 @@ export function parentKey(parentType: "prep" | "item", parentId: string): string
   return `${parentType}:${parentId}`;
 }
 
-export function buildIndex(ingredients: Ingredient[], preps: Prep[], lines: RecipeLine[]): CostingIndex {
+/**
+ * `deals` (optional) are supplier deals: each ingredient is costed at its effective pack price today (lib/deals.ts),
+ * so deals that have expired fall away by themselves. The old per-ingredient `rebate` is the standing rebate and
+ * still comes off after that price (see ingredientCostPerBase); deals never rewrite the stored pack price.
+ */
+export function buildIndex(ingredients: Ingredient[], preps: Prep[], lines: RecipeLine[], deals?: IngredientDeal[] | null, today?: string): CostingIndex {
+  if (deals?.length) {
+    const by = groupDeals(deals);
+    const t = today ?? brisbaneToday();
+    ingredients = ingredients.map((i) => (by.has(i.id) ? withEffectivePrice(i, by.get(i.id), t) : i));
+  }
   const linesByParent = new Map<string, RecipeLine[]>();
   for (const l of lines) {
     const k = parentKey(l.parent_type, l.parent_id);

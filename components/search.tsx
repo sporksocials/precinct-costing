@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
+import { costPerBaseFromIndex, parsePackFromUom } from "@/lib/costing";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
 import { indexDoc, search, type IndexedDoc, type SearchDoc, type SearchKind } from "@/lib/search";
 import { titleCase } from "@/lib/parse-qty";
@@ -60,7 +60,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
           kind: "ingredient",
           id: i.id,
           title: i.name,
-          sub: [sup, `${money(ingredientCostPerBase(i, gst))}/${unitShort(i.pack_unit)}`].filter(Boolean).join(" · "),
+          sub: [sup, `${money(costPerBaseFromIndex(store.index, i, gst))}/${unitShort(i.pack_unit)}`].filter(Boolean).join(" · "),
           href: `/ingredients/${i.id}`,
           extra: `${sup ?? ""} ${i.category ?? ""} ${i.supplier_code ?? ""}`,
           boost: i.active ? 0 : -0.2,
@@ -68,7 +68,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
       );
     }
     return docs;
-  }, [store.itemCosts, store.prepCosts, store.ingredients, store.supplierById, store.venueById, store.settings.gst_rate]);
+  }, [store.itemCosts, store.prepCosts, store.ingredients, store.index, store.supplierById, store.venueById, store.settings.gst_rate]);
 
   const portal = useMemo(() => {
     if (!store.portalPrices) return [];

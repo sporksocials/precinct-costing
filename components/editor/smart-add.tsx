@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase, parsePackFromUom, UNIT_FACTORS, unitBase } from "@/lib/costing";
+import { costPerBaseFromIndex, parsePackFromUom, UNIT_FACTORS, unitBase } from "@/lib/costing";
 import { money, unitShort } from "@/lib/format";
 import { formatQty, parseLineInput, resolveLineUnit, titleCase } from "@/lib/parse-qty";
 import { indexDoc, search, type IndexedDoc } from "@/lib/search";
@@ -43,7 +43,7 @@ export function useComponentDocs(excludePrepId?: string): CompDoc[] {
     for (const i of store.ingredients) {
       if (!i.active) continue;
       const sup = store.supplierById.get(i.supplier_id ?? -1)?.name;
-      const unitCost = ingredientCostPerBase(i, gst);
+      const unitCost = costPerBaseFromIndex(store.index, i, gst);
       out.push({
         ...indexDoc({ kind: "ingredient", id: i.id, title: i.name, sub: [sup, unitCost ? `${money(unitCost)}/${unitShort(i.pack_unit)}` : "No price"].filter(Boolean).join(" · "), href: "", extra: `${sup ?? ""} ${i.category ?? ""}` }),
         ctype: "ingredient",
@@ -61,7 +61,7 @@ export function useComponentDocs(excludePrepId?: string): CompDoc[] {
       });
     }
     return out;
-  }, [store.ingredients, store.prepCosts, store.supplierById, store.settings.gst_rate, excludePrepId]);
+  }, [store.ingredients, store.index, store.prepCosts, store.supplierById, store.settings.gst_rate, excludePrepId]);
 }
 
 export function PrepBadge() {

@@ -6,7 +6,8 @@ import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
 import { costLines } from "@/lib/costing";
 import { packagingLines } from "@/lib/gelato";
-import { gp, money, unitShort } from "@/lib/format";
+import { gp, money, parseDecimal, unitShort } from "@/lib/format";
+import { parseGpInput, parsePercentInput } from "@/lib/solver";
 import type { GelatoServe, GelatoServeLine } from "@/lib/types";
 import { PriceHistory } from "@/components/editor/price-history";
 import { SmartAdd } from "@/components/editor/smart-add";
@@ -49,8 +50,8 @@ export default function GelatoServesPage() {
             value={pctIn(store.settings.gelato_wastage)}
             suffix="%"
             onCommit={(t) => {
-              const n = Number(t.replace(/[%\s]/g, ""));
-              if (t.trim() && Number.isFinite(n) && n >= 0 && n < 100) run(store.updateSetting("gelato_wastage", n / 100));
+              const n = parsePercentInput(t);
+              if (t.trim() && n != null && n < 1) run(store.updateSetting("gelato_wastage", n));
             }}
           />
         </FieldRow>
@@ -134,10 +135,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
     }
   }
 
-  const num = (t: string) => {
-    const n = Number(t.replace(/[$,\s]/g, ""));
-    return Number.isFinite(n) ? n : null;
-  };
+  const num = parseDecimal;
 
   return (
     <Sheet open onClose={onClose} title={serve ? serve.name : "New Serve"} action={{ label: busy ? "Saving…" : "Save", onClick: () => void save(), disabled: !canSave }}>
@@ -156,13 +154,18 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
               placeholder="Default"
               suffix="%"
               onCommit={(t) => {
-                const n = num(t.replace("%", ""));
-                setDraft((d) => ({ ...d, target_gp: t.trim() === "" || n == null ? null : n >= 1 ? n / 100 : n }));
+                const n = parseGpInput(t);
+                if (t.trim() === "") setDraft((d) => ({ ...d, target_gp: null }));
+                else if (n != null) setDraft((d) => ({ ...d, target_gp: n }));
               }}
             />
           </FieldRow>
           <FieldRow label="Price (inc GST)" sub="Same for every flavour">
-            <InlineInput value={draft.sell_price_inc != null ? Number(draft.sell_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, sell_price_inc: t.trim() ? num(t) : null }))} />
+            <InlineInput value={draft.sell_price_inc != null ? Number(draft.sell_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => {
+              const n = num(t);
+              if (t.trim() === "") setDraft((d) => ({ ...d, sell_price_inc: null }));
+              else if (n != null) setDraft((d) => ({ ...d, sell_price_inc: n }));
+            }} />
           </FieldRow>
         </div>
         <div className="group-list mt-4">

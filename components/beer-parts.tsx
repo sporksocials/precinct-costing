@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { costPerBaseFromIndex } from "@/lib/costing";
-import { money } from "@/lib/format";
+import { money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
@@ -136,8 +136,8 @@ export function BeerServeSizesSheet({ open, onClose }: { open: boolean; onClose:
                 value={String(s.ml)}
                 suffix="ml"
                 onCommit={(t) => {
-                  const n = Number(t.replace(/[^\d.]/g, ""));
-                  if (n > 0) store.updateBeerServe(s.id, { ml: n }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+                  const n = parseDecimal(t);
+                  if (n != null && n > 0) store.updateBeerServe(s.id, { ml: n }).catch((e) => setError(e instanceof Error ? e.message : String(e)));
                 }}
               />
             </FieldRow>

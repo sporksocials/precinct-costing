@@ -71,10 +71,10 @@ export function WhatIfSheet({
 
         <div className={cx("mt-4 rounded-2xl px-4 py-5 text-center", under ? "bg-danger-soft" : "bg-surface")}>
           <p className="text-[13px] text-label-2">GP · target {gp(cost.targetGp, 0)}</p>
-          <p className={cx("display mt-1 text-[64px] tnum", under ? "text-danger" : "text-accent")}>{gpNow == null ? "—" : gp(gpNow)}</p>
+          <p className={cx("display mt-1 text-[64px] tnum", under ? "text-danger" : "text-accent")}>{gpNow == null ? "—" : gp(gpNow, 1, cost.targetGp)}</p>
           <p className="mt-1 text-[13px] text-label-2 tnum">
             Cost {money(costNow)}
-            {cost.gpPct != null ? ` · now ${gp(cost.gpPct)}` : ""}
+            {cost.gpPct != null ? ` · now ${gp(cost.gpPct, 1, cost.targetGp)}` : ""}
           </p>
         </div>
 

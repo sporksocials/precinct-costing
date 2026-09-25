@@ -8,7 +8,7 @@ import { useStore } from "@/lib/store";
 import { beerItemId } from "@/lib/beer";
 import { costPerBaseFromIndex, resolveTargetGp } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
-import { parsePriceInput } from "@/lib/solver";
+import { parseGpInput, parsePriceInput } from "@/lib/solver";
 import { VenueAccent, VENUE_SHORT } from "@/components/venue";
 import { KegPicker } from "@/components/beer-parts";
 import { PriceHistory } from "@/components/editor/price-history";
@@ -70,8 +70,9 @@ export default function BeerPage() {
             placeholder="Default"
             suffix="%"
             onCommit={(t) => {
-              const n = Number(t.replace(/[%\s]/g, ""));
-              run(store.updateBeer(beer.id, { target_gp: t.trim() === "" || !Number.isFinite(n) ? null : n >= 1 ? n / 100 : n }));
+              const n = parseGpInput(t);
+              if (t.trim() === "") run(store.updateBeer(beer.id, { target_gp: null }));
+              else if (n != null) run(store.updateBeer(beer.id, { target_gp: n }));
             }}
           />
         </FieldRow>
@@ -96,7 +97,7 @@ export default function BeerPage() {
                   prefix="$"
                   onCommit={(t) => run(store.setBeerPrice(beer.id, s.id, { sell_price_inc: parsePriceInput(t) }))}
                 />
-                <span className={cx("w-16 text-right text-[17px] font-semibold tnum sm:text-[15px]", c?.underTarget ? "text-danger" : "text-label")}>{c?.gpPct != null ? gp(c.gpPct) : "—"}</span>
+                <span className={cx("w-16 text-right text-[17px] font-semibold tnum sm:text-[15px]", c?.underTarget ? "text-danger" : "text-label")}>{c?.gpPct != null ? gp(c.gpPct, 1, c.targetGp) : "—"}</span>
               </div>
               <div className="mt-2 flex items-center justify-between gap-3">
                 <label className="flex items-center gap-2 text-[13px] text-label-2">

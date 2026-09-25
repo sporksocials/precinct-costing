@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { gp, money } from "@/lib/format";
+import { gp, money, parseDecimal } from "@/lib/format";
 import { breakEvenChipLabel, CANNIBALISATION_STEPS, DEFAULT_CANNIBALISATION, sensitivity, simulate, verdict, volumeSteps, type Need, type Sim, type SimInput } from "@/lib/offer-sim";
 import type { OfferCost } from "@/lib/offers";
 import type { OfferAssumptions, OfferKind } from "@/lib/types";
@@ -15,10 +15,7 @@ import { Chips, cx, FieldRow, Group, InlineInput, Stepper } from "./ui";
 
 /** "12", "$1,200", "" to a number of at least 0, or null. */
 function parseNum(t: string): number | null {
-  const s = t.trim().replace(/[$,\s]/g, "");
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return parseDecimal(t);
 }
 
 const show = (n: number | null | undefined) => (n == null ? "" : String(n));

@@ -120,7 +120,7 @@ export default function GelatoPage() {
                   {worst?.c.gpPct != null ? (
                     <span className={cx("ml-2 inline-flex items-center gap-1", worst.c.underTarget ? "text-danger" : "text-label-2")}>
                       {worst.c.underTarget ? <Dot className="bg-danger" /> : null}
-                      {gp(worst.c.gpPct)}
+                      {gp(worst.c.gpPct, 1, worst.c.targetGp)}
                     </span>
                   ) : null}
                 </>
@@ -180,7 +180,7 @@ export default function GelatoPage() {
                         const c = cell(f, s);
                         return (
                           <td key={s.id} title={c ? `Cost ${money(c.costPerPortion)}` : undefined} className={cx("whitespace-nowrap px-2 py-2 text-right", c?.underTarget ? "font-semibold text-danger" : "text-label")}>
-                            {c?.gpPct != null ? gp(c.gpPct) : "—"}
+                            {c?.gpPct != null ? gp(c.gpPct, 1, c.targetGp) : "—"}
                           </td>
                         );
                       })}

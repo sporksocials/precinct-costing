@@ -79,8 +79,17 @@ export function buildGelato(input: {
   const venue = input.venues.find((v) => v.slug === GELATO_SLUG) ?? null;
   const empty: GelatoModel = { venue, serves: [], flavours: [], items: [], lines: [], replacedItemIds: new Set() };
   if (!venue) return empty;
-  const serves = input.serves.filter((s) => s.venue_id === venue.id && s.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
-  if (!serves.length) return empty;
+  const venueServes = input.serves.filter((s) => s.venue_id === venue.id);
+  const serves = venueServes.filter((s) => s.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  // The old stored flavour x serve recipes stay hidden whatever happens to the serves that replaced them:
+  // by explicit id first (GelatoServe.legacy_item_ids, robust to renames), then by section name against EVERY serve
+  // of the venue (active or not, so switching a serve off never resurrects its old items). Name matching is only the fallback.
+  const explicit = new Set(venueServes.flatMap((s) => s.legacy_item_ids ?? []));
+  const serveNames = new Set(venueServes.map((s) => s.name.trim().toLowerCase()));
+  const replacedItemIds = new Set(
+    input.items.filter((i) => i.venue_id === venue.id && (explicit.has(i.id) || serveNames.has((i.section ?? "").trim().toLowerCase()))).map((i) => i.id),
+  );
+  if (!serves.length) return { ...empty, replacedItemIds };
   const flavours = input.preps.filter((p) => isGelatoFlavour(p, venue.id)).sort((a, b) => flavourName(a).localeCompare(flavourName(b)));
   const linesByServe = new Map<string, GelatoServeLine[]>();
   for (const l of input.serveLines) {
@@ -106,6 +115,9 @@ export function buildGelato(input: {
         target_override: input.targets ? resolveGelatoTarget(s, venue.id, input.targets) : s.target_gp != null ? Number(s.target_gp) : null,
         hh_price_inc: null,
         active: f.active && s.active,
+        // serves not on the menu (3-scoop, take-home, wholesale) stay costed and visible on the price grid,
+        // but headline averages, Below Target and the Today feed leave them out
+        off_menu: !s.on_menu,
         source: "gelato",
         notes: null,
       });
@@ -135,11 +147,6 @@ export function buildGelato(input: {
       }
     }
   }
-  // the old stored flavour × serve recipes: gelato venue items whose section is a serve name
-  const serveNames = new Set(serves.map((s) => s.name.trim().toLowerCase()));
-  const replacedItemIds = new Set(
-    input.items.filter((i) => i.venue_id === venue.id && serveNames.has((i.section ?? "").trim().toLowerCase())).map((i) => i.id),
-  );
   return { venue, serves, flavours, items, lines, replacedItemIds };
 }
 

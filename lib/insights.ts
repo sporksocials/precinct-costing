@@ -8,7 +8,15 @@ export const FOOD_CATEGORIES = new Set(["Food"]);
 export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
 
 /** Kinds of Today-feed entries. 'check_cost' and 'happy_hour' are new; the rest are unchanged. */
-export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "happy_hour" | "deal_ending" | "deal_expired";
+export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "missing_price" | "happy_hour" | "deal_ending" | "deal_expired";
+
+/**
+ * A computed item whose serve is not on the menu (gelato 3-scoop, take-home, wholesale). It stays costed and visible on
+ * the price grid, but headline averages, Below Target, Check Cost and the Today feed leave it out.
+ */
+export function isOffMenu(c: Pick<ItemCost, "item">): boolean {
+  return c.item.off_menu === true;
+}
 
 export interface GpSummary {
   /** simple average of item GP% across active priced items (every item counts equally) */
@@ -30,7 +38,7 @@ export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null): G
   const drinks: number[] = [];
   let excluded = 0;
   for (const c of costs) {
-    if (!c.item.active || c.gpPct == null) continue;
+    if (!c.item.active || c.gpPct == null || isOffMenu(c)) continue;
     if (venueId != null && c.item.venue_id !== venueId) continue;
     // DECISION: items with cost warnings (zero-cost line, no lines, GP > 92%...) are excluded from
     // headline averages rather than counted at a fake ~100% GP; they are counted in `excluded`.
@@ -49,7 +57,7 @@ export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null): G
 export function underTarget(costs: Iterable<ItemCost>, venueId?: number | null): ItemCost[] {
   const out: ItemCost[] = [];
   for (const c of costs) {
-    if (!c.item.active || !c.underTarget) continue;
+    if (!c.item.active || !c.underTarget || isOffMenu(c)) continue;
     if (venueId != null && c.item.venue_id !== venueId) continue;
     out.push(c);
   }
@@ -66,7 +74,7 @@ export interface CheckCostRow {
 export function checkCostRows(costs: Iterable<ItemCost>, venueId?: number | null): CheckCostRow[] {
   const out: CheckCostRow[] = [];
   for (const c of costs) {
-    if (!c.item.active || !c.needsCheck) continue;
+    if (!c.item.active || !c.needsCheck || isOffMenu(c)) continue;
     if (venueId != null && c.item.venue_id !== venueId) continue;
     out.push({ kind: "check_cost", cost: c, warnings: c.costWarnings });
   }
@@ -122,6 +130,59 @@ export function checkCostGroups(rows: CheckCostRow[]): CheckCostGroup[] {
   return out;
 }
 
+export interface MissingPriceGroup {
+  id: string;
+  name: string;
+  /** where tapping it goes (the place to type a price) */
+  href: string;
+  venueId: number;
+  /** computed serves folded into this row (1 for a normal item) */
+  count: number;
+  /** cost per portion (ex GST); for a folded gelato serve, the dearest flavour */
+  cost: number;
+  /** price (inc GST) that would reach the target, or null when the cost is missing or untrustworthy. Only a suggestion: nothing applies it. */
+  suggestedInc: number | null;
+  targetGp: number;
+}
+
+/**
+ * Active items that have no sell price at all, so they have no GP and appear in no other feed (feed kind 'missing_price').
+ * A normal item is its own row; a tap beer's unpriced serves fold into one row per beer; a gelato serve is one row.
+ * The suggested price is shown only when the cost looks trustworthy, and is never applied from here.
+ */
+export function missingPriceGroups(costs: Iterable<ItemCost>, venueId?: number | null): MissingPriceGroup[] {
+  const out: MissingPriceGroup[] = [];
+  const byKey = new Map<string, MissingPriceGroup>();
+  const suggest = (c: ItemCost) => (!c.needsCheck && c.suggestedInc > 0 ? c.suggestedInc : null);
+  for (const c of costs) {
+    const it = c.item;
+    if (!it.active || isOffMenu(c) || (it.sell_price_inc != null && Number(it.sell_price_inc) > 0)) continue;
+    if (venueId != null && it.venue_id !== venueId) continue;
+    const b = parseBeerItemId(it.id);
+    const g = parseVirtualItemId(it.id);
+    if (!b && !g) {
+      out.push({ id: it.id, name: it.name, href: `/items/${it.id}`, venueId: it.venue_id, count: 1, cost: c.costPerPortion, suggestedInc: suggest(c), targetGp: c.targetGp });
+      continue;
+    }
+    const key = b ? `beer:${b.beerId}` : `gelato:${g!.serveId}`;
+    const cur = byKey.get(key);
+    if (cur) {
+      cur.count += 1;
+      if (g && c.costPerPortion > cur.cost) {
+        cur.cost = c.costPerPortion;
+        cur.suggestedInc = suggest(c);
+      }
+      continue;
+    }
+    const grp: MissingPriceGroup = b
+      ? { id: key, name: it.name.split(" - ")[0], href: `/beers/${b.beerId}`, venueId: it.venue_id, count: 1, cost: c.costPerPortion, suggestedInc: null, targetGp: c.targetGp }
+      : { id: key, name: it.section ?? it.name, href: "/gelato/serves", venueId: it.venue_id, count: 1, cost: c.costPerPortion, suggestedInc: suggest(c), targetGp: c.targetGp };
+    byKey.set(key, grp);
+    out.push(grp);
+  }
+  return out.sort((a, b) => a.venueId - b.venueId || a.name.localeCompare(b.name));
+}
+
 export interface HappyHourRow {
   kind: "happy_hour";
   cost: ItemCost;
@@ -135,7 +196,7 @@ export interface HappyHourRow {
 export function happyHourRows(costs: Iterable<ItemCost>, venueId?: number | null): HappyHourRow[] {
   const out: HappyHourRow[] = [];
   for (const c of costs) {
-    if (!c.item.active || c.hhSellInc == null || c.hhGpPct == null) continue;
+    if (!c.item.active || isOffMenu(c) || c.hhSellInc == null || c.hhGpPct == null) continue;
     if (!c.hhUnderTarget && !c.hhBelowCost) continue;
     if (venueId != null && c.item.venue_id !== venueId) continue;
     out.push({ kind: "happy_hour", cost: c, hhPrice: c.hhSellInc, hhGpPct: c.hhGpPct, belowCost: c.hhBelowCost });
@@ -242,7 +303,7 @@ export function priceIncreases(
     if (!ing) continue;
     const m = priceMovePct(log.old_price, log.new_price);
     if (m == null || m <= alertPct) continue;
-    let used = [...itemsUsing("ingredient", id, lines)].map((i) => items.get(i)).filter((x): x is MenuItem => !!x && x.active);
+    let used = [...itemsUsing("ingredient", id, lines)].map((i) => items.get(i)).filter((x): x is MenuItem => !!x && x.active && !x.off_menu);
     if (venueId != null) {
       used = used.filter((i) => i.venue_id === venueId);
       if (!used.length) continue;
@@ -324,16 +385,71 @@ export interface CatalogueGap {
   diffPct: number;
 }
 
-/** Ingredients linked to a supplier catalogue product (same code) whose price per unit differs by more than `tolerance`. */
-export function catalogueGaps(ingredients: Ingredient[], portal: PortalPrice[] | null, gst: number, tolerance = 0.02): CatalogueGap[] {
+/** Lower-case, punctuation-free supplier name for comparing a portal supplier with a cost_suppliers name. */
+function supplierKey(name: string | null | undefined): string {
+  return (name ?? "").toLowerCase().replace(/\b(pty|ltd|limited|the)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sameSupplier(a: string, b: string): boolean {
+  const x = supplierKey(a);
+  const y = supplierKey(b);
+  return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
+}
+
+/**
+ * The catalogue rows to keep from every batch fetched: for each supplier, EVERY row of the batch(es) captured at that
+ * supplier's newest timestamp. Two batches captured at the same instant (e.g. a produce list and a specials list) both stay.
+ */
+export function latestPortalRows(all: PortalPrice[]): PortalPrice[] {
+  const newest = new Map<string, number>();
+  const at = (r: PortalPrice) => (r.captured_at ? new Date(r.captured_at).getTime() : 0) || 0;
+  for (const r of all) newest.set(r.supplier, Math.max(newest.get(r.supplier) ?? 0, at(r)));
+  return all.filter((r) => at(r) === newest.get(r.supplier));
+}
+
+/**
+ * Ingredients linked to a supplier catalogue product (same code AND same supplier) whose price per unit differs by more than `tolerance`.
+ * A code only counts for the supplier that issued it: an ingredient with a supplier must match a catalogue row from that supplier
+ * (looked up in `suppliers`; without the list it cannot be verified, so it is skipped). An ingredient with no supplier at all
+ * ("supplier-less code") matches only when exactly one catalogue supplier uses that code. Codes repeated inside one supplier's
+ * catalogue with different prices are ambiguous and skipped.
+ */
+export function catalogueGaps(
+  ingredients: Ingredient[],
+  portal: PortalPrice[] | null,
+  gst: number,
+  suppliers?: Map<number, { name: string }> | { id: number; name: string }[] | null,
+  tolerance = 0.02,
+): CatalogueGap[] {
   if (!portal?.length) return [];
-  const byCode = new Map<string, PortalPrice>();
-  for (const p of portal) if (p.product_code && p.price != null) byCode.set(p.product_code.trim().toLowerCase(), p);
+  const supplierName = (id: number | null): string | null => {
+    if (id == null || !suppliers) return null;
+    return (suppliers instanceof Map ? suppliers.get(id)?.name : suppliers.find((s) => s.id === id)?.name) ?? null;
+  };
+  const byCode = new Map<string, PortalPrice[]>();
+  for (const p of portal) {
+    if (!p.product_code || p.price == null) continue;
+    const k = p.product_code.trim().toLowerCase();
+    const arr = byCode.get(k);
+    if (arr) arr.push(p);
+    else byCode.set(k, [p]);
+  }
   const out: CatalogueGap[] = [];
   for (const i of ingredients) {
     if (!i.active || !i.supplier_code) continue;
-    const p = byCode.get(i.supplier_code.trim().toLowerCase());
-    if (!p) continue;
+    const cands = byCode.get(i.supplier_code.trim().toLowerCase());
+    if (!cands?.length) continue;
+    let matches: PortalPrice[];
+    if (i.supplier_id != null) {
+      const name = supplierName(i.supplier_id);
+      if (!name) continue;
+      matches = cands.filter((c) => sameSupplier(c.supplier, name));
+    } else {
+      matches = new Set(cands.map((c) => supplierKey(c.supplier))).size === 1 ? cands : [];
+    }
+    if (!matches.length) continue;
+    if (matches.some((m) => Number(m.price) !== Number(matches[0].price) || m.price_inc_gst !== matches[0].price_inc_gst || m.uom !== matches[0].uom)) continue;
+    const p = matches[0];
     const pack = parsePackFromUom(p.uom);
     const size = pack && pack.pack_unit === i.pack_unit ? pack.pack_size : Number(i.pack_size);
     if (!size || !Number(i.pack_size)) continue;

@@ -10,10 +10,10 @@ import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
 import { withEffectivePrice } from "@/lib/deals";
-import { dateShort, gp, money, movePct, num, packLabel, unitShort } from "@/lib/format";
+import { dateShort, gp, money, movePct, num, packLabel, parseDecimal, unitShort } from "@/lib/format";
 import { ingredientChangeImpact, type ImpactRow } from "@/lib/insights";
 import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
-import { parsePercentInput } from "@/lib/solver";
+import { parseYieldInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
@@ -209,7 +209,7 @@ function Detail({ ing }: { ing: Ingredient }) {
                       c?.gpPct != null ? (
                         <>
                           {c.underTarget ? <Dot className="bg-danger" /> : null}
-                          {gp(c.gpPct)}
+                          {gp(c.gpPct, 1, c.targetGp)}
                         </>
                       ) : null
                     }
@@ -242,7 +242,7 @@ function Detail({ ing }: { ing: Ingredient }) {
               </FieldRow>
               <FieldRow label="Pack Size">
                 <span className="flex items-center gap-2">
-                  <InlineInput value={num(ing.pack_size)} width="w-16" onCommit={(t) => Number(t) > 0 && patch({ pack_size: Number(t) })} />
+                  <InlineInput value={num(ing.pack_size)} width="w-16" onCommit={(t) => { const n = parseDecimal(t); if (n != null && n > 0) patch({ pack_size: n }); }} />
                   <Segmented size="sm" ariaLabel="Pack unit" className="w-[140px]" value={ing.pack_unit} onChange={(u) => patch({ pack_unit: u })} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
                 </span>
               </FieldRow>
@@ -250,10 +250,10 @@ function Detail({ ing }: { ing: Ingredient }) {
                 <InlineInput value={ing.category ?? ""} placeholder="None" inputMode="text" width="w-40" onCommit={(t) => patch({ category: t.trim() || null })} />
               </FieldRow>
               <FieldRow label="Rebate per Pack">
-                <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => patch({ rebate: Number(t) || 0 })} />
+                <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => { const n = t.trim() === "" ? 0 : parseDecimal(t); if (n != null) patch({ rebate: n }); }} />
               </FieldRow>
-              <FieldRow label="Yield" sub="Usable share after trim, e.g. 85">
-                <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = parsePercentInput(t); if (n != null && n > 0) patch({ yield_pct: n }); }} />
+              <FieldRow label="Yield" sub="Usable share after trim, e.g. 85. A bare 1 means 100%.">
+                <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = parseYieldInput(t); if (n != null) patch({ yield_pct: n }); }} />
               </FieldRow>
               <Toggle label="Price Includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
               <Toggle label="GST-free" checked={ing.gst_free} onChange={(v) => patch({ gst_free: v })} />
@@ -321,7 +321,7 @@ function ImpactPreview({ rows }: { rows: ImpactRow[] }) {
           <li key={r.item.id} className="flex items-baseline gap-2 text-[13px] tnum">
             <span className="min-w-0 flex-1 truncate text-label-2">{r.item.name}</span>
             <span className="shrink-0 text-label-2">{gp(r.before.gpPct, 0)} →</span>
-            <span className={cx("shrink-0 font-semibold", r.after.underTarget ? "text-danger" : "text-label")}>{gp(r.after.gpPct, 0)}</span>
+            <span className={cx("shrink-0 font-semibold", r.after.underTarget ? "text-danger" : "text-label")}>{gp(r.after.gpPct, 0, r.after.targetGp)}</span>
           </li>
         ))}
       </ul>
@@ -387,8 +387,12 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   const [impact, setImpact] = useState<ImpactRow[] | null>(null);
   const [changes, setChanges] = useState<ReviewChange[]>([]);
   const [reviewing, setReviewing] = useState(false);
-  const price = Number(text.replace(/[$,\s]/g, ""));
-  const valid = text.trim() !== "" && Number.isFinite(price) && price >= 0;
+  const parsed = parseDecimal(text);
+  const price = parsed ?? 0;
+  // $0 is never a real invoice price (it would zero every dish that uses this ingredient), and unreadable text is not a price
+  const typed = text.trim() !== "";
+  const problem = !typed ? null : parsed == null ? "That doesn’t look like a price. Try 18.50." : parsed <= 0 ? "A price of $0 isn’t allowed here. It would make every dish using this cost nothing." : null;
+  const valid = typed && parsed != null && parsed > 0;
   const move = valid ? priceMovePct(ing.pack_price, price) : null;
   // live preview: what this price does to every recipe using the ingredient, before saving
   const deferredPrice = useDeferredValue(valid ? price : null);
@@ -452,14 +456,14 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
                       r.after.underTarget && r.after.sellInc != null ? (
                         <span className="tnum">
                           <span className="text-label-2">GP {gp(r.before.gpPct, 0)} → </span>
-                          <span className="font-semibold text-danger">{gp(r.after.gpPct, 0)}</span>
+                          <span className="font-semibold text-danger">{gp(r.after.gpPct, 0, r.after.targetGp)}</span>
                         </span>
                       ) : r.before.gpPct == null ? (
                         <span className="text-label-3">No price</span>
                       ) : (
                         <span className="tnum">
                           <span className="text-label-2">GP {gp(r.before.gpPct, 0)} → </span>
-                          <span className={cx("font-semibold", r.after.underTarget ? "text-danger" : worse ? "text-label" : "text-label")}>{gp(r.after.gpPct, 0)}</span>
+                          <span className={cx("font-semibold", r.after.underTarget ? "text-danger" : worse ? "text-label" : "text-label")}>{gp(r.after.gpPct, 0, r.after.targetGp)}</span>
                         </span>
                       )
                     }
@@ -501,8 +505,10 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
             className="min-w-0 max-w-[9ch] bg-transparent text-[48px] font-semibold leading-none tnum outline-none placeholder:text-label-3"
           />
         </label>
-        <p className="mt-2 h-5 text-center text-[13px] text-label-2 tnum">
-          {move != null && Math.abs(move) > 1e-9 ? (
+        <p className={cx("mt-2 min-h-5 text-center text-[13px] tnum", problem ? "text-danger" : "text-label-2")} role={problem ? "alert" : undefined}>
+          {problem ? (
+            problem
+          ) : move != null && Math.abs(move) > 1e-9 ? (
             <>
               Was {money(ing.pack_price)} · <span className={move > 0 ? "text-danger" : ""}>{movePct(move, 1)}</span>
             </>

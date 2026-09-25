@@ -5,7 +5,6 @@ import { Plus, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase } from "@/lib/costing";
 import {
-  brisbaneToday,
   daysBetween,
   DEAL_KINDS,
   DEAL_STATUS_LABEL,
@@ -44,7 +43,7 @@ const basisText = (ing: Pick<Ingredient, "gst_free" | "price_inc_gst">) => (ing.
 export function DealPriceBlock({ ing, updatedText }: { ing: Ingredient; updatedText?: string }) {
   const store = useStore();
   const gst = store.settings.gst_rate;
-  const res = useMemo(() => resolveDeals(Number(ing.pack_price), store.dealsByIngredient.get(ing.id)), [ing.pack_price, ing.id, store.dealsByIngredient]);
+  const res = useMemo(() => resolveDeals(Number(ing.pack_price), store.dealsByIngredient.get(ing.id), store.today), [ing.pack_price, ing.id, store.dealsByIngredient, store.today]);
   const unitCost = ingredientCostPerBase({ ...ing, pack_price: res.price }, gst);
   return (
     <>
@@ -83,7 +82,7 @@ function useSuggestion(ing: Ingredient): SuggestedDeal | null {
 
 export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { ing: Ingredient; adding: boolean; onAddingChange: (v: boolean) => void; renderImpact: RenderImpact }) {
   const store = useStore();
-  const today = brisbaneToday();
+  const today = store.today;
   const deals = store.dealsByIngredient.get(ing.id) ?? [];
   const suggestion = useSuggestion(ing);
   const [prefill, setPrefill] = useState<SuggestedDeal | null>(null);
@@ -218,7 +217,7 @@ const pctFrac = (t: string): number => num(t) / 100;
 function DealSheet({ ing, prefill, onClose, renderImpact }: { ing: Ingredient; prefill: SuggestedDeal | null; onClose: () => void; renderImpact: RenderImpact }) {
   const store = useStore();
   const gst = store.settings.gst_rate;
-  const today = brisbaneToday();
+  const today = store.today;
   const [kind, setKind] = useState<DealKind>(prefill?.kind ?? "buy_x_get_y");
   const [buy, setBuy] = useState(prefill?.buy_qty ? String(prefill.buy_qty) : "");
   const [free, setFree] = useState(prefill?.free_qty ? String(prefill.free_qty) : "");

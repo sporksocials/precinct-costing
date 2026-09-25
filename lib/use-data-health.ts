@@ -29,9 +29,9 @@ function whenIdle(fn: () => void): () => void {
   return () => window.clearTimeout(h);
 }
 
-function compute(data: IntegrityData, key: unknown[]): HealthResult {
+function compute(data: IntegrityData, key: unknown[], today: string): HealthResult {
   const baseline = readLineBaseline();
-  const issues = validate(data, { lineCountBaseline: baseline });
+  const issues = validate(data, { lineCountBaseline: baseline, today });
   // raise the baseline AFTER checking against it; it never goes down, so a bad load cannot hide itself
   const counts = countLinesByParent(data.lines);
   const raised = raiseBaseline(baseline, counts);
@@ -57,8 +57,8 @@ export function useDataHealth(): { result: HealthResult | null; recheck: () => v
   const ready = s.ready && !s.loading && !s.error;
   const replaced = useMemo(() => new Set<string>([...s.gelato.replacedItemIds, ...s.beer.replacedItemIds]), [s.gelato, s.beer]);
   const key = useMemo<unknown[]>(
-    () => [s.ingredients, s.preps, s.items, s.allLines, s.settings, s.targets, s.venues, s.beers, s.offers, s.offerLines, s.deals, s.itemCosts, replaced, tick],
-    [s.ingredients, s.preps, s.items, s.allLines, s.settings, s.targets, s.venues, s.beers, s.offers, s.offerLines, s.deals, s.itemCosts, replaced, tick],
+    () => [s.ingredients, s.preps, s.items, s.allLines, s.settings, s.targets, s.venues, s.beers, s.offers, s.offerLines, s.deals, s.itemCosts, replaced, s.today, tick],
+    [s.ingredients, s.preps, s.items, s.allLines, s.settings, s.targets, s.venues, s.beers, s.offers, s.offerLines, s.deals, s.itemCosts, replaced, s.today, tick],
   );
   const [result, setResult] = useState<HealthResult | null>(() => (cache && sameKey(cache.key, key) ? cache.result : null));
 
@@ -84,7 +84,7 @@ export function useDataHealth(): { result: HealthResult | null; recheck: () => v
         replacedItemIds: replaced,
         itemCosts: s.itemCosts,
       };
-      setResult(compute(data, key));
+      setResult(compute(data, key, s.today));
     });
     // key already covers every store field read above
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -41,7 +41,9 @@ import {
 } from "./types";
 import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
-import { groupDeals } from "./deals";
+import { brisbaneToday, groupDeals } from "./deals";
+import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
+import { DEMO } from "./supabase/client";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
 import {
   FetchError,
@@ -230,6 +232,10 @@ export interface StoreValue extends StoreData {
   allLines: RecipeLine[];
   gelato: GelatoModel;
   beer: BeerModel;
+  /** today in Brisbane (yyyy-mm-dd). Held in state and moved at Brisbane midnight, so deal costing follows the date in a tab left open. */
+  today: string;
+  /** set each time a date rollover changed a deal price while the app was open (the shell shows one toast per id) */
+  dealRollover: { id: number; message: string } | null;
   index: CostingIndex;
   itemCosts: Map<string, ItemCost>;
   /** costing of every offer (id -> OfferCost), from the same itemCosts as the menu */
@@ -508,6 +514,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [portalPrices, setPortalPrices] = useState<PortalPrice[] | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
   const [assumptionsUnsaved, setAssumptionsUnsaved] = useState(false);
+  const [today, setTodayState] = useState<string>(() => brisbaneToday());
+  const todayRef = useRef(today);
+  todayRef.current = today;
+  const [dealRollover, setDealRollover] = useState<{ id: number; message: string } | null>(null);
+  const dateOverride = useRef(false);
   const [health, setHealth] = useState<Health>(initialHealth);
   const [externalUpdates, setExternalUpdates] = useState(0);
   const portalLoading = useRef(false);
@@ -722,6 +733,56 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [sb]);
 
+  // Deals follow the date: move `today` at Brisbane midnight (timer), on tab focus / visibility, and by a 60s safety tick.
+  // Everything costed from the index depends on `today`, so a change recomputes costs in place (no remount, editors keep state).
+  const applyToday = useCallback((next: string) => {
+    const prev = todayRef.current;
+    if (next === prev) return;
+    const d = dataRef.current;
+    const message = rolloverMessage(dealPriceChanges(d.ingredients, d.deals, prev, next));
+    todayRef.current = next;
+    setTodayState(next);
+    if (message) setDealRollover({ id: Date.now(), message });
+  }, []);
+  useEffect(() => {
+    let timer: number | undefined;
+    const check = () => {
+      if (!dateOverride.current) applyToday(brisbaneToday());
+    };
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        check();
+        schedule();
+      }, rolloverDelayMs(Date.now()));
+    };
+    const onVisible = () => {
+      if (!document.hidden) {
+        check();
+        schedule();
+      }
+    };
+    schedule();
+    const tick = window.setInterval(check, ROLLOVER_TICK_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    // local QA only: simulate a date rollover from the console (never present outside demo mode)
+    const w = window as Window & { __setToday?: (d: string) => void };
+    if (DEMO) {
+      w.__setToday = (d: string) => {
+        dateOverride.current = true;
+        applyToday(d);
+      };
+    }
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      if (DEMO) delete w.__setToday;
+    };
+  }, [applyToday]);
+
   const signOut = useCallback(async () => {
     clearCache();
     await sb.auth.signOut();
@@ -759,8 +820,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [data.items, gelato, beer],
   );
   const allLines = useMemo(() => (gelato.lines.length || beer.lines.length ? [...data.lines, ...gelato.lines, ...beer.lines] : data.lines), [data.lines, gelato.lines, beer.lines]);
-  // deals are applied by date inside buildIndex (Brisbane today), so an expired deal reverts to the base price on its own
-  const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines, data.deals), [data.ingredients, data.preps, allLines, data.deals]);
+  // deals are applied by date: `today` is an explicit dependency, so the index (and every cost built on it) recomputes at rollover
+  const index = useMemo(() => buildIndex(data.ingredients, data.preps, allLines, data.deals, today), [data.ingredients, data.preps, allLines, data.deals, today]);
   const dealsByIngredient = useMemo(() => groupDeals(data.deals), [data.deals]);
   const prepCosts = useMemo(() => {
     const cache = new Map<string, PrepCost>();
@@ -1286,6 +1347,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const value: StoreValue = {
     ...data,
+    today,
+    dealRollover,
     loading,
     refreshing,
     ready,

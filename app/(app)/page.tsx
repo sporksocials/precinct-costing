@@ -19,6 +19,7 @@ import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
 import { DealsFeed } from "@/components/deals-feed";
 import { brisbaneToday } from "@/lib/deals";
+import { useDataHealthSummary } from "@/lib/use-data-health";
 import { liveOffersToCheck, liveOffersUnderTarget } from "@/lib/offers";
 
 /** Counts a number up from where it last was (first paint from ~92%), eased; static under reduced motion. */
@@ -58,6 +59,7 @@ export default function HomePage() {
   const { venue } = useVenue();
   const newRecipe = useNewRecipe();
 
+  const health = useDataHealthSummary();
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
 
   const missingPrice = useMemo(() => missingPriceGroups(store.itemCosts.values(), venue?.id ?? null).length, [store.itemCosts, venue]);
@@ -107,6 +109,15 @@ export default function HomePage() {
             {headline.excluded} need checking
             <span className="font-normal text-label-2">· not in this average</span>
           </button>
+        ) : null}
+        {health.ready && health.attention > 0 ? (
+          <Link
+            href="/data-health"
+            className={cx("mt-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-[15px] font-medium transition active:scale-[0.97] lg:min-h-[36px] lg:text-[14px]", health.errors > 0 ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn")}
+          >
+            <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />
+            {health.attention} data {health.attention === 1 ? "check needs" : "checks need"} attention
+          </Link>
         ) : null}
       </section>
 

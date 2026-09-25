@@ -1,6 +1,7 @@
 "use client";
 
 import { rebaselineParent } from "@/lib/integrity";
+import { latestPortalRows } from "@/lib/insights";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "./supabase/client";
@@ -712,14 +713,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const all = await fetchAll<PortalPrice>(sb, "cost_portal_prices", "id");
-        // latest batch per supplier = the batch of the most recently captured row for that supplier
-        const latestBatch = new Map<string, { batch: string | null; at: number }>();
-        for (const r of all) {
-          const at = r.captured_at ? new Date(r.captured_at).getTime() : 0;
-          const cur = latestBatch.get(r.supplier);
-          if (!cur || at > cur.at) latestBatch.set(r.supplier, { batch: r.batch, at });
-        }
-        setPortalPrices(all.filter((r) => latestBatch.get(r.supplier)?.batch === r.batch));
+        // latest batch per supplier; every batch tied on the newest capture time is kept (see latestPortalRows)
+        setPortalPrices(latestPortalRows(all));
       } catch (e) {
         setPortalError(e instanceof Error ? e.message : String(e));
         portalLoading.current = false;

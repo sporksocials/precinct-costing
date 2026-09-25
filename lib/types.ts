@@ -234,3 +234,42 @@ export interface SellPriceLog {
   changed_by: string | null;
   changed_at: string;
 }
+
+export type OfferKind = "combo" | "special" | "happy_hour";
+export type OfferStatus = "draft" | "live" | "retired";
+
+/** A saved combo / special / happy hour offer (cost_offers). One venue only. */
+export interface Offer {
+  id: string;
+  name: string;
+  venue_id: number;
+  kind: OfferKind;
+  status: OfferStatus;
+  /** the offer's total price, inc GST */
+  price_inc: number | null;
+  target_override: number | null;
+  /** YYYY-MM-DD */
+  starts_on: string | null;
+  ends_on: string | null;
+  /** 0 = Sunday ... 6 = Saturday; null = every day */
+  days_of_week: number[] | null;
+  /** HH:MM or HH:MM:SS */
+  time_from: string | null;
+  time_to: string | null;
+  notes: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface OfferLine {
+  id: string;
+  offer_id: string;
+  component_kind: "item" | "beer_serve";
+  item_id: string | null;
+  beer_id: string | null;
+  serve_id: string | null;
+  qty: number;
+  /** optional per-unit regular price (inc GST) */
+  price_inc_override: number | null;
+  sort: number;
+}

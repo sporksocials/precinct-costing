@@ -23,6 +23,8 @@ import {
   type BeerServe,
   type Ingredient,
   type MenuItem,
+  type Offer,
+  type OfferLine,
   type PortalPrice,
   type Prep,
   type PriceLog,
@@ -36,6 +38,7 @@ import {
 } from "./types";
 import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
+import { costOffer, groupOfferLines, type OfferCost } from "./offers";
 
 const PAGE = 1000;
 const LOG_WINDOW_DAYS = 90;
@@ -139,6 +142,9 @@ export interface StoreData {
   beerServes: BeerServe[];
   beers: Beer[];
   beerPrices: BeerPrice[];
+  /** specials & combos (cost_offers); [] until the offers migration is applied */
+  offers: Offer[];
+  offerLines: OfferLine[];
 }
 
 export interface UsedIn {
@@ -171,6 +177,8 @@ export interface StoreValue extends StoreData {
   beer: BeerModel;
   index: CostingIndex;
   itemCosts: Map<string, ItemCost>;
+  /** costing of every offer (id -> OfferCost), from the same itemCosts as the menu */
+  offerCosts: Map<string, OfferCost>;
   prepCosts: Map<string, PrepCost>;
   venueById: Map<number, Venue>;
   supplierById: Map<number, Supplier>;
@@ -201,6 +209,13 @@ export interface StoreValue extends StoreData {
   deleteBeer: (id: string) => Promise<void>;
   setBeerPrice: (beerId: string, serveId: string, patch: { sell_price_inc?: number | null; hh_price_inc?: number | null }) => Promise<void>;
   updateBeerServe: (id: string, patch: Partial<BeerServe>) => Promise<void>;
+  createOffer: (o: Omit<Offer, "id" | "created_at" | "updated_at">, lines: Omit<OfferLine, "id" | "offer_id">[]) => Promise<string>;
+  updateOffer: (id: string, patch: Partial<Offer>) => Promise<void>;
+  deleteOffer: (id: string) => Promise<void>;
+  /** replace an offer's components */
+  setOfferLines: (offerId: string, lines: Omit<OfferLine, "id" | "offer_id">[]) => Promise<void>;
+  duplicateOffer: (id: string) => Promise<string>;
+  setOfferStatus: (id: string, status: Offer["status"]) => Promise<void>;
 }
 
 const empty: StoreData = {
@@ -221,6 +236,8 @@ const empty: StoreData = {
   beerServes: [],
   beers: [],
   beerPrices: [],
+  offers: [],
+  offerLines: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -266,7 +283,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const since = new Date(Date.now() - LOG_WINDOW_DAYS * 86_400_000).toISOString();
       // gelato serve tables are optional so the app still loads against a database without them
       const optional = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices] =
+      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices, offers, offerLines] =
         await Promise.all([
           fetchAll<Venue>(sb, "cost_venues", "sort"),
           fetchAll<Setting>(sb, "cost_settings", "key"),
@@ -284,6 +301,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           optional(fetchAll<BeerServe>(sb, "cost_beer_serves", "sort")),
           optional(fetchAll<Beer>(sb, "cost_beers", "name")),
           optional(fetchAll<BeerPrice>(sb, "cost_beer_prices", "beer_id")),
+          optional(fetchAll<Offer>(sb, "cost_offers", "created_at")),
+          optional(fetchAll<OfferLine>(sb, "cost_offer_lines", "sort")),
         ]);
       setData({
         venues,
@@ -303,6 +322,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         beerServes,
         beers,
         beerPrices,
+        offers,
+        offerLines,
       });
       serverLoaded.current = true;
       setReady(true);
@@ -404,6 +425,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     for (const it of items) out.set(it.id, costItem(it, index, data.settings, data.targets, cache));
     return out;
   }, [items, index, data.settings, data.targets]);
+  const offerCosts = useMemo(() => {
+    const byOffer = groupOfferLines(data.offerLines);
+    const out = new Map<string, OfferCost>();
+    for (const o of data.offers) out.set(o.id, costOffer(o, byOffer.get(o.id) ?? [], { itemCosts, settings: data.settings }));
+    return out;
+  }, [data.offers, data.offerLines, itemCosts, data.settings]);
   const venueById = useMemo(() => new Map(data.venues.map((v) => [v.id, v])), [data.venues]);
   const supplierById = useMemo(() => new Map(data.suppliers.map((s) => [s.id, s])), [data.suppliers]);
   const usedInIndex = useMemo(() => {
@@ -752,6 +779,75 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb],
   );
 
+  // ---- offers (specials & combos) ----
+  const createOffer = useCallback(
+    async (o: Omit<Offer, "id" | "created_at" | "updated_at">, lines: Omit<OfferLine, "id" | "offer_id">[]) => {
+      const id = newId();
+      const row: Offer = { ...o, id };
+      const { error } = await sb.from("cost_offers").insert(row);
+      if (error) throw new Error(error.message);
+      const newLines: OfferLine[] = lines.map((l, i) => ({ ...l, id: newId(), offer_id: id, sort: i + 1, qty: Number(l.qty) || 1 }));
+      if (newLines.length) {
+        const { error: e2 } = await sb.from("cost_offer_lines").insert(newLines);
+        if (e2) {
+          await sb.from("cost_offers").delete().eq("id", id); // don't leave an offer with no lines behind
+          throw new Error(e2.message);
+        }
+      }
+      setData((d) => ({ ...d, offers: [...d.offers, row], offerLines: [...d.offerLines, ...newLines] }));
+      return id;
+    },
+    [sb],
+  );
+
+  const updateOffer = useCallback(
+    async (id: string, patch: Partial<Offer>) => {
+      const { error } = await sb.from("cost_offers").update(patch).eq("id", id);
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, offers: d.offers.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
+    },
+    [sb],
+  );
+
+  const deleteOffer = useCallback(
+    async (id: string) => {
+      const { error } = await sb.from("cost_offers").delete().eq("id", id); // lines go with it (on delete cascade)
+      if (error) throw new Error(error.message);
+      setData((d) => ({ ...d, offers: d.offers.filter((o) => o.id !== id), offerLines: d.offerLines.filter((l) => l.offer_id !== id) }));
+    },
+    [sb],
+  );
+
+  const setOfferLines = useCallback(
+    async (offerId: string, lines: Omit<OfferLine, "id" | "offer_id">[]) => {
+      const next: OfferLine[] = lines.map((l, i) => ({ ...l, id: newId(), offer_id: offerId, sort: i + 1, qty: Number(l.qty) || 1 }));
+      const { error } = await sb.from("cost_offer_lines").delete().eq("offer_id", offerId);
+      if (error) throw new Error(error.message);
+      if (next.length) {
+        const { error: e2 } = await sb.from("cost_offer_lines").insert(next);
+        if (e2) throw new Error(e2.message);
+      }
+      setData((d) => ({ ...d, offerLines: [...d.offerLines.filter((l) => l.offer_id !== offerId), ...next] }));
+    },
+    [sb],
+  );
+
+  const duplicateOffer = useCallback(
+    async (id: string) => {
+      const src = data.offers.find((o) => o.id === id);
+      if (!src) throw new Error("Offer not found");
+      const { id: _id, created_at: _c, updated_at: _u, ...rest } = src;
+      const lines = data.offerLines
+        .filter((l) => l.offer_id === id)
+        .sort((a, b) => a.sort - b.sort)
+        .map(({ id: _l, offer_id: _o, ...l }) => l);
+      return createOffer({ ...rest, name: `${src.name} (Copy)`, status: "draft" }, lines);
+    },
+    [data.offers, data.offerLines, createOffer],
+  );
+
+  const setOfferStatus = useCallback((id: string, status: Offer["status"]) => updateOffer(id, { status }), [updateOffer]);
+
   const value: StoreValue = {
     ...data,
     loading,
@@ -772,6 +868,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     beer,
     index,
     itemCosts,
+    offerCosts,
     prepCosts,
     venueById,
     supplierById,
@@ -801,6 +898,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     deleteBeer,
     setBeerPrice,
     updateBeerServe,
+    createOffer,
+    updateOffer,
+    deleteOffer,
+    setOfferLines,
+    duplicateOffer,
+    setOfferStatus,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

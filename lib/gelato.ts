@@ -81,13 +81,20 @@ export function buildGelato(input: {
   if (!venue) return empty;
   const venueServes = input.serves.filter((s) => s.venue_id === venue.id);
   const serves = venueServes.filter((s) => s.active).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
-  // The old stored flavour x serve recipes stay hidden whatever happens to the serves that replaced them:
-  // by explicit id first (GelatoServe.legacy_item_ids, robust to renames), then by section name against EVERY serve
-  // of the venue (active or not, so switching a serve off never resurrects its old items). Name matching is only the fallback.
-  const explicit = new Set(venueServes.flatMap((s) => s.legacy_item_ids ?? []));
-  const serveNames = new Set(venueServes.map((s) => s.name.trim().toLowerCase()));
+  // The old stored flavour x serve recipes stay hidden whatever happens to the serves that replaced them.
+  // Rule, per serve of the venue (active or not, so switching a serve off never resurrects its old items):
+  //  - the serve has legacy_item_ids: hide exactly those ids (robust to renames); its name is NOT used;
+  //  - the serve has none (new serve, or the column is not migrated yet): fall back to the item's section
+  //    matching the serve name (trimmed, case-insensitive).
+  const explicit = new Set<string>();
+  const fallbackNames = new Set<string>();
+  for (const s of venueServes) {
+    const ids = Array.isArray(s.legacy_item_ids) ? s.legacy_item_ids.filter(Boolean) : [];
+    if (ids.length) for (const id of ids) explicit.add(id);
+    else fallbackNames.add(s.name.trim().toLowerCase());
+  }
   const replacedItemIds = new Set(
-    input.items.filter((i) => i.venue_id === venue.id && (explicit.has(i.id) || serveNames.has((i.section ?? "").trim().toLowerCase()))).map((i) => i.id),
+    input.items.filter((i) => i.venue_id === venue.id && (explicit.has(i.id) || fallbackNames.has((i.section ?? "").trim().toLowerCase()))).map((i) => i.id),
   );
   if (!serves.length) return { ...empty, replacedItemIds };
   const flavours = input.preps.filter((p) => isGelatoFlavour(p, venue.id)).sort((a, b) => flavourName(a).localeCompare(flavourName(b)));

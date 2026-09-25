@@ -164,6 +164,9 @@ create table if not exists public.cost_gelato_serve_lines (
   sort integer not null default 0
 );
 
+-- Ids of the old stored flavour x serve items this serve replaced, hidden by id (mirrors migration 20260927100000_gelato_legacy_ids.sql)
+alter table public.cost_gelato_serves add column if not exists legacy_item_ids uuid[] not null default '{}';
+
 insert into public.cost_settings (key, value) values ('gelato_wastage', 0.05) on conflict (key) do nothing;
 
 -- Tap beer: every beer is one keg poured in the same serves; prices per beer x serve.

@@ -170,7 +170,7 @@ export interface GelatoServe {
   notes: string | null;
   /** own GP target for this serve (take-home tubs, wholesale); null uses the venue's Gelato target */
   target_gp?: number | null;
-  /** ids of the old stored menu items this serve replaced; hides them by id instead of by name (optional column, not yet in the database) */
+  /** ids of the old stored menu items this serve replaced; hides them by id instead of by name (absent on an unmigrated database, where name matching is used) */
   legacy_item_ids?: string[] | null;
 }
 

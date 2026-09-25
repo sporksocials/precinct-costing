@@ -173,6 +173,27 @@ describe("C: gelato off-menu serves and legacy items", () => {
     const off = buildGelato({ venues, preps: gPreps, items: old, serves: [serve("s1", "1 scoop", 5, true, { active: false })], serveLines: [], wastage: 0 });
     expect([...off.replacedItemIds]).toEqual(["old1"]);
   });
+  it("a new serve without ids falls back to its name; a serve with ids ignores its name", () => {
+    const old = [legacy("old1", "1 Scoop"), legacy("old2", "Kids Cup"), legacy("old3", "Kids Cup")];
+    const g = buildGelato({
+      venues, preps: gPreps, items: old, serveLines: [], wastage: 0,
+      serves: [serve("s1", "1 Scoop", 5, true, { legacy_item_ids: [] }), serve("s2", "Kids Cup", 4, true, { legacy_item_ids: ["old2"] })],
+    });
+    // old1 by name (s1 has no ids); old2 by id; old3 shares s2's name but is not in its ids, so it is left alone
+    expect([...g.replacedItemIds].sort()).toEqual(["old1", "old2"]);
+  });
+  it("id and name both present: ids win, and an item matched by id stays hidden even if its section changed", () => {
+    const old = [legacy("old1", "Renamed Section"), legacy("old2", "1 Scoop")];
+    const g = buildGelato({ venues, preps: gPreps, items: old, serves: [serve("s1", "1 Scoop", 5, true, { legacy_item_ids: ["old1", "old2"] })], serveLines: [], wastage: 0 });
+    expect([...g.replacedItemIds].sort()).toEqual(["old1", "old2"]);
+  });
+  it("tolerates a null or missing legacy_item_ids column", () => {
+    const old = [legacy("old1", "1 Scoop")];
+    for (const v of [null, undefined]) {
+      const g = buildGelato({ venues, preps: gPreps, items: old, serves: [serve("s1", "1 Scoop", 5, true, { legacy_item_ids: v })], serveLines: [], wastage: 0 });
+      expect([...g.replacedItemIds]).toEqual(["old1"]);
+    }
+  });
 });
 
 /* ---------- D: missing price ---------- */

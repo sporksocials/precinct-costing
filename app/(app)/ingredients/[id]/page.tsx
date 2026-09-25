@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ReviewSheet } from "@/components/price-review";
 import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
 import { ChevronLeft } from "lucide-react";
@@ -11,13 +11,14 @@ import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
 import { withEffectivePrice } from "@/lib/deals";
 import { dateShort, gp, money, movePct, num, packLabel, parseDecimal, unitShort } from "@/lib/format";
-import { ingredientChangeImpact, type ImpactRow } from "@/lib/insights";
+import { ingredientChangeImpact, isStalePrice, type ImpactRow } from "@/lib/insights";
 import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
 import { parseYieldInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
+import { IngredientHistory } from "@/components/ingredient-history";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
-import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle } from "@/components/ui";
+import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
 /** entered_by marker for alternate prices carried over from the source sheets. */
 const ALT_PRICE_TAG = "Source sheet (other price)";
@@ -50,6 +51,11 @@ function Detail({ ing }: { ing: Ingredient }) {
   const [addingDeal, setAddingDeal] = useState(false);
   const gst = store.settings.gst_rate;
   const supplier = store.supplierById.get(ing.supplier_id ?? -1);
+  const supplierName = useCallback((sid: number) => store.supplierById.get(sid)?.name, [store.supplierById]);
+  const [confirming, setConfirming] = useState(false);
+  const [logKey, setLogKey] = useState(0); // bump to reload the history after a confirmation is saved or undone
+  const toast = useToast();
+  const stale = isStalePrice(ing.last_price_update);
 
   useEffect(() => {
     addRecent({ kind: "ingredient", id: ing.id, title: ing.name, sub: supplier?.name ?? "Ingredient", href: `/ingredients/${ing.id}` });
@@ -70,13 +76,13 @@ function Detail({ ing }: { ing: Ingredient }) {
     return () => {
       cancelled = true;
     };
-  }, [ing.id, ing.pack_price]);
+  }, [ing.id, ing.pack_price, ing.last_price_update, logKey]);
 
   const used = useMemo(() => store.usedIn("ingredient", ing.id), [store, ing.id]);
   // "Other prices" are alternate prices found for this ingredient in the original costing sheets or supplier
   // portals. They're kept for reference (to pick the right one), not charted as price changes.
   const isAlt = (l: PriceLog) => l.entered_by === ALT_PRICE_TAG;
-  const history = useMemo(() => (logs ?? []).filter((l) => l.new_price != null && !isAlt(l)), [logs]);
+  const history = useMemo(() => (logs ?? []).filter((l) => l.new_price != null && !isAlt(l) && !(l.old_price != null && Number(l.old_price) === Number(l.new_price))), [logs]);
   const alternates = useMemo(() => (logs ?? []).filter(isAlt), [logs]);
   const series = useMemo(() => {
     const s = history.map((l) => Number(l.new_price));
@@ -106,6 +112,25 @@ function Detail({ ing }: { ing: Ingredient }) {
       }
     }
     save(p);
+  };
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const doConfirm = async () => {
+    setConfirmBusy(true);
+    setConfirmError(null);
+    try {
+      const receipt = await store.confirmIngredientPrice(ing.id);
+      setLogKey((k) => k + 1);
+      setConfirming(false);
+      toast.show({
+        message: `${ing.name} price confirmed`,
+        action: { label: "Undo", onClick: () => void store.undoConfirmIngredientPrice(ing.id, receipt).then(() => setLogKey((k) => k + 1)).catch((e) => setError(e instanceof Error ? e.message : String(e))) },
+      });
+    } catch (e) {
+      setConfirmError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConfirmBusy(false);
+    }
   };
   const confirmPending = async () => {
     if (!pending) return;
@@ -146,41 +171,26 @@ function Detail({ ing }: { ing: Ingredient }) {
                 Add Deal
               </button>
             </div>
+            <div className={cx("mt-4 flex items-center gap-3 rounded-2xl px-4 py-3", stale ? "bg-warn-soft" : "bg-surface-2")}>
+              <span className="min-w-0 flex-1 text-[15px] text-label-2 sm:text-[13px]">
+                {ing.last_price_update ? (stale ? `Price last checked ${dateShort(ing.last_price_update)}. Still right?` : `Price checked ${dateShort(ing.last_price_update)}.`) : "This price has never been checked. Still right?"}
+              </span>
+              <button type="button" className={cx("shrink-0", stale ? "btn-primary" : "btn-tinted")} onClick={() => setConfirming(true)}>
+                Confirm Price
+              </button>
+            </div>
           </section>
 
           <DealsSection ing={ing} adding={addingDeal} onAddingChange={setAddingDeal} renderImpact={(rows) => <ImpactPreview rows={rows} />} />
 
-          <Group title="Price History" className="mt-7">
-            {logs === null ? (
-              <p className="px-4 py-3 text-[15px] text-label-2">Loading…</p>
-            ) : history.length === 0 ? (
-              <p className="px-4 py-3 text-[15px] text-label-2">No changes logged yet.</p>
-            ) : (
-              <>
-                {series.length > 1 ? (
-                  <div className="px-4 pb-2 pt-4">
-                    <PriceLine values={series} />
-                  </div>
-                ) : null}
-                {[...history].reverse().slice(0, 12).map((l) => {
-                  const m = priceMovePct(l.old_price, l.new_price);
-                  return (
-                    <Row
-                      key={l.id}
-                      title={
-                        <span className="tnum">
-                          {l.old_price != null ? `${money(l.old_price)} → ` : ""}
-                          {money(l.new_price)}
-                        </span>
-                      }
-                      sub={[dateShort(l.changed_at), l.source].filter(Boolean).join(" · ")}
-                      trailing={m != null ? <span className={cx(m > 0 ? "text-danger" : "text-label-2")}>{movePct(m)}</span> : null}
-                    />
-                  );
-                })}
-              </>
-            )}
-          </Group>
+          <IngredientHistory
+            ingredientId={ing.id}
+            version={`${ing.updated_at}`}
+            logs={logs}
+            supplierName={supplierName}
+            skip={isAlt}
+            chart={series.length > 1 ? <div className="px-4 pb-2 pt-4"><PriceLine values={series} /></div> : undefined}
+          />
         </div>
 
         <div>
@@ -272,10 +282,41 @@ function Detail({ ing }: { ing: Ingredient }) {
         </div>
       </div>
 
+      {confirming ? (
+        <ConfirmPriceSheet
+          ing={ing}
+          busy={confirmBusy}
+          error={confirmError}
+          onClose={() => setConfirming(false)}
+          onConfirm={() => void doConfirm()}
+        />
+      ) : null}
       {updating ? <UpdatePriceSheet ing={ing} onClose={() => setUpdating(false)} /> : null}
       {pending ? <CostImpactSheet ing={ing} pending={pending} onCancel={() => setPending(null)} onConfirm={() => void confirmPending()} /> : null}
       {review ? <ReviewSheet changes={review} onClose={() => setReview(null)} intro="This edit pushed these dishes below target. Nothing has changed on the menu yet." /> : null}
     </div>
+  );
+}
+
+/** "Is $X per <pack> still right?" Confirming records today's date; the price itself is not touched. */
+function ConfirmPriceSheet({ ing, busy, error, onClose, onConfirm }: { ing: Ingredient; busy: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Sheet open onClose={onClose} title="Confirm Price">
+      <div className="pb-2 pt-4">
+        {error ? <Banner>{error}</Banner> : null}
+        <p className="text-center text-[15px] text-label-2">{ing.name}</p>
+        <p className="mt-2 text-center text-[22px] font-semibold leading-snug">
+          Is <span className="tnum">{money(ing.pack_price)}</span> per {packLabel(ing.pack_size, ing.pack_unit)} pack still right?
+        </p>
+        <p className="mt-2 px-2 text-center text-[13px] text-label-2">This only records that you checked it today. The price and your costs stay exactly as they are.</p>
+        <button type="button" className="btn-primary mt-5 w-full" disabled={busy} onClick={onConfirm}>
+          {busy ? "Saving…" : "Yes, Still Right"}
+        </button>
+        <button type="button" className="btn-text mt-1 w-full justify-center" disabled={busy} onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </Sheet>
   );
 }
 

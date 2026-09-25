@@ -35,9 +35,9 @@ export default function GelatoServesPage() {
   return (
     <div className="max-w-2xl">
       <div className="pt-2 lg:pt-6">
-        <Link href="/gelato" className="btn-text -ml-1 !gap-0 !text-accent">
+        <Link href="/menu?venue=gelato" className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-          Gelato
+          Menu
         </Link>
       </div>
       <PageHeader title="Serves" subtitle="Grams, price and packaging for every way a flavour is sold" className="!pt-1" />
@@ -56,7 +56,7 @@ export default function GelatoServesPage() {
         </FieldRow>
       </Group>
 
-      <Group title="Serves" footer="Serves marked “on menu” are the default view on the Gelato screen. Every serve counts towards the Gelato Rumba GP.">
+      <Group title="Serves" footer="Serves marked “on menu” are the default view on the Price Grid. Every serve counts towards the Gelato Rumba GP.">
         {serves.map((s) => (
           <Row
             key={s.id}

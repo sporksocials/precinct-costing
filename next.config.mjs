@@ -9,8 +9,12 @@ const nextConfig = {
   },
   async redirects() {
     return [
-      { source: "/items", destination: "/recipes", permanent: false },
-      { source: "/preps", destination: "/recipes?type=preps", permanent: false },
+      // Recipes became Menu (dishes and drinks) and Ingredients > Preps; tap beer and gelato live inside Menu
+      { source: "/recipes", has: [{ type: "query", key: "type", value: "preps" }], destination: "/ingredients?type=preps", permanent: false },
+      { source: "/recipes", destination: "/menu", permanent: false },
+      { source: "/beers", destination: "/menu?cat=Tap%20Beer", permanent: false },
+      { source: "/items", destination: "/menu", permanent: false },
+      { source: "/preps", destination: "/ingredients?type=preps", permanent: false },
     ];
   },
 };

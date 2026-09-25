@@ -37,7 +37,7 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
   const router = useRouter();
   const [name, setName] = useState("");
   const [venueId, setVenueId] = useState<number | null>(args.venueId ?? null);
-  const [type, setType] = useState<RecipeType>(args.type ?? "item");
+  const type: RecipeType = args.type ?? "item";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,9 +125,6 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
         ) : (
           <p className="px-1 text-[13px] text-label-2">A prep is a batch recipe (sauce, dough, mix) used inside menu items. It starts as a 1 kg batch; set the yield in the editor.</p>
         )}
-        <button type="button" onClick={() => setType((t) => (t === "item" ? "prep" : "item"))} className="px-1 text-[15px] font-medium text-accent">
-          {type === "item" ? "Make It a Prep Instead" : "Make It a Menu Item Instead"}
-        </button>
         <button type="submit" className="btn-primary w-full" disabled={!canCreate}>
           {busy ? "Creating…" : "Create"}
         </button>

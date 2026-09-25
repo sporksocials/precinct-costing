@@ -35,8 +35,8 @@ function GelatoServeView({ id }: { id: string }) {
         title="Serve Not Found"
         body="The flavour or serve may have been removed."
         action={
-          <Link href="/gelato" className="btn-primary">
-            Back to Gelato
+          <Link href="/menu?venue=gelato" className="btn-primary">
+            Back to Menu
           </Link>
         }
       />
@@ -44,9 +44,9 @@ function GelatoServeView({ id }: { id: string }) {
   return (
     <div className="max-w-2xl lg:pt-6">
       <VenueAccent slug="gelato" />
-      <Link href="/gelato" className="btn-text -ml-1 !gap-0 !text-accent">
+      <Link href="/menu?venue=gelato" className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-        Gelato
+        Menu
       </Link>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">
         {flavourName(flavour)} <span className="text-label-2">· {serve.name}</span>

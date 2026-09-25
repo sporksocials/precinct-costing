@@ -3,53 +3,72 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, IceCreamCone, Plus } from "lucide-react";
+import { Grid3x3, IceCreamCone, Plus, SlidersHorizontal } from "lucide-react";
 import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
 import { beerItemId } from "@/lib/beer";
 import type { Prep } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
-import { gp, money, packLabel, unitShort } from "@/lib/format";
-import type { ItemCost, PrepCost } from "@/lib/costing";
+import { gp, money } from "@/lib/format";
+import type { ItemCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
-import { useVenue, VenueFilter, venueQuery, VENUE_SHORT } from "@/components/venue";
-import { RecipeTabs } from "@/components/recipe-tabs";
-import { AddButton, Chips, cx, Dot, Empty, Menu, PageHeader, Row, SearchField } from "@/components/ui";
+import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
+import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
+import { NewFlavourSheet } from "@/components/new-flavour";
+import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
-type Tab = "items" | "preps";
 type Sort = "az" | "gp" | "cost";
 const PAGE = 100;
+const BEER = "Tap Beer";
+const GELATO = "Gelato";
 
-export default function RecipesPage() {
+/**
+ * Menu: everything sold, in one list. Venue tiles and category chips narrow it; nothing sends you elsewhere.
+ * Tap beers are rows under Tap Beer (one per keg). Gelato flavours are rows under Gelato: with the Gelato venue
+ * selected, or the Gelato chip. In All with no chip they collapse into one summary row so 40 flavours don't bury the menu.
+ */
+export default function MenuPage() {
   const store = useStore();
   const params = useSearchParams();
-  const { venue } = useVenue();
+  const { venue, setVenue } = useVenue();
   const newRecipe = useNewRecipe();
-  const tab: Tab = params.get("type") === "preps" ? "preps" : "items";
   const [q, setQ] = useState("");
-  const [cat, setCat] = useState("all");
+  const [cat, setCat] = useState(params.get("cat") ?? "all");
   const [sort, setSort] = useState<Sort>(params.get("sort") === "gp" ? "gp" : "az");
   const [showInactive, setShowInactive] = useState(false);
   const [limit, setLimit] = useState(PAGE);
+  const [sheet, setSheet] = useState<null | "beer" | "beerServes" | "flavour">(null);
 
   useEffect(() => {
     setLimit(PAGE);
-  }, [q, cat, sort, tab, venue]);
-  useEffect(() => setCat("all"), [tab]);
+  }, [q, cat, sort, venue]);
 
-  // ---- menu items
-  const itemPool = useMemo(() => {
+  const gelatoVenue = store.gelato.venue;
+  const inGelato = !!gelatoVenue && venue?.id === gelatoVenue.id;
+
+  // ---- menu items (dishes and drinks; virtual beer and gelato items are shown as their own rows below)
+  const scoped = useMemo(() => {
     let list = [...store.itemCosts.values()].filter((c) => !isVirtualItemId(c.item.id));
     if (venue) list = list.filter((c) => c.item.venue_id === venue.id);
-    if (!showInactive) list = list.filter((c) => c.item.active);
     return list;
-  }, [store.itemCosts, venue, showInactive]);
-  const hasBeers = store.beer.beers.some((b) => !venue || b.venue_id === venue.id);
-  const itemCats = useMemo(() => [...new Set([...itemPool.map((c) => c.item.category), ...(hasBeers ? ["Tap Beer"] : [])])].sort(), [itemPool, hasBeers]);
+  }, [store.itemCosts, venue]);
+  const itemPool = useMemo(() => (showInactive ? scoped : scoped.filter((c) => c.item.active)), [scoped, showInactive]);
+  const beersHere = useMemo(() => store.beer.beers.filter((b) => !venue || b.venue_id === venue.id), [store.beer.beers, venue]);
+  const hasBeers = beersHere.length > 0;
+  const hasGelato = store.gelato.flavours.length > 0 && (!venue || inGelato);
+  const cats = useMemo(
+    () => [...new Set([...itemPool.map((c) => c.item.category), ...(hasBeers ? [BEER] : []), ...(hasGelato ? [GELATO] : [])])].sort(),
+    [itemPool, hasBeers, hasGelato],
+  );
+  // switching venue keeps the chosen category unless the new venue doesn't have it
+  useEffect(() => {
+    if (cat !== "all" && !cats.includes(cat)) setCat("all");
+  }, [cat, cats]);
 
   const items = useMemo(() => {
     let list = cat === "all" ? itemPool : itemPool.filter((c) => c.item.category === cat);
+    if (cat === BEER) list = [];
     if (q.trim()) {
       const docs = list.map((c) => ({ ...indexDoc({ kind: "item" as const, id: c.item.id, title: c.item.name, sub: "", href: "", extra: `${c.item.category} ${c.item.section ?? ""}` }), c }));
       return search(docs, q, 500).map((h) => h.doc.c);
@@ -61,37 +80,30 @@ export default function RecipesPage() {
     return list;
   }, [itemPool, cat, q, sort]);
 
-  // ---- preps
-  const prepPool = useMemo(() => {
-    let list = [...store.prepCosts.values()];
-    if (venue) list = list.filter((p) => p.prep.venue_id == null || p.prep.venue_id === venue.id);
-    if (!showInactive) list = list.filter((p) => p.prep.active);
-    return list;
-  }, [store.prepCosts, venue, showInactive]);
-  const prepCats = useMemo(() => [...new Set(prepPool.map((p) => p.prep.prep_type).filter((x): x is string => !!x))].sort(), [prepPool]);
-  const preps = useMemo(() => {
-    let list = cat === "all" ? prepPool : prepPool.filter((p) => p.prep.prep_type === cat);
+  // ---- tap beer: one row per beer (its serves live on the beer's page)
+  const beerRows = useMemo(() => {
+    if (cat !== "all" && cat !== BEER) return [];
+    let list = beersHere.filter((b) => showInactive || b.active);
     if (q.trim()) {
-      const docs = list.map((p) => ({ ...indexDoc({ kind: "prep" as const, id: p.prep.id, title: p.prep.name, sub: "", href: "", extra: p.prep.prep_type ?? "" }), p }));
-      return search(docs, q, 500).map((h) => h.doc.p);
+      const docs = list.map((b) => ({ ...indexDoc({ kind: "item" as const, id: b.id, title: b.name, sub: "", href: "", extra: "tap beer keg" }), b }));
+      list = search(docs, q, 200).map((h) => h.doc.b);
     }
-    list = [...list];
-    if (sort === "cost") list.sort((a, b) => b.costPerUnit - a.costPerUnit);
-    else list.sort((a, b) => a.prep.name.localeCompare(b.prep.name));
-    return list;
-  }, [prepPool, cat, q, sort]);
+    const out = list.map((b) => {
+      const cs = store.beer.serves.map((s) => store.itemCosts.get(beerItemId(b.id, s.id))).filter((c): c is ItemCost => !!c);
+      const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
+      return { b, cs, worst };
+    });
+    if (!q.trim()) {
+      if (sort === "gp") out.sort((a, b) => (a.worst?.gpPct ?? 9) - (b.worst?.gpPct ?? 9));
+      else out.sort((a, b) => a.b.name.localeCompare(b.b.name));
+    }
+    return out;
+  }, [cat, beersHere, showInactive, q, sort, store.beer.serves, store.itemCosts]);
 
-  const cats = tab === "items" ? itemCats : prepCats;
-  // switching venue keeps the chosen category unless the new venue doesn't have it
-  useEffect(() => {
-    if (cat !== "all" && !cats.includes(cat)) setCat("all");
-  }, [cat, cats]);
-  // gelato: in the Gelato venue each flavour is one row (its serves open from there); in All, one link row
-  const gelatoVenue = store.gelato.venue;
-  const inGelato = tab === "items" && !!gelatoVenue && venue?.id === gelatoVenue.id;
-  const showGelato = tab === "items" && !!gelatoVenue && store.gelato.flavours.length > 0 && !venue && !q.trim();
+  // ---- gelato: flavours as rows when the Gelato venue or chip is chosen, or when searching
+  const gelatoRows = hasGelato && (inGelato || cat === GELATO || (!venue && !!q.trim() && cat === "all"));
   const flavourRows = useMemo(() => {
-    if (!inGelato || (cat !== "all" && cat !== "Gelato")) return [];
+    if (!gelatoRows || (cat !== "all" && cat !== GELATO)) return [];
     let list = store.gelato.flavours.filter((f) => showInactive || f.active);
     if (q.trim()) {
       const docs = list.map((f) => ({ ...indexDoc({ kind: "prep" as const, id: f.id, title: flavourName(f), sub: "", href: "", extra: "gelato flavour" }), f }));
@@ -102,55 +114,45 @@ export default function RecipesPage() {
     const out = list.map((f) => {
       const cs = serves.map((sv) => store.itemCosts.get(virtualItemId(f.id, sv.id))).filter((c): c is ItemCost => !!c);
       const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
-      return { f, serves: cs.length, worst, under: cs.some((c) => c.underTarget) };
+      return { f, serves: cs.length, worst };
     });
     if (sort === "gp" && !q.trim()) out.sort((a, b) => (a.worst?.gpPct ?? 9) - (b.worst?.gpPct ?? 9));
     return out;
-  }, [inGelato, cat, store.gelato, store.itemCosts, showInactive, q, sort]);
-  const rows = tab === "items" ? items : preps;
-  // tap beers: one row per beer (its four serves live on the beer's page)
-  const beerRows = useMemo(() => {
-    if (tab !== "items" || (cat !== "all" && cat !== "Tap Beer")) return [];
-    let list = store.beer.beers.filter((b) => (!venue || b.venue_id === venue.id) && (showInactive || b.active));
-    if (q.trim()) {
-      const docs = list.map((b) => ({ ...indexDoc({ kind: "item" as const, id: b.id, title: b.name, sub: "", href: "", extra: "tap beer keg" }), b }));
-      list = search(docs, q, 200).map((h) => h.doc.b);
-    }
-    return list.map((b) => {
-      const cs = store.beer.serves.map((s) => store.itemCosts.get(beerItemId(b.id, s.id))).filter((c): c is ItemCost => !!c);
-      const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
-      return { b, cs, worst };
-    });
-  }, [tab, cat, store.beer, store.itemCosts, venue, showInactive, q]);
-  const total = rows.length + flavourRows.length + beerRows.length;
+  }, [gelatoRows, cat, store.gelato, store.itemCosts, showInactive, q, sort]);
+  // All view, nothing else chosen: gelato is a single summary row that opens the Gelato venue
+  const gelatoSummary = hasGelato && !venue && cat === "all" && !q.trim();
+
+  const inactiveCount =
+    scoped.filter((c) => !c.item.active).length + beersHere.filter((b) => !b.active).length + (hasGelato && (inGelato || cat === GELATO) ? store.gelato.flavours.filter((f) => !f.active).length : 0);
+  const rows = items;
+  const total = rows.length + flavourRows.length + beerRows.length + (gelatoSummary ? 1 : 0);
+
+  // one add button, whatever you're looking at
+  const addKind: "beer" | "flavour" | "item" = cat === BEER ? "beer" : inGelato || cat === GELATO ? "flavour" : "item";
+  const addLabel = addKind === "beer" ? "New Tap Beer" : addKind === "flavour" ? "New Flavour" : "New Menu Item";
+  const add = () => (addKind === "item" ? newRecipe.open({ venueId: venue?.id ?? null, type: "item" }) : setSheet(addKind));
+  const showGelatoTools = flavourRows.length > 0 && (inGelato || cat === GELATO);
+  const showBeerTools = cat === BEER;
+  const beerDefaultVenue = (venue && venue.slug !== "gelato" ? venue.id : undefined) ?? store.venues.find((v) => v.slug === "drift")?.id ?? store.venues[0]?.id;
 
   return (
     <div>
-      <PageHeader
-        title="Recipes"
-        trailing={
-          <>
-            <AddButton label={tab === "preps" ? "New Prep" : "New Menu Item"} onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })} />
-          </>
-        }
-      />
+      <PageHeader title="Menu" trailing={<AddButton label={addLabel} onClick={add} />} />
       <VenueFilter className="mb-3" />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <RecipeTabs current={tab} className="lg:w-80" />
-        <div className="flex flex-1 items-center gap-1">
-          <SearchField className="flex-1" value={q} onChange={setQ} placeholder={tab === "items" ? "Search menu items" : "Search preps"} />
-          <Menu
-            label="Sort"
-            trigger={<ArrowUpDown className="h-5 w-5" strokeWidth={2} />}
-            items={[
-              { label: "A–Z", onClick: () => setSort("az"), checked: sort === "az" },
-              ...(tab === "items" ? [{ label: "Lowest GP", onClick: () => setSort("gp"), checked: sort === "gp" }] : []),
-              { label: "Highest Cost", onClick: () => setSort("cost"), checked: sort === "cost" },
-              "sep" as const,
-              { label: "Show Inactive", onClick: () => setShowInactive((s) => !s), checked: showInactive },
-            ]}
-          />
-        </div>
+        <SearchField className="flex-1" value={q} onChange={setQ} placeholder="Search the menu" />
+        <Segmented
+          ariaLabel="Sort"
+          size="sm"
+          className="lg:w-72"
+          value={sort}
+          onChange={setSort}
+          options={[
+            { value: "az", label: "A–Z" },
+            { value: "gp", label: "Lowest GP" },
+            { value: "cost", label: "Highest Cost" },
+          ]}
+        />
       </div>
       {cats.length > 1 ? (
         <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />
@@ -161,11 +163,11 @@ export default function RecipesPage() {
           <Empty title="No Results" body={`Nothing matches “${q}”.`} />
         ) : (
           <Empty
-            title={tab === "items" ? "No Menu Items Yet" : "No Preps Yet"}
-            body={venue ? `Add the first ${tab === "items" ? "menu item" : "prep"} for ${venue.name}.` : undefined}
+            title={addKind === "beer" ? "No Tap Beers Yet" : addKind === "flavour" ? "No Flavours Yet" : "No Menu Items Yet"}
+            body={venue ? `Add the first ${addKind === "beer" ? "tap beer" : addKind === "flavour" ? "flavour" : "menu item"} for ${venue.name}.` : undefined}
             action={
-              <button className="btn-primary" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: tab === "preps" ? "prep" : "item" })}>
-                <Plus className="h-4 w-4" strokeWidth={2.5} /> {tab === "preps" ? "New Prep" : "New Menu Item"}
+              <button className="btn-primary" onClick={add}>
+                <Plus className="h-4 w-4" strokeWidth={2.5} /> {addLabel}
               </button>
             }
           />
@@ -174,13 +176,20 @@ export default function RecipesPage() {
         <>
           {flavourRows.length ? (
             <>
-              <div className="flex items-end justify-between px-4 pb-1.5 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-1.5 pt-5">
                 <p className="text-[13px] text-label-2">
                   {flavourRows.length} {flavourRows.length === 1 ? "flavour" : "flavours"} · each sold in {store.gelato.serves.length} serves
                 </p>
-                <Link href="/gelato" className="text-[13px] font-medium text-accent">
-                  All Prices
-                </Link>
+                {showGelatoTools ? (
+                  <div className="flex items-center gap-2">
+                    <Link href="/gelato/serves" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
+                      <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serves &amp; Sizes
+                    </Link>
+                    <Link href="/gelato" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
+                      <Grid3x3 className="h-3.5 w-3.5" strokeWidth={2.25} /> Price Grid
+                    </Link>
+                  </div>
+                ) : null}
               </div>
               <div className="group-list">
                 {flavourRows.map((r) => (
@@ -191,13 +200,15 @@ export default function RecipesPage() {
           ) : null}
           {beerRows.length ? (
             <>
-              <div className="flex items-end justify-between px-4 pb-1.5 pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-1.5 pt-5">
                 <p className="text-[13px] text-label-2">
                   {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.map((s) => s.name).join(", ")}
                 </p>
-                <Link href={`/beers${venueQuery(venue)}`} className="text-[13px] font-medium text-accent">
-                  All Tap Beers
-                </Link>
+                {showBeerTools ? (
+                  <button type="button" className="btn-plain !min-h-[34px] !px-3 !text-[13px]" onClick={() => setSheet("beerServes")}>
+                    <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serve Sizes
+                  </button>
+                ) : null}
               </div>
               <div className="group-list">
                 {beerRows.map(({ b, cs, worst }) => (
@@ -220,35 +231,36 @@ export default function RecipesPage() {
               </div>
             </>
           ) : null}
-          {showGelato ? (
+          {gelatoSummary ? (
             <div className="group-list mt-5">
               <Row
-                href="/gelato"
+                onClick={() => setVenue("gelato")}
                 leading={<IceCreamCone className="h-5 w-5 text-label-2" strokeWidth={2} />}
                 title="Gelato Rumba Flavours"
-                sub={`${store.gelato.flavours.filter((f) => f.active).length} flavours × ${store.gelato.serves.length} serves, priced automatically`}
+                sub={`${store.gelato.flavours.filter((f) => f.active).length} flavours × ${store.gelato.serves.length} serves. Tap to see them.`}
                 chevron
               />
             </div>
           ) : null}
-          {rows.length ? (
-            <p className="px-4 pb-1.5 pt-5 text-[13px] text-label-2">
-              {rows.length} {tab === "items" ? (rows.length === 1 ? "menu item" : "menu items") : rows.length === 1 ? "prep" : "preps"}
-            </p>
+          {rows.length || inactiveCount ? (
+            <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
+              <p className="text-[13px] text-label-2">{rows.length ? `${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}` : ""}</p>
+              {inactiveCount ? (
+                <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowInactive((x) => !x)}>
+                  {showInactive ? "Hide Inactive" : `Show Inactive (${inactiveCount})`}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {rows.length ? (
             <>
               <div className="group-list lg:hidden">
-                {tab === "items"
-                  ? (rows as ItemCost[]).slice(0, limit).map((c) => <ItemRow key={c.item.id} c={c} showVenue={!venue} />)
-                  : (rows as PrepCost[]).slice(0, limit).map((p) => <PrepRow key={p.prep.id} p={p} />)}
+                {rows.slice(0, limit).map((c) => (
+                  <ItemRow key={c.item.id} c={c} showVenue={!venue} />
+                ))}
               </div>
               <div className="hidden lg:block">
-                {tab === "items" ? (
-                  <ItemTable rows={(rows as ItemCost[]).slice(0, limit)} showVenue={!venue} sorted={!!q.trim() || sort !== "az"} />
-                ) : (
-                  <PrepTable rows={(rows as PrepCost[]).slice(0, limit)} />
-                )}
+                <ItemTable rows={rows.slice(0, limit)} showVenue={!venue} sorted={!!q.trim() || sort !== "az"} />
               </div>
             </>
           ) : null}
@@ -260,6 +272,9 @@ export default function RecipesPage() {
         </>
       )}
 
+      {sheet === "beer" && beerDefaultVenue != null ? <NewBeerSheet defaultVenueId={beerDefaultVenue} onClose={() => setSheet(null)} /> : null}
+      {sheet === "beerServes" ? <BeerServeSizesSheet open onClose={() => setSheet(null)} /> : null}
+      {sheet === "flavour" && gelatoVenue ? <NewFlavourSheet venueId={gelatoVenue.id} onClose={() => setSheet(null)} /> : null}
     </div>
   );
 }
@@ -355,27 +370,3 @@ function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: Item
   );
 }
 
-function PrepTable({ rows }: { rows: PrepCost[] }) {
-  const store = useStore();
-  const columns: Column<PrepCost>[] = [
-    { key: "name", label: "Prep", render: (p) => <span className={cx("font-medium", !p.prep.active && "text-label-2")}>{p.prep.name}</span>, sort: (p) => p.prep.name },
-    { key: "type", label: "Type", render: (p) => <span className="text-label-2">{p.prep.prep_type ?? "—"}</span>, sort: (p) => p.prep.prep_type ?? "" },
-    { key: "venue", label: "Venue", render: (p) => <span className="text-label-2">{p.prep.venue_id == null ? "Shared" : VENUE_SHORT[store.venueById.get(p.prep.venue_id)?.slug ?? ""] ?? ""}</span> },
-    { key: "batch", label: "Batch", align: "right", render: (p) => packLabel(p.prep.yield_qty, p.prep.yield_unit), sort: (p) => Number(p.prep.yield_qty) },
-    { key: "unit", label: "Cost per Unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
-    { key: "total", label: "Batch Cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
-  ];
-  return <DataTable rows={rows} columns={columns} rowKey={(p) => p.prep.id} href={(p) => `/preps/${p.prep.id}`} />;
-}
-
-function PrepRow({ p }: { p: PrepCost }) {
-  return (
-    <Row
-      href={`/preps/${p.prep.id}`}
-      title={p.prep.name}
-      titleClassName={!p.prep.active ? "text-label-2" : undefined}
-      sub={`Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`}
-      trailing={<span className="text-label">{money(p.batchCost)}</span>}
-    />
-  );
-}

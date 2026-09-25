@@ -9,6 +9,9 @@ Live: https://precinct-costing.vercel.app — pushes to `main` auto-deploy on Ve
 - Before every commit: `npx tsc --noEmit`, `npm test` (vitest), `npm run build`. For UI changes, design and check BOTH phone (390px) and desktop widths every time, including small requests and subagent briefs; never ship one and leave the other behind (Troy's standing rule).
 - Commit and push to `main` when the checks pass, then confirm the Vercel deploy is READY.
 - Keep the repo clean: no scratch files, screenshots or exports committed.
+- **Where files live:** every file we create or receive for this project (client workbooks, source spreadsheets, exports, research, scripts, analysis) lives in `files/` inside this folder, and nowhere else (not `~/SPORK`, not a `Claude outputs` folder, not Downloads copies). `files/` is gitignored because the repo is public and the files hold client pricing. Layout: `files/client-sent/` (what went to the client, dated), `files/source/` (originals still needed), `files/research/`, `files/archive/<date>-<topic>/` (finished work kept for the record). Session scratch goes in the session scratchpad and is not kept.
+- **Always clean up:** when a file is superseded or a task is finished, remove it in the same session: move working copies to the macOS Trash (recoverable), keep only the final version in `client-sent/`, archive scripts and analysis worth keeping under `archive/`, and delete the rest. Never leave duplicate copies (top-level, outputs folders, Downloads). Delete finished agent worktrees and their merged branches (`git worktree remove --force <path>`, `git branch -d <branch>`) after merging. Never touch the client's original files in Downloads.
+- **Push check:** `git config core.hooksPath .githooks` (once per clone) enables `.githooks/pre-push`, which blocks a push when tracked files have uncommitted changes, the type check fails, or tests fail (`PREPUSH_BUILD=1` adds the build). Vercel builds whatever is committed, so never push without it.
 
 ## Hard rules
 - **Never commit or deploy `.demo/`** (local QA fixture containing client pricing). Never set `NEXT_PUBLIC_DEMO` on Vercel.
@@ -42,8 +45,8 @@ Every venue and category is 72% (Troy's decision, Sep 2026). Per-item, per-beer 
 
 ## Backlog (Oct 2026)
 1. (Done) Settings target GP grid. Also done: price picker, price history, Review and Apply, Specials and combos.
-2. Supplier price matching: apply the 224 matches Troy approves in ~/SPORK (sheet), then refresh the Price check and Naming sheets.
-3. Naming clean-up: standard applied 26 Sep 2026 (high-confidence renames: 269 ingredients, 43 preps, 83 menu items, 1 supplier; backups in `backup.*_20260925c`; `cost_preps` is now unique(name, venue_id)). Remaining medium/low rows and duplicate groups are in the client sheet 'Precinct Costing - Names to Confirm.xlsx' awaiting the customer's answers. Nothing merged or deleted yet.
+2. Supplier price matching: apply the 224 matches Troy approves (`files/source/Supplier price matching ...xlsx`), then refresh the Price check and Naming sheets.
+3. Naming clean-up: standard applied 26 Sep 2026 (high-confidence renames: 269 ingredients, 43 preps, 83 menu items, 1 supplier; backups in `backup.*_20260925c`; `cost_preps` is now unique(name, venue_id)). Remaining medium/low rows and duplicate groups are in the client workbook `files/client-sent/Questions to Confirm (sent 2026-09-25).xlsx` (Part 2), with the analysis in `files/archive/2026-09-26-naming-analysis/`, awaiting the customer's answers. Nothing merged or deleted yet.
 4. Differing (64) and missing (40) prices from the client price check sheet (pepper and bacon typos first).
 5. After Troy confirms: back up, then delete the 296 old gelato and 116 old tap beer menu items.
 6. (Done) Matt, Mon and Brendan added under Who Can Sign In. Add more there as needed.

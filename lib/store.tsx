@@ -1,5 +1,6 @@
 "use client";
 
+import { rebaselineParent } from "@/lib/integrity";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "./supabase/client";
@@ -861,6 +862,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await resync(["cost_recipe_lines"]); // the recipe lines are already gone from the database: show that
         throw e;
       }
+      rebaselineParent("item", id, null);
       setData((d) => ({
         ...d,
         items: d.items.filter((i) => i.id !== id),
@@ -900,6 +902,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await resync(["cost_recipe_lines"]);
         throw e;
       }
+      rebaselineParent("prep", id, null);
       setData((d) => ({
         ...d,
         preps: d.preps.filter((p) => p.id !== id),
@@ -926,6 +929,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await resync(["cost_recipe_lines"]); // part of the save may have landed: show the database's version
         throw e;
       }
+      rebaselineParent(parentType, parentId, normalised.length);
       setData((d) => ({
         ...d,
         lines: [...d.lines.filter((l) => !(l.parent_type === parentType && l.parent_id === parentId)), ...normalised],

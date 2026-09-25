@@ -29,8 +29,8 @@ export default function BeerPage() {
         title="Beer Not Found"
         body="It may have been removed."
         action={
-          <Link href="/beers" className="btn-primary">
-            Back to Tap Beers
+          <Link href="/menu?cat=Tap%20Beer" className="btn-primary">
+            Back to Menu
           </Link>
         }
       />
@@ -48,9 +48,9 @@ export default function BeerPage() {
   return (
     <div className="max-w-2xl lg:pt-6">
       <VenueAccent slug={venue?.slug} />
-      <Link href="/beers" className="btn-text -ml-1 !gap-0 !text-accent">
+      <Link href={`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`} className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-        Recipes · Beers
+        Menu
       </Link>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{beer.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">
@@ -131,7 +131,7 @@ export default function BeerPage() {
               onClick={() =>
                 store
                   .deleteBeer(beer.id)
-                  .then(() => router.push("/beers"))
+                  .then(() => router.push(`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`))
                   .catch((e) => setError(e instanceof Error ? e.message : String(e)))
               }
             >

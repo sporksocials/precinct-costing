@@ -92,7 +92,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
 }
 
 const GROUPS: { kind: SearchKind; label: string; max: number }[] = [
-  { kind: "item", label: "Recipes", max: 6 },
+  { kind: "item", label: "Menu", max: 6 },
   { kind: "prep", label: "Preps", max: 4 },
   { kind: "ingredient", label: "Ingredients", max: 6 },
   { kind: "portal", label: "Supplier Catalogue", max: 4 },
@@ -208,7 +208,7 @@ export function SearchPanel({ autoFocus, onDone, compact }: { autoFocus?: boolea
               <div className={cx(compact ? "" : "group-list")}>{rows.map(renderRow)}</div>
             </section>
           ) : (
-            <p className="px-4 py-10 text-center text-[15px] text-label-2">Search recipes, preps, ingredients and supplier prices. Typos are fine.</p>
+            <p className="px-4 py-10 text-center text-[15px] text-label-2">Search menu items, preps, ingredients and supplier prices. Typos are fine.</p>
           )
         ) : groups.length === 0 ? (
           <p className="px-4 py-10 text-center text-[15px] text-label-2">No results for “{q.trim()}”</p>

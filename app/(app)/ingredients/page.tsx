@@ -8,19 +8,68 @@ import { dateShort, daysAgo, money, movePct, packLabel, unitShort } from "@/lib/
 import { DataTable } from "@/components/table";
 import { indexDoc, search } from "@/lib/search";
 import { blankIngredient, IngredientSheet } from "@/components/ingredient-sheet";
-import { AddButton, Chips, cx, Empty, PageHeader, Row, SearchField } from "@/components/ui";
+import { AddButton, Chips, cx, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
+import { PrepsList } from "@/components/preps-list";
+import { useNewRecipe } from "@/components/new-recipe";
+import { useVenue } from "@/components/venue";
 import { useRouter, useSearchParams } from "next/navigation";
 import { catalogueGaps, ingredientsInUse, staleIngredients } from "@/lib/insights";
 
 const PAGE = 100;
 
+type Tab = "ingredients" | "preps";
+
+/** Ingredients and Preps live together: the things you buy, and the batches you make from them. */
 export default function IngredientsPage() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const newRecipe = useNewRecipe();
+  const { venue } = useVenue();
+  const tab: Tab = params.get("type") === "preps" ? "preps" : "ingredients";
+  const [adding, setAdding] = useState(false);
+  const go = (t: Tab) => {
+    if (t === tab) return;
+    const p = new URLSearchParams();
+    if (t === "preps") {
+      p.set("type", "preps");
+      if (venue) p.set("venue", venue.slug);
+    }
+    const q = p.toString();
+    router.replace(q ? `/ingredients?${q}` : "/ingredients", { scroll: false });
+  };
+  return (
+    <div>
+      <PageHeader
+        title="Ingredients"
+        trailing={
+          tab === "preps" ? (
+            <AddButton label="New Prep" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: "prep" })} />
+          ) : (
+            <AddButton label="New Ingredient" onClick={() => setAdding(true)} />
+          )
+        }
+      />
+      <Segmented
+        ariaLabel="Ingredients or preps"
+        className="mb-3 lg:w-80"
+        value={tab}
+        onChange={go}
+        options={[
+          { value: "ingredients", label: "Ingredients" },
+          { value: "preps", label: "Preps" },
+        ]}
+      />
+      {tab === "preps" ? <PrepsList /> : <IngredientsList adding={adding} setAdding={setAdding} />}
+    </div>
+  );
+}
+
+function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v: boolean) => void }) {
   const store = useStore();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
   const [limit, setLimit] = useState(PAGE);
-  const [adding, setAdding] = useState(false);
   const [showUnused, setShowUnused] = useState(false);
   const params = useSearchParams();
   const filter = params.get("filter") as "stale" | "catalogue" | null;
@@ -65,12 +114,6 @@ export default function IngredientsPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Ingredients"
-        trailing={
-          <AddButton label="New Ingredient" onClick={() => setAdding(true)} />
-        }
-      />
       {filter ? (
         <div className="mb-3 flex items-center gap-3 rounded-2xl bg-accent-soft px-4 py-3">
           <span className="min-w-0 flex-1">

@@ -79,8 +79,8 @@ export function RecipeEditorPage({ kind, id }: { kind: Kind; id: string }) {
         title={kind === "item" ? "Recipe not found" : "Prep not found"}
         body="It may have been deleted."
         action={
-          <Link href="/recipes" className="btn-primary">
-            Back to Recipes
+          <Link href={kind === "item" ? "/menu" : "/ingredients?type=preps"} className="btn-primary">
+            {kind === "item" ? "Back to Menu" : "Back to Preps"}
           </Link>
         }
       />
@@ -315,7 +315,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   const statusText = status === "saving" ? "Saving…" : status === "pending" ? "Edited" : status === "error" ? "Not saved" : "Saved";
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
-  const backHref = isFlavour ? "/gelato" : kind === "item" ? "/recipes" : "/recipes?type=preps";
+  const backHref = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
 
   const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
@@ -334,7 +334,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center justify-between px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
         <Link href={backHref} className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
-          {isFlavour ? "Gelato" : kind === "item" ? "Recipes" : "Preps"}
+          {isFlavour || kind === "item" ? "Menu" : "Ingredients · Preps"}
         </Link>
         <div className="flex items-center gap-1">
           <span className={cx("text-[13px]", status === "error" ? "text-danger" : "text-label-2")} aria-live="polite">
@@ -511,7 +511,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {/* prep: used in */}
           {isFlavour ? (
             <div className="group-list mt-6">
-              <Row href="/gelato" title={`Sold as ${flavourName(draft)} in ${store.gelato.serves.length} serves`} sub="All flavours on the Gelato screen" chevron />
+              <Row href="/gelato" title={`Sold as ${flavourName(draft)} in ${store.gelato.serves.length} serves`} sub="See every flavour and serve on the Price Grid" chevron />
             </div>
           ) : kind === "prep" ? (
             <div className="group-list mt-6">

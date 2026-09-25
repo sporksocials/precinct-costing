@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense } from "react";
-import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settings, Store, Tag } from "lucide-react";
+import { BookOpen, Carrot, Ellipsis, House, LogOut, Search, Settings, Store, Tag } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -12,19 +12,20 @@ import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
 
 const MAIN = [
   { href: "/", label: "Home", icon: House },
-  { href: "/recipes", label: "Recipes", icon: BookOpen },
+  { href: "/menu", label: "Menu", icon: BookOpen },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
   { href: "/specials", label: "Specials", icon: Tag },
 ];
 const MORE = [
-  { href: "/gelato", label: "Gelato", icon: IceCreamCone },
   { href: "/portal-prices", label: "Supplier Prices", icon: Store },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  if (href === "/recipes") return pathname.startsWith("/recipes") || pathname.startsWith("/beers") || pathname.startsWith("/items") || pathname.startsWith("/preps");
+  // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
+  if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
+  if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -74,7 +75,7 @@ function Sidebar() {
 
 const TABS = [
   { href: "/", label: "Home", icon: House },
-  { href: "/recipes", label: "Recipes", icon: BookOpen },
+  { href: "/menu", label: "Menu", icon: BookOpen },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
   { href: "/search", label: "Search", icon: Search },
   { href: "/more", label: "More", icon: Ellipsis },

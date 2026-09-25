@@ -22,7 +22,7 @@ export const viewport: Viewport = {
 
 // Applies the venue accent from the URL before first paint (no colour flash), only on the pages that carry the venue filter.
 // Everything else stays on the neutral sand accent (data-venue="all").
-const venueBoot = `try{var p=location.pathname.replace(/\\/+$/,"")||"/";if(p==="/"||p==="/recipes"||p==="/beers"){var s=new URLSearchParams(location.search).get("venue");if(s&&/^[a-z]+$/.test(s))document.documentElement.setAttribute("data-venue",s)}}catch(e){}`;
+const venueBoot = `try{var p=location.pathname.replace(/\\/+$/,"")||"/";if(p==="/"||p==="/menu"||p==="/ingredients"){var s=new URLSearchParams(location.search).get("venue");if(s&&/^[a-z]+$/.test(s))document.documentElement.setAttribute("data-venue",s)}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

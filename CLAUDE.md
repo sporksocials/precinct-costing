@@ -25,6 +25,7 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
 - Virtual items are computed, never stored. Old stored items they replace are hidden via `replacedItemIds` / `legacy_item_id` (296 gelato + 116 tap beer items still in the DB, awaiting Troy's OK to delete).
 - `lib/insights.ts` — Today feed: price rises, below target, stale prices (90 days), catalogue gaps.
 - `components/ui.tsx` — design primitives (PageHeader, Group, Row, FieldRow, InlineInput, Sheet, Chips, AddButton, Toggle…). Reuse them; don't invent new one-off styles.
+- Information architecture: every kind of thing has one home. **Menu** (`app/(app)/menu`) lists everything sold (food, drinks, tap beer rows, gelato flavours); venue tiles and category chips only filter it. **Ingredients** has an Ingredients | Preps control (`?type=preps`). Tap beer detail is `/beers/[id]`, gelato Price Grid `/gelato`, serves `/gelato/serves`; old `/recipes`, `/beers`, `/items`, `/preps` redirect (next.config.mjs).
 - `components/venue.tsx` — VenueFilter (All / Drift / Chiobu / Greedy / Gelato, dot + name) sits on Home, Recipes and Beers only; the choice lives in `?venue=` (no storage, default All) and the accent follows it only on those pages. Record pages use `VenueAccent` (the record's own venue); everything else is neutral sand.
 - Demo mode for local visual QA: `NEXT_PUBLIC_DEMO=1 npx next dev -p 3100` (reads `.demo/`, local only).
 

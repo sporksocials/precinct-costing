@@ -1,6 +1,6 @@
 "use client";
 
-import { HeartPulse, Settings, Store, Tag, Wheat } from "lucide-react";
+import { HeartPulse, History, Settings, Store, Tag, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
@@ -27,6 +27,7 @@ export default function MorePage() {
           trailing={health.ready ? <span className={health.errors ? "text-danger" : health.attention ? "text-warn" : "text-good"}>{health.attention ? `${health.attention} to check` : "All clear"}</span> : undefined}
           chevron
         />
+        <Row href="/change-log" title="Change Log" leading={<Icon className="bg-[#5a4a8a]"><History className={ic} /></Icon>} chevron />
         <Row href="/settings" title="Settings" leading={<Icon className="bg-[#3a3a3f]"><Settings className={ic} /></Icon>} chevron />
       </Group>
       <Group title="Signed In As">

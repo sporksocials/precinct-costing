@@ -8,9 +8,11 @@ import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
 import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
 import { targetGrid } from "@/lib/targets";
+import { useDataHealthSummary } from "@/lib/use-data-health";
 
 export default function SettingsPage() {
   const store = useStore();
+  const health = useDataHealthSummary();
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
@@ -86,6 +88,16 @@ export default function SettingsPage() {
         </div>
         <p className="px-4 pt-1.5 text-[13px] text-label-2">Blank uses {gp(DEFAULT_TARGET_GP, 0)}. “Under” counts menu items priced below their target now. A recipe can override its own target under Details.</p>
       </section>
+
+      <Group title="Data Health" footer="Checks costs, prices and recipes for anything that could make a number wrong.">
+        <Row
+          href="/data-health"
+          title="Data Health"
+          sub={health.ready ? (health.attention ? `${health.errors} ${health.errors === 1 ? "error" : "errors"}, ${health.warnings} ${health.warnings === 1 ? "warning" : "warnings"}` : "All checks passed") : "Checking"}
+          trailing={health.ready ? <span className={health.errors ? "text-danger" : health.attention ? "text-warn" : "text-good"}>{health.attention ? `${health.attention} to check` : "All clear"}</span> : undefined}
+          chevron
+        />
+      </Group>
 
       <Group title="Who Can Sign In" footer="Only these emails can sign in and see prices.">
         {store.allowedUsers.map((u) => (

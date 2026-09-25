@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings, Store, Tag } from "lucide-react";
+import { Settings, Store, Tag, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Group, PageHeader, Row } from "@/components/ui";
 
@@ -16,6 +16,7 @@ export default function MorePage() {
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
+        <Row href="/allergens" title="Allergy Matrix" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
         <Row href="/portal-prices" title="Supplier Prices" leading={<Icon className="bg-[#0A3848]"><Store className={ic} /></Icon>} chevron />
         <Row href="/settings" title="Settings" leading={<Icon className="bg-[#3a3a3f]"><Settings className={ic} /></Icon>} chevron />
       </Group>

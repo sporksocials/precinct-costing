@@ -16,6 +16,7 @@ import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
 import { parsePercentInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
+import { IngredientAllergensSection } from "@/components/allergen-picker";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle } from "@/components/ui";
 
 /** entered_by marker for alternate prices carried over from the source sheets. */
@@ -190,6 +191,7 @@ function Detail({ ing }: { ing: Ingredient }) {
               ))}
             </Group>
           ) : null}
+          <IngredientAllergensSection ing={ing} />
           <Group title={`Used In ${used.items.length + used.preps.length}`} className="mt-7 lg:mt-5">
             {used.items.length + used.preps.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">Not used in any recipe.</p> : null}
             {used.items

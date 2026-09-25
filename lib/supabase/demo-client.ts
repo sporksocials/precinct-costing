@@ -54,7 +54,7 @@ type Op = "select" | "insert" | "update" | "delete" | "upsert";
 
 class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: string } | null }> {
   private filters: Filter[] = [];
-  private orderBy: { col: string; asc: boolean } | null = null;
+  private orderBy: { col: string; asc: boolean }[] = [];
   private rangeFrom = 0;
   private rangeTo = Infinity;
   private op: Op = "select";
@@ -101,7 +101,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     return this;
   }
   order(col: string, opts?: { ascending?: boolean }): this {
-    this.orderBy = { col, asc: opts?.ascending !== false };
+    this.orderBy.push({ col, asc: opts?.ascending !== false });
     return this;
   }
   range(from: number, to: number): this {
@@ -123,13 +123,15 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     switch (this.op) {
       case "select": {
         let out = rows.filter(match);
-        if (this.orderBy) {
-          const { col, asc } = this.orderBy;
+        if (this.orderBy.length) {
           out = [...out].sort((a, b) => {
-            const x = a[col] as string | number;
-            const y = b[col] as string | number;
-            const c = x == null ? -1 : y == null ? 1 : x < y ? -1 : x > y ? 1 : 0;
-            return asc ? c : -c;
+            for (const { col, asc } of this.orderBy) {
+              const x = a[col] as string | number;
+              const y = b[col] as string | number;
+              const c = x == null ? -1 : y == null ? 1 : x < y ? -1 : x > y ? 1 : 0;
+              if (c !== 0) return asc ? c : -c;
+            }
+            return 0;
           });
         }
         return { data: clone(out.slice(this.rangeFrom, this.rangeTo + 1)), error: null };

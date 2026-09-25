@@ -81,11 +81,30 @@ function clearCache() {
 
 type SinceFilter = { column: string; gte: string };
 
-async function fetchAll<T>(sb: SupabaseClient, table: string, order: string, since?: SinceFilter): Promise<T[]> {
+/**
+ * Paging with .range() is only safe over a TOTAL order. Sorting by a column with repeated values
+ * (recipe line `sort`, menu item `name` across venues, ...) lets Postgres return tied rows in a different
+ * order on each page, so rows get skipped and repeated. Every table therefore gets a unique tie-breaker.
+ */
+const TIE_BREAK: Record<string, string> = {
+  cost_settings: "key", // key is already unique
+  cost_allowed_users: "email", // email is already unique
+  cost_targets: "category", // (venue_id, category) is the primary key
+};
+
+export function pageOrder(table: string, order: string): string[] {
+  const tie = TIE_BREAK[table] ?? "id";
+  return tie === order ? [order] : [order, tie];
+}
+
+export async function fetchAll<T>(sb: SupabaseClient, table: string, order: string, since?: SinceFilter): Promise<T[]> {
   const out: T[] = [];
   let from = 0;
+  const cols = pageOrder(table, order);
   for (;;) {
-    let q = sb.from(table).select("*").order(order, { ascending: true }).range(from, from + PAGE - 1);
+    let q = sb.from(table).select("*");
+    for (const c of cols) q = q.order(c, { ascending: true });
+    q = q.range(from, from + PAGE - 1);
     if (since) q = q.gte(since.column, since.gte);
     const { data, error } = await q;
     if (error) throw new Error(`${table}: ${error.message}`);

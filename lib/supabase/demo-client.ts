@@ -49,6 +49,22 @@ function loadTables(): Promise<Tables> {
   return tablesPromise;
 }
 
+/**
+ * Dev-only fault injection for checking the data health banner (only ever read in demo mode):
+ *   NEXT_PUBLIC_DEMO_FAULT=lines          the first load drops some recipe lines; the heal step fetches them (silent)
+ *   NEXT_PUBLIC_DEMO_FAULT=lines-persist  recipe lines are always short (the red banner)
+ *   NEXT_PUBLIC_DEMO_FAULT=rpc            the fingerprint function is "missing" (count fallback)
+ *   NEXT_PUBLIC_DEMO_FAULT=blocked        every read returns nothing (row level security)
+ */
+const FAULT = process.env.NEXT_PUBLIC_DEMO_FAULT ?? "";
+let faultUsed = false;
+
+function djb2(str: string): string {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16);
+}
+
 type Filter = (r: Row) => boolean;
 type Op = "select" | "insert" | "update" | "delete" | "upsert";
 
@@ -61,10 +77,14 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
   private payload: Row[] = [];
   private patch: Row = {};
   private conflict: string[] = ["id"];
+  private head = false;
+  private wantCount = false;
 
   constructor(private table: string) {}
 
-  select(): this {
+  select(_cols?: string, opts?: { count?: string; head?: boolean }): this {
+    if (opts?.head) this.head = true;
+    if (opts?.count) this.wantCount = true;
     return this;
   }
   insert(rows: Row | Row[]): this {
@@ -123,6 +143,8 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     switch (this.op) {
       case "select": {
         let out = rows.filter(match);
+        if (FAULT === "blocked") out = [];
+        if (this.head) return { data: null, error: null, count: out.length } as never;
         if (this.orderBy.length) {
           out = [...out].sort((a, b) => {
             for (const { col, asc } of this.orderBy) {
@@ -134,7 +156,12 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
             return 0;
           });
         }
-        return { data: clone(out.slice(this.rangeFrom, this.rangeTo + 1)), error: null };
+        let page = out.slice(this.rangeFrom, this.rangeTo + 1);
+        if (this.table === "cost_recipe_lines" && this.rangeFrom === 0 && (FAULT === "lines-persist" || (FAULT === "lines" && !faultUsed))) {
+          if (FAULT === "lines") faultUsed = true;
+          page = page.filter((_, i) => i % 30 !== 7); // silently lose ~3% of the rows, like the paging bug did
+        }
+        return { data: clone(page), error: null };
       }
       case "insert": {
         const added = this.payload.map((r) => {
@@ -185,8 +212,9 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
       }
       case "delete": {
         const keep = rows.filter((r) => !match(r));
+        const gone = rows.filter(match);
         tables[this.table] = keep;
-        return { data: null, error: null };
+        return { data: clone(gone), error: null };
       }
     }
   }
@@ -205,6 +233,17 @@ export function createDemoClient(): SupabaseClient {
   const user = { email: "demo@precinct.local" };
   const client = {
     from: (table: string) => new DemoQuery(table),
+    rpc: async (name: string, args?: { p_since?: string }) => {
+      if (name !== "cost_data_fingerprint" || FAULT === "rpc") return { data: null, error: { code: "42883", message: "function does not exist" } };
+      const t = await loadTables();
+      const out: Record<string, unknown> = { generated_at: new Date().toISOString() };
+      for (const [table, rows] of Object.entries(t)) {
+        const inWindow = table === "cost_price_log" && args?.p_since ? rows.filter((r) => String(r.changed_at ?? "") >= args.p_since!) : rows;
+        const shown = FAULT === "blocked" ? [] : inWindow;
+        out[table] = { count: shown.length, hash: djb2(JSON.stringify(shown)) };
+      }
+      return { data: out, error: null };
+    },
     auth: {
       getUser: async () => ({ data: { user }, error: null }),
       signOut: async () => ({ error: null }),

@@ -8,6 +8,7 @@ import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
 import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
 import { targetGrid } from "@/lib/targets";
+import { formatVerifiedTime } from "@/lib/health";
 
 export default function SettingsPage() {
   const store = useStore();
@@ -24,6 +25,7 @@ export default function SettingsPage() {
     setError(null);
     p.catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
+  const verifiedAt = formatVerifiedTime(store.health.lastVerifiedAt);
   const pctIn = (v: number) => String(Math.round(v * 1000) / 10);
   const pctOut = parsePercentInput;
 
@@ -119,6 +121,10 @@ export default function SettingsPage() {
         <Row title={store.userEmail ?? "—"} />
         <Row onClick={() => void store.signOut()} title={<span className="text-danger">Sign Out</span>} />
       </Group>
+
+      <p className="mt-6 px-4 text-center text-[13px] text-label-3">
+        {verifiedAt && (store.health.state === "ok" || store.health.state === "repaired") ? `Data Verified ${verifiedAt}` : "Data Not Verified"}
+      </p>
 
       <Sheet open={!!removing} onClose={() => setRemoving(null)} hideHeader size="sm">
         <div className="pb-2 pt-5 text-center">

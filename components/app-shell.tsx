@@ -8,6 +8,7 @@ import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
 import { PrecinctMark } from "./brand";
+import { DataHealthBanner } from "./data-health-banner";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider } from "./ui";
 
 const MAIN = [
@@ -168,6 +169,7 @@ function Frame({ children }: { children: React.ReactNode }) {
           noTabs ? "pb-[calc(140px+env(safe-area-inset-bottom))]" : "pb-[calc(96px+env(safe-area-inset-bottom))]",
         )}
       >
+        <DataHealthBanner />
         <Gate>
           <div key={pathname} className="anim-page">
             {children}

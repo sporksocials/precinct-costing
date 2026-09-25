@@ -41,10 +41,34 @@ import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
 import { groupDeals } from "./deals";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
+import {
+  FetchError,
+  MSG_BLOCKED,
+  MSG_DEGRADED,
+  MSG_UNVERIFIED,
+  PERIODIC_STALE_MS,
+  FOCUS_STALE_MS,
+  TABLES,
+  changedTables,
+  compareFingerprint,
+  initialHealth,
+  isBlocked,
+  isSchemaMissingError,
+  parseFingerprint,
+  reconcile,
+  shouldRevalidate,
+  tableLabel,
+  writeCheckDelay,
+  type Health,
+  type RemoteFingerprint,
+  type TableMismatch,
+  type TableSpec,
+} from "./health";
 
 const PAGE = 1000;
 const LOG_WINDOW_DAYS = 90;
-const CACHE_KEY = "precinct-cache-v1";
+// v2: caches written before the paging fix (commit 72e2d9d) could hold an incomplete load, so they are ignored
+const CACHE_KEY = "precinct-cache-v2";
 
 interface CacheEnvelope {
   savedAt: string;
@@ -107,7 +131,7 @@ export async function fetchAll<T>(sb: SupabaseClient, table: string, order: stri
     q = q.range(from, from + PAGE - 1);
     if (since) q = q.gte(since.column, since.gte);
     const { data, error } = await q;
-    if (error) throw new Error(`${table}: ${error.message}`);
+    if (error) throw new FetchError(table, error.message, (error as { code?: string }).code);
     const rows = (data ?? []) as T[];
     out.push(...rows);
     if (rows.length < PAGE) break;
@@ -190,6 +214,12 @@ export interface StoreValue extends StoreData {
   userEmail: string | null;
   accessDenied: boolean;
   reload: () => Promise<void>;
+  /** data integrity: was everything loaded, and does it still match the database? */
+  health: Health;
+  /** run the full load + verify again (the banner's Retry) */
+  recheck: () => Promise<void>;
+  /** increases each time another person's change was merged in, so the UI can say so once */
+  externalUpdates: number;
   signOut: () => Promise<void>;
   // derived
   /** menu items as stored (items = these, minus the old gelato recipes, plus the virtual gelato flavour × serve items) */
@@ -294,10 +324,181 @@ function newId(): string {
   });
 }
 
+// ---------------------------------------------------------------- integrity: fingerprint, snapshot, merge
+
+export interface FingerprintResult {
+  fp: RemoteFingerprint | null;
+  /** rpc = cost_data_fingerprint(); counts = per-table head counts (older database, or the RPC failed); none = could not check */
+  source: "rpc" | "counts" | "none";
+  error?: string;
+}
+
+/**
+ * One extra parallel call: what the database says every table holds. Falls back to lightweight per-table
+ * counts (in parallel, no rows transferred) if the function is missing or errors. Never throws.
+ */
+export async function fetchFingerprint(sb: SupabaseClient, sinceIso: string): Promise<FingerprintResult> {
+  try {
+    const { data, error } = await sb.rpc("cost_data_fingerprint", { p_since: sinceIso });
+    if (!error) {
+      const fp = parseFingerprint(data);
+      if (fp) return { fp, source: "rpc" };
+    }
+  } catch {
+    /* fall through to counts */
+  }
+  try {
+    const tables: RemoteFingerprint["tables"] = {};
+    const results = await Promise.all(
+      TABLES.map(async (spec) => {
+        let q = sb.from(spec.table).select(spec.pk[0], { count: "exact", head: true });
+        if (spec.windowed) q = q.gte(spec.order, sinceIso);
+        const { count, error } = await q;
+        return { spec, count, error };
+      }),
+    );
+    for (const { spec, count, error } of results) {
+      if (error) {
+        if (spec.optional && isSchemaMissingError(error)) tables[spec.table] = { count: 0 };
+        else return { fp: null, source: "none", error: `${spec.table}: ${error.message}` };
+      } else if (count == null) {
+        return { fp: null, source: "none", error: `${spec.table}: no count returned` };
+      } else tables[spec.table] = { count };
+    }
+    return { fp: { tables }, source: "counts" };
+  } catch (e) {
+    return { fp: null, source: "none", error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function specFor(table: string): TableSpec {
+  const s = TABLES.find((t) => t.table === table);
+  if (!s) throw new Error(`Unknown table ${table}`);
+  return s;
+}
+
+function fetchSpec(sb: SupabaseClient, spec: TableSpec, sinceIso: string): Promise<unknown[]> {
+  return fetchAll<unknown>(sb, spec.table, spec.order, spec.windowed ? { column: spec.order, gte: sinceIso } : undefined);
+}
+
+export function rowsFromData(d: StoreData): Record<string, unknown[]> {
+  const out: Record<string, unknown[]> = {};
+  for (const spec of TABLES) out[spec.table] = (d as unknown as Record<string, unknown[]>)[spec.key] ?? [];
+  return out;
+}
+
+/** Puts freshly loaded rows (by table name) into the store data; tables not in `rows` are left alone. */
+export function mergeRows(prev: StoreData, rows: Record<string, unknown[]>): StoreData {
+  const next = { ...prev } as unknown as Record<string, unknown>;
+  for (const spec of TABLES) if (rows[spec.table]) next[spec.key] = rows[spec.table];
+  const out = next as unknown as StoreData;
+  return rows.cost_settings ? { ...out, settings: settingsFromRows(out.rawSettings) } : out;
+}
+
+export interface Snapshot {
+  rows: Record<string, unknown[]>;
+  remote: RemoteFingerprint | null;
+  source: FingerprintResult["source"];
+  /** still wrong after healing */
+  mismatches: TableMismatch[];
+  /** tables that had to be refetched to become consistent */
+  healed: string[];
+  /** the check itself could not run */
+  unverified: boolean;
+  /** every table is empty: no access (or the session ended) */
+  blocked: boolean;
+}
+
+/**
+ * The whole load: every table plus the fingerprint, all in parallel; then verify and, if a table is short or
+ * has duplicates, refetch just that table (sequentially) and re-verify, up to twice.
+ *
+ * - A required table that fails throws (the caller shows "Couldn't load").
+ * - An optional table is tolerated ONLY when it does not exist yet (42P01, 42703, PGRST205...). Any other error
+ *   (network, RLS, timeout) is retried by the heal step and, if it persists, reported by name as a mismatch.
+ */
+export async function loadSnapshot(
+  sb: SupabaseClient,
+  sinceIso: string,
+  prev?: Record<string, unknown[]>,
+  hooks?: { onHealing?: (m: TableMismatch[]) => void },
+): Promise<Snapshot> {
+  const fpPromise = fetchFingerprint(sb, sinceIso);
+  const settled = await Promise.all(
+    TABLES.map(async (spec) => {
+      try {
+        return { spec, rows: await fetchSpec(sb, spec, sinceIso), error: null as unknown };
+      } catch (error) {
+        return { spec, rows: null as unknown[] | null, error };
+      }
+    }),
+  );
+  const fpRes = await fpPromise;
+  const rows: Record<string, unknown[]> = {};
+  const force: string[] = [];
+  for (const { spec, rows: r, error } of settled) {
+    if (r) rows[spec.table] = r;
+    else if (spec.optional && isSchemaMissingError(error)) rows[spec.table] = [];
+    else if (spec.optional) {
+      rows[spec.table] = prev?.[spec.table] ?? [];
+      force.push(spec.table);
+    } else throw error instanceof Error ? error : new Error(String(error));
+  }
+  const res = await reconcile({
+    rows,
+    remote: fpRes.fp,
+    force,
+    refetch: (t) => fetchSpec(sb, specFor(t), sinceIso),
+    remeasure: async () => (await fetchFingerprint(sb, sinceIso)).fp,
+    onHealing: hooks?.onHealing,
+  });
+  return {
+    rows: res.rows,
+    remote: res.remote,
+    source: fpRes.source,
+    mismatches: res.mismatches,
+    healed: res.refetched,
+    unverified: res.unverified,
+    blocked: isBlocked(res.remote) && Object.values(res.rows).every((r) => r.length === 0),
+  };
+}
+
+// ---------------------------------------------------------------- write safety
+
+const NOT_SAVED = "That change didn’t save. It may have been removed by someone else, or you may not have access. Refresh and try again.";
+
+/** A write that reports success but touched fewer rows than expected (row level security can do this silently) is a failure. */
+function assertSaved(rows: unknown[] | null, expected = 1) {
+  if (!rows || rows.length < expected) throw new Error(NOT_SAVED);
+}
+
+async function updateOne(sb: SupabaseClient, table: string, col: string, val: string | number, patch: object) {
+  const { data: rows, error } = await sb.from(table).update(patch).eq(col, val).select(col);
+  if (error) throw new Error(error.message);
+  assertSaved(rows);
+}
+
+/** Deletes one row and proves it is gone (0 rows deleted is fine only if the row no longer exists). */
+async function deleteOne(sb: SupabaseClient, table: string, col: string, val: string | number) {
+  const { data: rows, error } = await sb.from(table).delete().eq(col, val).select(col);
+  if (error) throw new Error(error.message);
+  if (rows && rows.length > 0) return;
+  const { count, error: e2 } = await sb.from(table).select(col, { count: "exact", head: true }).eq(col, val);
+  if (e2 || count == null || count > 0) throw new Error(NOT_SAVED);
+}
+
+async function upsertAll(sb: SupabaseClient, table: string, rows: object[], onConflict: string, col: string) {
+  const { data, error } = await sb.from(table).upsert(rows, { onConflict }).select(col);
+  if (error) throw new Error(error.message);
+  assertSaved(data, rows.length);
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   // created in the browser only (it is used from effects/callbacks), so server prerendering never needs Supabase env vars
   const sb = useMemo(() => (typeof window === "undefined" ? (null as unknown as SupabaseClient) : getSupabaseBrowser()), []);
-  const [data, setData] = useState<StoreData>(empty);
+  const [data, setDataRaw] = useState<StoreData>(empty);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const [ready, setReady] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -305,11 +506,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [portalPrices, setPortalPrices] = useState<PortalPrice[] | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
   const [assumptionsUnsaved, setAssumptionsUnsaved] = useState(false);
+  const [health, setHealth] = useState<Health>(initialHealth);
+  const [externalUpdates, setExternalUpdates] = useState(0);
   const portalLoading = useRef(false);
   const loadedOnce = useRef(false);
   const serverLoaded = useRef(false);
+  // integrity bookkeeping (refs: none of it should re-render anything by itself)
+  const baseline = useRef<{ fp: RemoteFingerprint | null; at: number }>({ fp: null, at: 0 });
+  const sinceRef = useRef("");
+  const lastCheckRef = useRef<number | null>(null);
+  const lastWriteRef = useRef<number | null>(null);
+  const revalidating = useRef(false);
+  const reloading = useRef(false);
+  const warnedRepair = useRef(false);
+  const writeTimer = useRef<number>();
+  const revalidateRef = useRef<() => Promise<void>>(async () => {});
+
+  /** every local change to the data goes through here: it remembers "the user wrote at T" so a check follows the write */
+  const noteWrite = useCallback(() => {
+    lastWriteRef.current = Date.now();
+    if (typeof window === "undefined") return;
+    window.clearTimeout(writeTimer.current);
+    const d = writeCheckDelay(lastCheckRef.current, lastWriteRef.current, Date.now());
+    if (d != null) writeTimer.current = window.setTimeout(() => void revalidateRef.current(), d);
+  }, []);
+  const setData = useCallback(
+    (u: React.SetStateAction<StoreData>) => {
+      noteWrite();
+      setDataRaw(u);
+    },
+    [noteWrite],
+  );
+
+  const markVerified = useCallback(() => {
+    setHealth((h) => ({ state: h.state === "repaired" ? "repaired" : "ok", mismatches: [], lastVerifiedAt: new Date().toISOString(), message: null }));
+  }, []);
 
   const reload = useCallback(async () => {
+    if (reloading.current) return;
+    reloading.current = true;
     setRefreshing(true);
     setError(null);
     try {
@@ -318,60 +553,116 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       } = await sb.auth.getUser();
       setUserEmail(user?.email ?? null);
       const since = new Date(Date.now() - LOG_WINDOW_DAYS * 86_400_000).toISOString();
-      // gelato serve tables are optional so the app still loads against a database without them
-      const optional = <T,>(p: Promise<T[]>) => p.catch(() => [] as T[]);
-      const [venues, rawSettings, targets, suppliers, ingredients, preps, items, lines, priceLogs, specials, allowedUsers, gelatoServes, gelatoServeLines, beerServes, beers, beerPrices, offers, offerLines, deals] =
-        await Promise.all([
-          fetchAll<Venue>(sb, "cost_venues", "sort"),
-          fetchAll<Setting>(sb, "cost_settings", "key"),
-          fetchAll<Target>(sb, "cost_targets", "venue_id"),
-          fetchAll<Supplier>(sb, "cost_suppliers", "name"),
-          fetchAll<Ingredient>(sb, "cost_ingredients", "name"),
-          fetchAll<Prep>(sb, "cost_preps", "name"),
-          fetchAll<MenuItem>(sb, "cost_menu_items", "name"),
-          fetchAll<RecipeLine>(sb, "cost_recipe_lines", "sort"),
-          fetchAll<PriceLog>(sb, "cost_price_log", "changed_at", { column: "changed_at", gte: since }),
-          fetchAll<Special>(sb, "cost_specials", "id"),
-          fetchAll<AllowedUser>(sb, "cost_allowed_users", "email"),
-          optional(fetchAll<GelatoServe>(sb, "cost_gelato_serves", "sort")),
-          optional(fetchAll<GelatoServeLine>(sb, "cost_gelato_serve_lines", "sort")),
-          optional(fetchAll<BeerServe>(sb, "cost_beer_serves", "sort")),
-          optional(fetchAll<Beer>(sb, "cost_beers", "name")),
-          optional(fetchAll<BeerPrice>(sb, "cost_beer_prices", "beer_id")),
-          optional(fetchAll<Offer>(sb, "cost_offers", "created_at")),
-          optional(fetchAll<OfferLine>(sb, "cost_offer_lines", "sort")),
-          optional(fetchAll<IngredientDeal>(sb, "cost_ingredient_deals", "created_at")),
-        ]);
-      setData({
-        venues,
-        rawSettings,
-        settings: settingsFromRows(rawSettings),
-        targets,
-        suppliers,
-        ingredients,
-        preps,
-        items,
-        lines,
-        priceLogs,
-        specials,
-        allowedUsers,
-        gelatoServes,
-        gelatoServeLines,
-        beerServes,
-        beers,
-        beerPrices,
-        offers,
-        offerLines,
-        deals,
+      sinceRef.current = since;
+      // every table AND the fingerprint load in parallel; verification and any healing happen before the data is shown
+      const snap = await loadSnapshot(sb, since, rowsFromData(dataRef.current), {
+        onHealing: (m) => setHealth((h) => ({ ...h, state: "healing", mismatches: m, message: null })),
       });
+      const now = Date.now();
+      lastCheckRef.current = now;
+      baseline.current = { fp: snap.remote, at: now };
+      if (snap.blocked) {
+        // nothing readable for this session: never keep showing an old cached copy
+        clearCache();
+        setDataRaw(mergeRows(empty, snap.rows));
+        setHealth({ state: "blocked", mismatches: [], lastVerifiedAt: null, message: MSG_BLOCKED });
+      } else {
+        setDataRaw((prev) => mergeRows(prev, snap.rows));
+        if (snap.mismatches.length) {
+          setHealth({ state: "degraded", mismatches: snap.mismatches, lastVerifiedAt: null, message: MSG_DEGRADED });
+        } else if (snap.unverified) {
+          setHealth({ state: "degraded", mismatches: [], lastVerifiedAt: null, message: MSG_UNVERIFIED, unverified: true });
+        } else {
+          const repaired = snap.healed.length > 0;
+          if (repaired && !warnedRepair.current) {
+            warnedRepair.current = true;
+            console.warn(`[data-health] Load was incomplete and was repaired by refetching: ${snap.healed.map(tableLabel).join(", ")}`);
+          }
+          setHealth({ state: repaired ? "repaired" : "ok", mismatches: [], lastVerifiedAt: new Date().toISOString(), message: null });
+        }
+      }
       serverLoaded.current = true;
       setReady(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      // whatever is on screen (a saved copy) could not be checked against the database
+      setHealth((h) => ({ ...h, state: "degraded", message: MSG_UNVERIFIED, unverified: true, lastVerifiedAt: null }));
     } finally {
+      reloading.current = false;
       setRefreshing(false);
     }
   }, [sb]);
+
+  /**
+   * Background check: does what we hold still match the database? Someone else's edit shows as a changed table
+   * hash; a write of ours that never landed (or a dropped row) shows as a count mismatch. Only the affected tables
+   * are refetched and swapped in; no loader, no remount, editor state untouched.
+   */
+  const revalidate = useCallback(async () => {
+    if (!serverLoaded.current || revalidating.current || reloading.current) return;
+    revalidating.current = true;
+    const startedAt = Date.now();
+    try {
+      const { fp } = await fetchFingerprint(sb, sinceRef.current);
+      lastCheckRef.current = Date.now();
+      if (!fp) return; // could not check right now: keep the current state, try again on the next trigger
+      const local = rowsFromData(dataRef.current);
+      const prev = baseline.current;
+      const changed = prev.fp ? changedTables(prev.fp, fp) : [];
+      const wrong = compareFingerprint(local, fp).mismatches;
+      if (isBlocked(fp)) {
+        clearCache();
+        setDataRaw((d) => mergeRows(d, Object.fromEntries(TABLES.map((t) => [t.table, []]))));
+        setHealth({ state: "blocked", mismatches: [], lastVerifiedAt: null, message: MSG_BLOCKED });
+        return;
+      }
+      if (!changed.length && !wrong.length) {
+        baseline.current = { fp, at: Date.now() };
+        markVerified();
+        return;
+      }
+      const res = await reconcile({
+        rows: local,
+        remote: fp,
+        force: changed,
+        refetch: (t) => fetchSpec(sb, specFor(t), sinceRef.current),
+        remeasure: async () => (await fetchFingerprint(sb, sinceRef.current)).fp,
+      });
+      // the user edited while we were checking: their change is newer than what we fetched, so do not overwrite it.
+      // (noteWrite already scheduled the next check.)
+      if (lastWriteRef.current != null && lastWriteRef.current > startedAt) return;
+      const fresh = Object.fromEntries(res.refetched.map((t) => [t, res.rows[t]]));
+      if (res.refetched.length) setDataRaw((d) => mergeRows(d, fresh));
+      baseline.current = { fp: res.remote ?? fp, at: Date.now() };
+      if (res.mismatches.length) setHealth({ state: "degraded", mismatches: res.mismatches, lastVerifiedAt: null, message: MSG_DEGRADED });
+      else markVerified();
+      // say so only when the change came from someone else (an own write since the last sync explains the difference)
+      const ownWrite = lastWriteRef.current != null && lastWriteRef.current > prev.at;
+      if (changed.length && !ownWrite) setExternalUpdates((n) => n + 1);
+    } catch (e) {
+      console.warn("[data-health] background check failed", e);
+    } finally {
+      revalidating.current = false;
+    }
+  }, [sb, markVerified]);
+  revalidateRef.current = revalidate;
+
+  /** after a multi-step write fails part way, put the affected tables back to what the database really holds */
+  const resync = useCallback(
+    async (tables: string[]) => {
+      const rows: Record<string, unknown[]> = {};
+      for (const t of tables) {
+        try {
+          rows[t] = await fetchSpec(sb, specFor(t), sinceRef.current);
+        } catch {
+          /* the next background check will reconcile it */
+        }
+      }
+      if (Object.keys(rows).length) setDataRaw((d) => mergeRows(d, rows));
+      noteWrite();
+    },
+    [sb, noteWrite],
+  );
 
   // stale-while-revalidate: paint from the local cache instantly, then refresh from Supabase
   useEffect(() => {
@@ -379,19 +670,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     loadedOnce.current = true;
     const cached = readCache();
     if (cached) {
-      setData({ ...empty, ...cached.data, settings: { ...DEFAULT_SETTINGS, ...cached.data.settings } });
+      setDataRaw({ ...empty, ...cached.data, settings: { ...DEFAULT_SETTINGS, ...cached.data.settings } });
       setUserEmail(cached.userEmail);
       setReady(true);
     }
     void reload();
   }, [reload]);
 
-  // persist the latest full dataset (debounced) once it has come from the server at least once
+  // check again when the tab comes back, and every 3 minutes while it is visible
+  useEffect(() => {
+    const due = (staleMs: number) => shouldRevalidate(lastCheckRef.current, lastWriteRef.current, Date.now(), document.hidden, staleMs);
+    const onVisible = () => {
+      if (due(FOCUS_STALE_MS)) void revalidateRef.current();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const tick = window.setInterval(() => {
+      if (due(PERIODIC_STALE_MS)) void revalidateRef.current();
+    }, 30_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.clearInterval(tick);
+      window.clearTimeout(writeTimer.current);
+    };
+  }, []);
+
+  // persist the latest full dataset (debounced), but only data that has been verified: never cache a partial load
   useEffect(() => {
     if (!serverLoaded.current) return;
+    if (health.state !== "ok" && health.state !== "repaired") return;
     const t = window.setTimeout(() => writeCache({ savedAt: new Date().toISOString(), userEmail, data }), 1200);
     return () => window.clearTimeout(t);
-  }, [data, userEmail]);
+  }, [data, userEmail, health.state]);
 
   const loadPortalPrices = useCallback(() => {
     if (portalLoading.current) return;
@@ -503,13 +814,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- mutations ----
+  // Rules for every action below (Troy: the app must never show an unsaved change as saved):
+  //  1. the local copy changes only AFTER the database confirmed the write, unless the action is optimistic (deals),
+  //     in which case a failure rolls the change back;
+  //  2. `error` is always checked, and updates / deletes / upserts must also report the rows they touched
+  //     (row level security can turn a write into a silent no-op);
+  //  3. a multi-step write that fails part way is compensated or the affected tables are refetched;
+  //  4. ids for uuid tables are generated here (the column accepts them); serial ids (cost_specials) are read back from the insert.
   const updateItem = useCallback(
     async (id: string, patch: Partial<MenuItem>) => {
-      const { error } = await sb.from("cost_menu_items").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_menu_items", "id", id, patch);
       setData((d) => ({ ...d, items: d.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const insertItem = useCallback(
@@ -521,36 +838,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const newLines: RecipeLine[] = lines.map((l) => ({ ...l, id: newId(), parent_type: "item", parent_id: id }));
       if (newLines.length) {
         const { error: e2 } = await sb.from("cost_recipe_lines").insert(newLines);
-        if (e2) throw new Error(e2.message);
+        if (e2) {
+          // don't leave a dish with no recipe behind
+          const { error: e3 } = await sb.from("cost_menu_items").delete().eq("id", id);
+          if (e3) await resync(["cost_menu_items"]);
+          throw new Error(e2.message);
+        }
       }
       setData((d) => ({ ...d, items: [...d.items, row], lines: [...d.lines, ...newLines] }));
       return id;
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const deleteItem = useCallback(
     async (id: string) => {
       const { error: e1 } = await sb.from("cost_recipe_lines").delete().eq("parent_type", "item").eq("parent_id", id);
       if (e1) throw new Error(e1.message);
-      const { error } = await sb.from("cost_menu_items").delete().eq("id", id);
-      if (error) throw new Error(error.message);
+      try {
+        await deleteOne(sb, "cost_menu_items", "id", id);
+      } catch (e) {
+        await resync(["cost_recipe_lines"]); // the recipe lines are already gone from the database: show that
+        throw e;
+      }
       setData((d) => ({
         ...d,
         items: d.items.filter((i) => i.id !== id),
         lines: d.lines.filter((l) => !(l.parent_type === "item" && l.parent_id === id)),
       }));
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const updatePrep = useCallback(
     async (id: string, patch: Partial<Prep>) => {
-      const { error } = await sb.from("cost_preps").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_preps", "id", id, patch);
       setData((d) => ({ ...d, preps: d.preps.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const insertPrep = useCallback(
@@ -562,22 +887,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setData((d) => ({ ...d, preps: [...d.preps, row] }));
       return id;
     },
-    [sb],
+    [sb, setData],
   );
 
   const deletePrep = useCallback(
     async (id: string) => {
       const { error: e1 } = await sb.from("cost_recipe_lines").delete().eq("parent_type", "prep").eq("parent_id", id);
       if (e1) throw new Error(e1.message);
-      const { error } = await sb.from("cost_preps").delete().eq("id", id);
-      if (error) throw new Error(error.message);
+      try {
+        await deleteOne(sb, "cost_preps", "id", id);
+      } catch (e) {
+        await resync(["cost_recipe_lines"]);
+        throw e;
+      }
       setData((d) => ({
         ...d,
         preps: d.preps.filter((p) => p.id !== id),
         lines: d.lines.filter((l) => !(l.parent_type === "prep" && l.parent_id === id)),
       }));
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const saveLines = useCallback(
@@ -587,20 +916,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const nextIds = new Set(next.map((l) => l.id));
       const removed = existing.filter((l) => !nextIds.has(l.id)).map((l) => l.id);
       const normalised = next.map((l, i) => ({ ...l, parent_type: parentType, parent_id: parentId, sort: i + 1, qty: Number(l.qty) || 0 }));
-      if (removed.length) {
-        const { error } = await sb.from("cost_recipe_lines").delete().in("id", removed);
-        if (error) throw new Error(error.message);
-      }
-      if (normalised.length) {
-        const { error } = await sb.from("cost_recipe_lines").upsert(normalised, { onConflict: "id" });
-        if (error) throw new Error(error.message);
+      try {
+        if (removed.length) {
+          const { error } = await sb.from("cost_recipe_lines").delete().in("id", removed);
+          if (error) throw new Error(error.message);
+        }
+        if (normalised.length) await upsertAll(sb, "cost_recipe_lines", normalised, "id", "id");
+      } catch (e) {
+        await resync(["cost_recipe_lines"]); // part of the save may have landed: show the database's version
+        throw e;
       }
       setData((d) => ({
         ...d,
         lines: [...d.lines.filter((l) => !(l.parent_type === parentType && l.parent_id === parentId)), ...normalised],
       }));
     },
-    [sb, index.linesByParent],
+    [sb, setData, resync, index.linesByParent],
   );
 
   const updateIngredient = useCallback(
@@ -608,6 +939,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       // The DB trigger maintains previous_price / last_price_update / cost_price_log when pack_price changes.
       const { data: rows, error } = await sb.from("cost_ingredients").update(patch).eq("id", id).select("*");
       if (error) throw new Error(error.message);
+      assertSaved(rows);
       const fresh = (rows?.[0] as Ingredient | undefined) ?? null;
       setData((d) => ({
         ...d,
@@ -625,7 +957,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [sb],
+    [sb, setData],
   );
 
   const insertIngredient = useCallback(
@@ -634,17 +966,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const row = { ...ing, id };
       const { data: rows, error } = await sb.from("cost_ingredients").insert(row).select("*");
       if (error) throw new Error(error.message);
-      const fresh = (rows?.[0] as Ingredient | undefined) ?? ({ ...row, updated_at: new Date().toISOString() } as Ingredient);
+      const fresh = rows?.[0] as Ingredient | undefined;
+      if (!fresh) throw new Error(NOT_SAVED);
       setData((d) => ({ ...d, ingredients: [...d.ingredients, fresh].sort((a, b) => a.name.localeCompare(b.name)) }));
       return id;
     },
-    [sb],
+    [sb, setData],
   );
 
   const updateSetting = useCallback(
     async (key: keyof CostingSettings, value: number) => {
-      const { error } = await sb.from("cost_settings").upsert({ key, value }, { onConflict: "key" });
-      if (error) throw new Error(error.message);
+      await upsertAll(sb, "cost_settings", [{ key, value }], "key", "key");
       setData((d) => {
         const rawSettings = d.rawSettings.some((s) => s.key === key)
           ? d.rawSettings.map((s) => (s.key === key ? { ...s, value } : s))
@@ -652,13 +984,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...d, rawSettings, settings: settingsFromRows(rawSettings) };
       });
     },
-    [sb],
+    [sb, setData],
   );
 
   const upsertTarget = useCallback(
     async (venueId: number, category: string, targetGp: number) => {
-      const { error } = await sb.from("cost_targets").upsert({ venue_id: venueId, category, target_gp: targetGp }, { onConflict: "venue_id,category" });
-      if (error) throw new Error(error.message);
+      await upsertAll(sb, "cost_targets", [{ venue_id: venueId, category, target_gp: targetGp }], "venue_id,category", "category");
       setData((d) => {
         const exists = d.targets.some((t) => t.venue_id === venueId && t.category === category);
         const targets = exists
@@ -667,35 +998,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return { ...d, targets };
       });
     },
-    [sb],
+    [sb, setData],
   );
 
   const insertSpecial = useCallback(
     async (s: Omit<Special, "id">) => {
+      // cost_specials.id is a serial: the database assigns it, so the row is read back from the insert
       const { data: rows, error } = await sb.from("cost_specials").insert(s).select("*");
       if (error) throw new Error(error.message);
       const row = rows?.[0] as Special | undefined;
-      if (row) setData((d) => ({ ...d, specials: [...d.specials, row] }));
+      if (!row) throw new Error(NOT_SAVED);
+      setData((d) => ({ ...d, specials: [...d.specials, row] }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const updateSpecial = useCallback(
     async (id: number, patch: Partial<Special>) => {
-      const { error } = await sb.from("cost_specials").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_specials", "id", id, patch);
       setData((d) => ({ ...d, specials: d.specials.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const deleteSpecial = useCallback(
     async (id: number) => {
-      const { error } = await sb.from("cost_specials").delete().eq("id", id);
-      if (error) throw new Error(error.message);
+      await deleteOne(sb, "cost_specials", "id", id);
       setData((d) => ({ ...d, specials: d.specials.filter((s) => s.id !== id) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const addAllowedUser = useCallback(
@@ -705,16 +1036,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (error) throw new Error(error.message);
       setData((d) => ({ ...d, allowedUsers: [...d.allowedUsers, { email: clean }].sort((a, b) => a.email.localeCompare(b.email)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const removeAllowedUser = useCallback(
     async (email: string) => {
-      const { error } = await sb.from("cost_allowed_users").delete().eq("email", email);
-      if (error) throw new Error(error.message);
+      await deleteOne(sb, "cost_allowed_users", "email", email);
       setData((d) => ({ ...d, allowedUsers: d.allowedUsers.filter((u) => u.email !== email) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const insertServe = useCallback(
@@ -726,44 +1056,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setData((d) => ({ ...d, gelatoServes: [...d.gelatoServes, row] }));
       return id;
     },
-    [sb],
+    [sb, setData],
   );
 
   const updateServe = useCallback(
     async (id: string, patch: Partial<GelatoServe>) => {
-      const { error } = await sb.from("cost_gelato_serves").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_gelato_serves", "id", id, patch);
       setData((d) => ({ ...d, gelatoServes: d.gelatoServes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const deleteServe = useCallback(
     async (id: string) => {
-      const { error } = await sb.from("cost_gelato_serves").delete().eq("id", id);
-      if (error) throw new Error(error.message);
+      await deleteOne(sb, "cost_gelato_serves", "id", id);
       setData((d) => ({ ...d, gelatoServes: d.gelatoServes.filter((s) => s.id !== id), gelatoServeLines: d.gelatoServeLines.filter((l) => l.serve_id !== id) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const saveServeLines = useCallback(
     async (serveId: string, next: GelatoServeLine[]) => {
-      const existing = data.gelatoServeLines.filter((l) => l.serve_id === serveId);
+      const existing = dataRef.current.gelatoServeLines.filter((l) => l.serve_id === serveId);
       const nextIds = new Set(next.map((l) => l.id));
       const removed = existing.filter((l) => !nextIds.has(l.id)).map((l) => l.id);
       const normalised = next.map((l, i) => ({ ...l, serve_id: serveId, sort: i + 1, qty: Number(l.qty) || 0 }));
-      if (removed.length) {
-        const { error } = await sb.from("cost_gelato_serve_lines").delete().in("id", removed);
-        if (error) throw new Error(error.message);
-      }
-      if (normalised.length) {
-        const { error } = await sb.from("cost_gelato_serve_lines").upsert(normalised, { onConflict: "id" });
-        if (error) throw new Error(error.message);
+      try {
+        if (removed.length) {
+          const { error } = await sb.from("cost_gelato_serve_lines").delete().in("id", removed);
+          if (error) throw new Error(error.message);
+        }
+        if (normalised.length) await upsertAll(sb, "cost_gelato_serve_lines", normalised, "id", "id");
+      } catch (e) {
+        await resync(["cost_gelato_serve_lines"]);
+        throw e;
       }
       setData((d) => ({ ...d, gelatoServeLines: [...d.gelatoServeLines.filter((l) => l.serve_id !== serveId), ...normalised] }));
     },
-    [sb, data.gelatoServeLines],
+    [sb, setData, resync],
   );
 
   const insertBeer = useCallback(
@@ -775,50 +1105,51 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const priceRows: BeerPrice[] = prices.map((p) => ({ id: newId(), beer_id: id, serve_id: p.serve_id, sell_price_inc: p.sell_price_inc, hh_price_inc: null }));
       if (priceRows.length) {
         const { error: e2 } = await sb.from("cost_beer_prices").insert(priceRows);
-        if (e2) throw new Error(e2.message);
+        if (e2) {
+          // don't leave a beer with no prices behind (its price rows cascade)
+          const { error: e3 } = await sb.from("cost_beers").delete().eq("id", id);
+          if (e3) await resync(["cost_beers", "cost_beer_prices"]);
+          throw new Error(e2.message);
+        }
       }
       setData((d) => ({ ...d, beers: [...d.beers, row], beerPrices: [...d.beerPrices, ...priceRows] }));
       return id;
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const updateBeer = useCallback(
     async (id: string, patch: Partial<Beer>) => {
-      const { error } = await sb.from("cost_beers").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_beers", "id", id, patch);
       setData((d) => ({ ...d, beers: d.beers.map((b) => (b.id === id ? { ...b, ...patch } : b)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const deleteBeer = useCallback(
     async (id: string) => {
-      const { error } = await sb.from("cost_beers").delete().eq("id", id);
-      if (error) throw new Error(error.message);
+      await deleteOne(sb, "cost_beers", "id", id);
       setData((d) => ({ ...d, beers: d.beers.filter((b) => b.id !== id), beerPrices: d.beerPrices.filter((p) => p.beer_id !== id) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const setBeerPrice = useCallback(
     async (beerId: string, serveId: string, patch: { sell_price_inc?: number | null; hh_price_inc?: number | null }) => {
-      const cur = data.beerPrices.find((p) => p.beer_id === beerId && p.serve_id === serveId);
+      const cur = dataRef.current.beerPrices.find((p) => p.beer_id === beerId && p.serve_id === serveId);
       const row: BeerPrice = { id: cur?.id ?? newId(), beer_id: beerId, serve_id: serveId, sell_price_inc: cur?.sell_price_inc ?? null, hh_price_inc: cur?.hh_price_inc ?? null, legacy_item_id: cur?.legacy_item_id ?? null, ...patch };
-      const { error } = await sb.from("cost_beer_prices").upsert(row, { onConflict: "beer_id,serve_id" });
-      if (error) throw new Error(error.message);
+      await upsertAll(sb, "cost_beer_prices", [row], "beer_id,serve_id", "id");
       setData((d) => ({ ...d, beerPrices: [...d.beerPrices.filter((p) => !(p.beer_id === beerId && p.serve_id === serveId)), row] }));
     },
-    [sb, data.beerPrices],
+    [sb, setData],
   );
 
   const updateBeerServe = useCallback(
     async (id: string, patch: Partial<BeerServe>) => {
-      const { error } = await sb.from("cost_beer_serves").update(patch).eq("id", id);
-      if (error) throw new Error(error.message);
+      await updateOne(sb, "cost_beer_serves", "id", id, patch);
       setData((d) => ({ ...d, beerServes: d.beerServes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   // ---- offers (specials & combos) ----
@@ -838,66 +1169,75 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (newLines.length) {
         const { error: e2 } = await sb.from("cost_offer_lines").insert(newLines);
         if (e2) {
-          await sb.from("cost_offers").delete().eq("id", id); // don't leave an offer with no lines behind
+          const { error: e3 } = await sb.from("cost_offers").delete().eq("id", id); // don't leave an offer with no lines behind
+          if (e3) await resync(["cost_offers", "cost_offer_lines"]);
           throw new Error(e2.message);
         }
       }
       setData((d) => ({ ...d, offers: [...d.offers, row], offerLines: [...d.offerLines, ...newLines] }));
       return id;
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const updateOffer = useCallback(
     async (id: string, patch: Partial<Offer>) => {
-      let { error } = await sb.from("cost_offers").update(patch).eq("id", id);
+      let { data: rows, error } = await sb.from("cost_offers").update(patch).eq("id", id).select("id");
       if (error && "assumptions" in patch && isMissingAssumptionsColumn(error.message)) {
         // keep the rest of the save, hold the assumptions in local state, and say so
         const { assumptions: _a, ...bare } = patch;
         setAssumptionsUnsaved(true);
-        ({ error } = await sb.from("cost_offers").update(bare).eq("id", id));
+        ({ data: rows, error } = await sb.from("cost_offers").update(bare).eq("id", id).select("id"));
       }
       if (error) throw new Error(error.message);
+      assertSaved(rows);
       setData((d) => ({ ...d, offers: d.offers.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const deleteOffer = useCallback(
     async (id: string) => {
-      const { error } = await sb.from("cost_offers").delete().eq("id", id); // lines go with it (on delete cascade)
-      if (error) throw new Error(error.message);
+      await deleteOne(sb, "cost_offers", "id", id); // lines go with it (on delete cascade)
       setData((d) => ({ ...d, offers: d.offers.filter((o) => o.id !== id), offerLines: d.offerLines.filter((l) => l.offer_id !== id) }));
     },
-    [sb],
+    [sb, setData],
   );
 
   const setOfferLines = useCallback(
     async (offerId: string, lines: Omit<OfferLine, "id" | "offer_id">[]) => {
       const next: OfferLine[] = lines.map((l, i) => ({ ...l, id: newId(), offer_id: offerId, sort: i + 1, qty: Number(l.qty) || 1 }));
-      const { error } = await sb.from("cost_offer_lines").delete().eq("offer_id", offerId);
-      if (error) throw new Error(error.message);
+      const oldIds = dataRef.current.offerLines.filter((l) => l.offer_id === offerId).map((l) => l.id);
+      // add the new lines first, then remove the old ones: a failure part way never leaves the offer without lines
       if (next.length) {
-        const { error: e2 } = await sb.from("cost_offer_lines").insert(next);
-        if (e2) throw new Error(e2.message);
+        const { error } = await sb.from("cost_offer_lines").insert(next);
+        if (error) throw new Error(error.message);
+      }
+      if (oldIds.length) {
+        const { error } = await sb.from("cost_offer_lines").delete().in("id", oldIds);
+        if (error) {
+          if (next.length) await sb.from("cost_offer_lines").delete().in("id", next.map((l) => l.id)); // undo, so lines are not doubled
+          await resync(["cost_offer_lines"]);
+          throw new Error(error.message);
+        }
       }
       setData((d) => ({ ...d, offerLines: [...d.offerLines.filter((l) => l.offer_id !== offerId), ...next] }));
     },
-    [sb],
+    [sb, setData, resync],
   );
 
   const duplicateOffer = useCallback(
     async (id: string) => {
-      const src = data.offers.find((o) => o.id === id);
+      const src = dataRef.current.offers.find((o) => o.id === id);
       if (!src) throw new Error("Offer not found");
       const { id: _id, created_at: _c, updated_at: _u, ...rest } = src;
-      const lines = data.offerLines
+      const lines = dataRef.current.offerLines
         .filter((l) => l.offer_id === id)
         .sort((a, b) => a.sort - b.sort)
         .map(({ id: _l, offer_id: _o, ...l }) => l);
       return createOffer({ ...rest, name: `${src.name} (Copy)`, status: "draft" }, lines);
     },
-    [data.offers, data.offerLines, createOffer],
+    [createOffer],
   );
 
   const setOfferStatus = useCallback((id: string, status: Offer["status"]) => updateOffer(id, { status }), [updateOffer]);
@@ -914,39 +1254,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return row.id;
     },
-    [sb],
+    [sb, setData],
   );
 
   const updateDeal = useCallback(
     async (id: string, patch: Partial<IngredientDeal>) => {
-      let before: IngredientDeal | undefined;
-      setData((d) => {
-        before = d.deals.find((x) => x.id === id);
-        return { ...d, deals: d.deals.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
-      });
-      const { error } = await sb.from("cost_ingredient_deals").update(patch).eq("id", id);
-      if (error) {
-        if (before) setData((d) => ({ ...d, deals: d.deals.map((x) => (x.id === id ? (before as IngredientDeal) : x)) }));
-        throw new Error(error.message);
+      const before = dataRef.current.deals.find((x) => x.id === id); // read now, not inside a state updater that runs later
+      setData((d) => ({ ...d, deals: d.deals.map((x) => (x.id === id ? { ...x, ...patch } : x)) }));
+      try {
+        await updateOne(sb, "cost_ingredient_deals", "id", id, patch);
+      } catch (e) {
+        if (before) setData((d) => ({ ...d, deals: d.deals.map((x) => (x.id === id ? before : x)) }));
+        throw e;
       }
     },
-    [sb],
+    [sb, setData],
   );
 
   const deleteDeal = useCallback(
     async (id: string) => {
-      let before: IngredientDeal | undefined;
-      setData((d) => {
-        before = d.deals.find((x) => x.id === id);
-        return { ...d, deals: d.deals.filter((x) => x.id !== id) };
-      });
-      const { error } = await sb.from("cost_ingredient_deals").delete().eq("id", id);
-      if (error) {
-        if (before) setData((d) => ({ ...d, deals: [...d.deals, before as IngredientDeal] }));
-        throw new Error(error.message);
+      const before = dataRef.current.deals.find((x) => x.id === id);
+      setData((d) => ({ ...d, deals: d.deals.filter((x) => x.id !== id) }));
+      try {
+        await deleteOne(sb, "cost_ingredient_deals", "id", id);
+      } catch (e) {
+        if (before) setData((d) => ({ ...d, deals: [...d.deals, before] }));
+        throw e;
       }
     },
-    [sb],
+    [sb, setData],
   );
 
   const value: StoreValue = {
@@ -962,6 +1298,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     userEmail,
     accessDenied,
     reload,
+    health,
+    recheck: reload,
+    externalUpdates,
     signOut,
     items,
     storedItems: data.items,

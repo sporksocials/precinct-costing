@@ -427,6 +427,41 @@ drop policy if exists cost_allowed_all on public.cost_ingredient_deals;
 create policy cost_allowed_all on public.cost_ingredient_deals for all to authenticated
   using (public.cost_is_allowed()) with check (public.cost_is_allowed());
 
+-- Data fingerprint (mirrors supabase/migrations/20260926180000_data_fingerprint.sql)
+create or replace function public.cost_data_fingerprint(p_since timestamptz default (now() - interval '90 days'))
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'generated_at', now(),
+    'cost_venues', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_venues t),
+    'cost_settings', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.key), ''))) from public.cost_settings t),
+    'cost_targets', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.venue_id, t.category), ''))) from public.cost_targets t),
+    'cost_suppliers', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_suppliers t),
+    'cost_ingredients', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_ingredients t),
+    'cost_preps', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_preps t),
+    'cost_menu_items', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_menu_items t),
+    'cost_recipe_lines', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_recipe_lines t),
+    'cost_price_log', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_price_log t where t.changed_at >= p_since),
+    'cost_specials', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_specials t),
+    'cost_allowed_users', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.email), ''))) from public.cost_allowed_users t),
+    'cost_gelato_serves', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_gelato_serves t),
+    'cost_gelato_serve_lines', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_gelato_serve_lines t),
+    'cost_beer_serves', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_beer_serves t),
+    'cost_beers', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_beers t),
+    'cost_beer_prices', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_beer_prices t),
+    'cost_offers', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_offers t),
+    'cost_offer_lines', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_offer_lines t),
+    'cost_ingredient_deals', (select jsonb_build_object('count', count(*), 'hash', md5(coalesce(string_agg(t::text, E'\n' order by t.id), ''))) from public.cost_ingredient_deals t)
+  );
+$$;
+
+revoke all on function public.cost_data_fingerprint(timestamptz) from public, anon;
+grant execute on function public.cost_data_fingerprint(timestamptz) to authenticated;
+
 -- Allergens (migration 20260925180000): tick on ingredients; preps and dishes inherit through recipe lines (see lib/allergens.ts).
 -- Ingredients: confirmed allergen ids + diet flags (meat, fish, dairy, egg, honey), and whether a person has reviewed them.
 -- Preps and menu items: chef overrides (add / remove) and a per-allergen "made without" note, e.g. {"milk": "no aioli"}.

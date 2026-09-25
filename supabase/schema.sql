@@ -59,7 +59,7 @@ create table if not exists public.cost_ingredients (
 
 create table if not exists public.cost_preps (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
+  name text not null,
   venue_id int references public.cost_venues (id),
   prep_type text,
   yield_qty numeric not null default 1,
@@ -440,3 +440,11 @@ alter table public.cost_preps add column if not exists allergen_notes jsonb not 
 alter table public.cost_menu_items add column if not exists allergen_add text[] not null default '{}';
 alter table public.cost_menu_items add column if not exists allergen_remove text[] not null default '{}';
 alter table public.cost_menu_items add column if not exists allergen_notes jsonb not null default '{}'::jsonb;
+
+-- A prep name is unique per venue (the same prep can exist at two venues). Mirrors migration preps_unique_name_venue.
+alter table public.cost_preps drop constraint if exists cost_preps_name_key;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'cost_preps_name_venue_key') then
+    alter table public.cost_preps add constraint cost_preps_name_venue_key unique (name, venue_id);
+  end if;
+end $$;

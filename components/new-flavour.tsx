@@ -21,7 +21,7 @@ export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose
     setBusy(true);
     setError(null);
     try {
-      const id = await store.insertPrep({ name: `${clean} gelato mix`, venue_id: venueId, prep_type: FLAVOUR_PREP_TYPE, yield_qty: 1, yield_unit: "kg", active: true, source: "app", notes: null });
+      const id = await store.insertPrep({ name: `${clean} Gelato Mix`, venue_id: venueId, prep_type: FLAVOUR_PREP_TYPE, yield_qty: 1, yield_unit: "kg", active: true, source: "app", notes: null });
       onClose();
       router.push(`/preps/${id}?new=1`);
     } catch (e) {

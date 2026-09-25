@@ -118,7 +118,7 @@ const RULES: Rule[] = [
     skip: GLUTEN_FREE,
     strip: GLUTEN_STRIP,
     terms: [
-      "flour", "bread", "breadcrumb", "crumb", "pasta", "spaghetti", "penne", "linguine", "fettuccine", "tagliatelle", "lasagne", "lasagna", "gnocchi", "ravioli",
+      "flour", "bread", "flatbread", "breadcrumb", "crumb", "pasta", "spaghetti", "penne", "linguine", "fettuccine", "tagliatelle", "lasagne", "lasagna", "gnocchi", "ravioli",
       "bun", "brioche", "sourdough", "ciabatta", "focaccia", "baguette", "pita", "pizza", "tortilla", "wrap", "wheat", "panko", "semolina", "couscous", "barley", "rye", "oat", "oats", "spelt",
       "malt", "beer", "ale", "lager", "stout", "cracker", "biscuit", "cookie", "wafer", "cone", "pastry", "filo", "phyllo", "puff", "wonton", "dumpling", "batter", "tempura", "crouton",
       "udon", "ramen", "noodle", "soy sauce", "teriyaki", "hoisin", "worcestershire", "bechamel", "cake", "cheesecake", "tart", "scone", "muffin", "donut", "doughnut", "waffle", "pancake", "crepe", "farro", "bulgur", "seitan",
@@ -150,7 +150,7 @@ const RULES: Rule[] = [
   { allergens: ["peanuts"], terms: ["peanut", "satay", "groundnut", "monkey nut"] },
   {
     allergens: ["tree_nuts"],
-    terms: ["almond", "cashew", "walnut", "pistachio", "hazelnut", "macadamia", "pecan", "brazil nut", "pine nut", "pinenut", "praline", "nutella", "frangipane", "marzipan", "amaretto", "orgeat", "mixed nuts", "nut butter", "nut meal", "dukkah", "pesto", "gianduja", "nougat"],
+    terms: ["almond", "cashew", "walnut", "pistachio", "pistacchio", "hazelnut", "macadamia", "pecan", "brazil nut", "pine nut", "pinenut", "praline", "nutella", "frangipane", "marzipan", "amaretto", "orgeat", "mixed nuts", "nut butter", "nut meal", "dukkah", "pesto", "gianduja", "nougat"],
   },
   { allergens: ["sesame"], terms: ["sesame", "tahini", "gomasio", "hummus", "halva", "halvah", "zaatar", "dukkah", "hoisin"] },
   { allergens: ["soy"], terms: ["soy", "soya", "soybean", "tofu", "tempeh", "edamame", "miso", "tamari", "lecithin", "teriyaki", "hoisin", "kecap manis"] },

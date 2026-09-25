@@ -18,6 +18,11 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
 const ids = (name: string, desc?: string) => suggestAllergens(name, desc).map((s) => s.id).sort();
 
 describe("suggestAllergens", () => {
+  it("still flags renamed products (Flatbread, Italian pistachio spelling)", () => {
+    expect(ids("Flatbread")).toContain("gluten");
+    expect(ids("Fanta Frutta Pistacchio")).toContain("tree_nuts");
+  });
+
   it("matches the AU foodservice vocabulary", () => {
     expect(ids("Mozzarella Shredded")).toEqual(["milk"]);
     expect(ids("Parmesan Grated")).toEqual(["milk"]);

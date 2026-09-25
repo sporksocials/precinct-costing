@@ -43,7 +43,7 @@ Food 70, Cocktail 75, Mocktail 80, Gelato 72 (take-home ½L/1L 60, 4.5L wholesal
 ## Backlog (Oct 2026)
 1. (Done) Settings target GP grid. Also done: price picker, price history, Review and Apply, Specials and combos.
 2. Supplier price matching: apply the 224 matches Troy approves in ~/SPORK (sheet), then refresh the Price check and Naming sheets.
-3. Naming clean-up: 482 ingredient renames awaiting sign-off; needs `cost_preps` unique(name) → unique(name, venue_id).
+3. Naming clean-up: standard applied 26 Sep 2026 (high-confidence renames: 269 ingredients, 43 preps, 83 menu items, 1 supplier; backups in `backup.*_20260925c`; `cost_preps` is now unique(name, venue_id)). Remaining medium/low rows and duplicate groups are in the client sheet 'Precinct Costing - Names to Confirm.xlsx' awaiting the customer's answers. Nothing merged or deleted yet.
 4. Differing (64) and missing (40) prices from the client price check sheet (pepper and bacon typos first).
 5. After Troy confirms: back up, then delete the 296 old gelato and 116 old tap beer menu items.
 6. (Done) Matt, Mon and Brendan added under Who Can Sign In. Add more there as needed.

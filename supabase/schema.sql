@@ -211,7 +211,7 @@ begin
     insert into public.cost_price_log (ingredient_id, old_price, new_price, source, entered_by)
     values (new.id, old.pack_price, new.pack_price, new.source, auth.jwt() ->> 'email');
     new.previous_price := old.pack_price;
-    new.last_price_update := current_date;
+    new.last_price_update := (now() at time zone 'Australia/Brisbane')::date;
   end if;
   new.updated_at := now();
   return new;
@@ -554,3 +554,10 @@ create trigger cost_gelato_serves_audit after update on public.cost_gelato_serve
 drop trigger if exists cost_menu_items_audit on public.cost_menu_items;
 create trigger cost_menu_items_audit after update on public.cost_menu_items
   for each row execute function public.cost_audit('target_override', 'active');
+
+-- Ingredient change history (mirrors supabase/migrations/20260927090000_ingredient_audit.sql)
+drop trigger if exists cost_ingredients_audit on public.cost_ingredients;
+create trigger cost_ingredients_audit after update on public.cost_ingredients
+  for each row execute function public.cost_audit(
+    'pack_size', 'pack_unit', 'yield_pct', 'rebate', 'price_inc_gst', 'gst_free', 'active', 'name', 'supplier_id', 'supplier_code'
+  );

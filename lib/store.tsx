@@ -41,7 +41,7 @@ import {
 } from "./types";
 import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
-import { groupDeals } from "./deals";
+import { brisbaneToday, groupDeals } from "./deals";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
 import {
   FetchError,
@@ -251,6 +251,9 @@ export interface StoreValue extends StoreData {
   deletePrep: (id: string) => Promise<void>;
   saveLines: (parentType: "item" | "prep", parentId: string, lines: RecipeLine[]) => Promise<void>;
   updateIngredient: (id: string, patch: Partial<Ingredient>) => Promise<void>;
+  /** Mark the current pack price as checked today (Brisbane) without changing it. Returns what is needed to undo. */
+  confirmIngredientPrice: (id: string) => Promise<ConfirmReceipt>;
+  undoConfirmIngredientPrice: (id: string, receipt: ConfirmReceipt) => Promise<void>;
   insertIngredient: (ing: Omit<Ingredient, "id" | "updated_at">) => Promise<string>;
   updateSetting: (key: keyof CostingSettings, value: number) => Promise<void>;
   upsertTarget: (venueId: number, category: string, targetGp: number) => Promise<void>;
@@ -463,6 +466,12 @@ export async function loadSnapshot(
     unverified: res.unverified,
     blocked: isBlocked(res.remote) && Object.values(res.rows).every((r) => r.length === 0),
   };
+}
+
+/** What confirming a price changed, so it can be put back. */
+export interface ConfirmReceipt {
+  previousDate: string | null;
+  logId: number | null;
 }
 
 // ---------------------------------------------------------------- write safety
@@ -933,6 +942,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData, resync, index.linesByParent],
   );
 
+  const confirmIngredientPrice = useCallback(
+    async (id: string): Promise<ConfirmReceipt> => {
+      const ing = data.ingredients.find((i) => i.id === id);
+      if (!ing) throw new Error(NOT_SAVED);
+      const previousDate = ing.last_price_update;
+      // only last_price_update is written: the price, and every cost built on it, stays exactly as it is
+      const { data: rows, error } = await sb.from("cost_ingredients").update({ last_price_update: brisbaneToday() }).eq("id", id).select("*");
+      if (error) throw new Error(error.message);
+      assertSaved(rows);
+      const fresh = rows?.[0] as Ingredient | undefined;
+      setData((d) => ({ ...d, ingredients: d.ingredients.map((i) => (i.id === id ? (fresh ?? { ...i, last_price_update: brisbaneToday() }) : i)) }));
+      // history entry (same price on both sides); the confirmation itself is already saved if this fails
+      let logId: number | null = null;
+      const { data: logRows } = await sb
+        .from("cost_price_log")
+        .insert({ ingredient_id: id, changed_at: new Date().toISOString(), old_price: ing.pack_price, new_price: ing.pack_price, source: "Price confirmed", entered_by: userEmail })
+        .select("*");
+      const log = logRows?.[0] as PriceLog | undefined;
+      if (log) {
+        logId = log.id;
+        setData((d) => ({ ...d, priceLogs: d.priceLogs.some((l) => l.id === log.id) ? d.priceLogs : [...d.priceLogs, log] }));
+      }
+      return { previousDate, logId };
+    },
+    [sb, setData, data.ingredients, userEmail],
+  );
+
+  const undoConfirmIngredientPrice = useCallback(
+    async (id: string, receipt: ConfirmReceipt) => {
+      const { data: rows, error } = await sb.from("cost_ingredients").update({ last_price_update: receipt.previousDate }).eq("id", id).select("*");
+      if (error) throw new Error(error.message);
+      assertSaved(rows);
+      const fresh = rows?.[0] as Ingredient | undefined;
+      setData((d) => ({
+        ...d,
+        ingredients: d.ingredients.map((i) => (i.id === id ? (fresh ?? { ...i, last_price_update: receipt.previousDate }) : i)),
+        priceLogs: receipt.logId == null ? d.priceLogs : d.priceLogs.filter((l) => l.id !== receipt.logId),
+      }));
+      // remove only the row the confirmation itself wrote
+      if (receipt.logId != null) await sb.from("cost_price_log").delete().eq("id", receipt.logId);
+    },
+    [sb, setData],
+  );
+
   const updateIngredient = useCallback(
     async (id: string, patch: Partial<Ingredient>) => {
       // The DB trigger maintains previous_price / last_price_update / cost_price_log when pack_price changes.
@@ -1322,6 +1375,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     deletePrep,
     saveLines,
     updateIngredient,
+    confirmIngredientPrice,
+    undoConfirmIngredientPrice,
     insertIngredient,
     updateSetting,
     upsertTarget,

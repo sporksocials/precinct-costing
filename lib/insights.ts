@@ -293,7 +293,7 @@ export function priceIncreases(
   const latest = new Map<string, PriceLog>();
   for (const l of logs) {
     const t = new Date(l.changed_at).getTime();
-    if (Number.isNaN(t) || t < since || l.old_price == null) continue;
+    if (Number.isNaN(t) || t < since || l.old_price == null || Number(l.old_price) === Number(l.new_price)) continue; // same-price rows are confirmations, not moves
     const cur = latest.get(l.ingredient_id);
     if (!cur || new Date(cur.changed_at).getTime() < t) latest.set(l.ingredient_id, l);
   }
@@ -365,14 +365,16 @@ export function ingredientsInUse(lines: RecipeLine[]): Set<string> {
   return s;
 }
 
+/** True when a price was last checked more than `days` ago, or never. */
+export function isStalePrice(lastUpdate: string | null | undefined, days = 90, now: number = Date.now()): boolean {
+  const t = lastUpdate ? new Date(lastUpdate).getTime() : NaN;
+  return Number.isNaN(t) || t < now - days * 86_400_000;
+}
+
 /** In-use ingredients whose price hasn't been confirmed in `days` (or ever). */
 export function staleIngredients(ingredients: Ingredient[], inUse: Set<string>, days = 90): Ingredient[] {
-  const cutoff = Date.now() - days * 86_400_000;
-  return ingredients.filter((i) => {
-    if (!i.active || !inUse.has(i.id)) return false;
-    const t = i.last_price_update ? new Date(i.last_price_update).getTime() : NaN;
-    return Number.isNaN(t) || t < cutoff;
-  });
+  const now = Date.now();
+  return ingredients.filter((i) => i.active && inUse.has(i.id) && isStalePrice(i.last_price_update, days, now));
 }
 
 export interface CatalogueGap {

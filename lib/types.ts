@@ -227,7 +227,7 @@ export const DEFAULT_SETTINGS: CostingSettings = {
   gelato_wastage: 0.05,
 };
 
-export const DEFAULT_TARGET_GP = 0.7;
+export const DEFAULT_TARGET_GP = 0.72;
 
 export type SellPriceKind = "item" | "beer_serve" | "gelato_serve";
 

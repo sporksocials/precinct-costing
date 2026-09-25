@@ -64,8 +64,8 @@ describe("happy hour", () => {
   it("computes GP against the same target and below-cost", () => {
     const ings = [ing("x", { pack_price: 6 })];
     const lines = [line("a", "x", 1)];
-    const ok = cost(item("a", { hh_price_inc: 22 }), ings, lines);
-    expect(ok.hhGpPct!).toBeCloseTo(0.7);
+    const ok = cost(item("a", { hh_price_inc: 24 }), ings, lines);
+    expect(ok.hhGpPct!).toBeCloseTo(0.725, 2);
     expect(ok.hhUnderTarget).toBe(false);
     const low = cost(item("a", { hh_price_inc: 12 }), ings, lines); // ex 10.91, GP 45%
     expect(low.hhUnderTarget).toBe(true);
@@ -100,7 +100,7 @@ describe("gelato target", () => {
   it("serve target wins, else venue category target", () => {
     expect(resolveGelatoTarget({ target_gp: 0.5 }, 4, targets)).toBe(0.5);
     expect(resolveGelatoTarget({ target_gp: null }, 4, targets)).toBe(0.65);
-    expect(resolveGelatoTarget(null, 4, [])).toBe(0.7);
+    expect(resolveGelatoTarget(null, 4, [])).toBe(0.72);
   });
   it("buildGelato pins the resolved target when targets are given", () => {
     const serve = { id: "s", venue_id: 4, name: "Cup", sort: 1, grams: 100, sell_price_inc: 5, on_menu: true, active: true, notes: null, target_gp: null } as GelatoServe;

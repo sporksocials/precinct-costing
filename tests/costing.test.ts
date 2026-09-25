@@ -92,7 +92,7 @@ describe("recipes", () => {
     expect(ic.recipe.nested).toBe(true);
     expect(ic.sellEx).toBeCloseTo(10);
     expect(ic.gpPct).toBeCloseTo(0.985);
-    expect(ic.targetGp).toBe(0.7);
+    expect(ic.targetGp).toBe(0.72);
     expect(ic.underTarget).toBe(false);
   });
 

@@ -7,7 +7,7 @@ import { parsePercentInput } from "@/lib/solver";
 import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
 import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
-import { GUIDE_GP, targetGrid } from "@/lib/targets";
+import { targetGrid } from "@/lib/targets";
 
 export default function SettingsPage() {
   const store = useStore();
@@ -62,7 +62,6 @@ export default function SettingsPage() {
               <div key={cat} className="grid grid-cols-[minmax(0,1fr)_repeat(4,3.5rem)] sm:grid-cols-[minmax(0,1fr)_repeat(4,5rem)] items-start gap-x-1 px-3.5 py-2">
                 <span className="min-w-0 pt-1.5">
                   <span className="block text-[15px] leading-tight">{cat}</span>
-                  <span className="block text-[12px] text-label-3">Guide {pctIn(GUIDE_GP[cat])}%</span>
                 </span>
                 {cells.map((c) => (
                   <span key={c.venueId} className={cx("flex flex-col items-center", c.items === 0 && "opacity-50")}>

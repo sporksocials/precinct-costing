@@ -37,8 +37,8 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
 - `.anim-page` must stay opacity-only (a transform traps fixed children). Tailwind opacity modifiers don't work on CSS-var colours — use the `--*-soft` tokens.
 - Users: owners/managers on phones, head chefs in the kitchen, office/bookkeeper and exec chef on desktop. Tables on desktop, rows on phones.
 
-## Target GP defaults
-Food 70, Cocktail 75, Mocktail 80, Gelato 72 (take-home ½L/1L 60, 4.5L wholesale 50), Tap beer 70 (Chiobu 72; per-beer overrides 68–75), Packaged beer/cider 70, Wine 80, Spirits 70, RTD 70.
+## Target GP
+Every venue and category is 72% (Troy's decision, Sep 2026). Per-item, per-beer and per-gelato-serve overrides were cleared on 26 Sep 2026 (old values kept in `backup.menu_items_20260925d`, `backup.beers_20260925d`, `backup.gelato_serves_20260925d`); the fallback default is 72% too. Change targets in Settings; an item can still override its own target under Details.
 
 ## Backlog (Oct 2026)
 1. (Done) Settings target GP grid. Also done: price picker, price history, Review and Apply, Specials and combos.

@@ -32,7 +32,7 @@ describe("buildReviewChanges", () => {
     expect(ch.map((c) => c.key).sort()).toEqual(["checkme", "under"]);
     const u = ch.find((c) => c.key === "under")!;
     expect(u.oldPrice).toBe(24);
-    expect(u.newPrice).toBe(29.5);
+    expect(u.newPrice).toBe(31.5);
     expect(u.gpBefore).toBeLessThan(0.7);
     expect(u.gpAfter).toBeGreaterThanOrEqual(0.7 - 1e-9);
     expect(u.kind).toBe("item");
@@ -49,7 +49,7 @@ describe("buildReviewChanges", () => {
     const plan = applyPlan(ch, new Set(["under"]));
     expect(plan).toHaveLength(1);
     expect(plan[0].c.item.id).toBe("under");
-    expect(plan[0].price).toBe(29.5);
+    expect(plan[0].price).toBe(31.5);
     expect(applyPlan(ch, new Set())).toEqual([]);
   });
 

@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
-import { gp, money, unitShort } from "@/lib/format";
+import { gp, money, parseDecimal, unitShort } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
 import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
@@ -391,7 +391,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             ) : prep ? (
               <FieldRow label="Batch Yield">
                 <span className="flex items-center gap-2">
-                  <InlineInput value={String(prep.yield_qty)} width="w-20" onCommit={(t) => { const n = Number(t.replace(",", ".")); if (n > 0) setDraft((d) => ({ ...d, yield_qty: n })); }} />
+                  <InlineInput value={String(prep.yield_qty)} width="w-20" onCommit={(t) => { const n = parseDecimal(t); if (n != null && n > 0) setDraft((d) => ({ ...d, yield_qty: n })); }} />
                   <Segmented size="sm" ariaLabel="Yield unit" className="w-[150px]" value={prep.yield_unit} onChange={(u: PackUnit) => setDraft((d) => ({ ...d, yield_unit: u }))} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
                 </span>
               </FieldRow>

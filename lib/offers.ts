@@ -186,7 +186,12 @@ export function costOffer(offer: Pick<Offer, "price_inc" | "target_override">, l
   let offerPriceEx: number | null = null;
   let gpDollars: number | null = null;
   let gpPct: number | null = null;
-  if (offerPriceInc != null && hasCost) {
+  // A missing, unpriced or $0 component means the cost above is partial, so a GP worked out from it would flatter the offer:
+  // no GP, no suggestion, and the offer is flagged for checking instead of ever being called on or below target.
+  const costMissing = missing.some((m) => m.reason !== "no_price"); // no_price only blocks the discount, not the cost
+  const untrusted = costMissing || needsCheck;
+  needsCheck = untrusted;
+  if (offerPriceInc != null && hasCost && !costMissing) {
     offerPriceEx = sellExGst(offerPriceInc, gst);
     const g = gpFromPrice(cost, offerPriceInc, gst);
     gpDollars = g.gpDollars;
@@ -194,7 +199,7 @@ export function costOffer(offer: Pick<Offer, "price_inc" | "target_override">, l
   }
   const discountInc = regularComplete && offerPriceInc != null ? regular - offerPriceInc : null;
   const discountPct = discountInc != null && regular > 0 ? discountInc / regular : null;
-  const suggested = cost > 0 ? suggestedPrice(cost, targetGp, gst, ctx.settings.round_to) : 0;
+  const suggested = cost > 0 && !costMissing ? suggestedPrice(cost, targetGp, gst, ctx.settings.round_to) : 0;
   const step = ctx.settings.round_to > 0 ? ctx.settings.round_to : 0.5;
 
   return {
@@ -211,10 +216,10 @@ export function costOffer(offer: Pick<Offer, "price_inc" | "target_override">, l
     targetGp,
     targetSource,
     targetFrom,
-    underTarget: gpPct != null && gpPct < targetGp - 1e-9,
-    belowCost: gpDollars != null && gpDollars < 0,
+    underTarget: !untrusted && gpPct != null && gpPct < targetGp - 1e-9,
+    belowCost: !untrusted && gpDollars != null && gpDollars < 0,
     suggestedPriceInc: suggested > 0 ? suggested : null,
-    ladder: cost > 0 ? priceLadder(cost, targetGp, gst, step) : [],
+    ladder: cost > 0 && !costMissing ? priceLadder(cost, targetGp, gst, step) : [],
     missing,
     needsCheck,
     complete: out.length > 0 && missing.length === 0,
@@ -242,6 +247,18 @@ export function liveOffersUnderTarget(offers: Offer[], costs: Map<string, OfferC
     if (c && (c.underTarget || c.belowCost)) out.push({ offer: o, cost: c });
   }
   return out.sort((a, b) => (a.cost.gpPct ?? 0) - a.cost.targetGp - ((b.cost.gpPct ?? 0) - b.cost.targetGp));
+}
+
+/** Live offers whose components need checking (a deleted, unpriced or $0 item, or a flagged cost): no GP claim is made for them. */
+export function liveOffersToCheck(offers: Offer[], costs: Map<string, OfferCost>, venueId?: number | null): { offer: Offer; cost: OfferCost }[] {
+  const out: { offer: Offer; cost: OfferCost }[] = [];
+  for (const o of offers) {
+    if (o.status !== "live") continue;
+    if (venueId != null && o.venue_id !== venueId) continue;
+    const c = costs.get(o.id);
+    if (c && c.needsCheck) out.push({ offer: o, cost: c });
+  }
+  return out.sort((a, b) => a.offer.name.localeCompare(b.offer.name));
 }
 
 /* ---------------------------------------------------------------- time windows (Brisbane) */

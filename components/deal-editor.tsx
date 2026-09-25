@@ -18,7 +18,7 @@ import {
 } from "@/lib/deals";
 import { ingredientChangeImpact, type ImpactRow } from "@/lib/insights";
 import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
-import { dateShort, money, movePct, unitShort } from "@/lib/format";
+import { dateShort, money, movePct, parseDecimal, unitShort } from "@/lib/format";
 import type { DealKind, Ingredient, IngredientDeal } from "@/lib/types";
 import { ReviewSheet } from "@/components/price-review";
 import { Banner, cx, Group, Row, Segmented, Sheet } from "@/components/ui";
@@ -212,10 +212,7 @@ function RemoveDealSheet({ ing, deal, onClose, renderImpact }: { ing: Ingredient
   );
 }
 
-const num = (t: string): number => {
-  const v = Number(t.replace(/[$,%\s]/g, ""));
-  return Number.isFinite(v) ? v : 0;
-};
+const num = (t: string): number => parseDecimal(t) ?? 0;
 const pctFrac = (t: string): number => num(t) / 100;
 
 function DealSheet({ ing, prefill, onClose, renderImpact }: { ing: Ingredient; prefill: SuggestedDeal | null; onClose: () => void; renderImpact: RenderImpact }) {

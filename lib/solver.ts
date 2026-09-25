@@ -1,4 +1,5 @@
 import { gpFromPrice, suggestedPrice } from "./costing";
+import { parseDecimal } from "./format";
 
 /**
  * Linked sell-price ↔ GP% editing.
@@ -28,20 +29,28 @@ export function percentToFraction(n: number): number | null {
   return n >= 1 ? n / 100 : n;
 }
 
-/** Parse a typed GP: "72", "72%", "0.72", "72.5" -> 0.72 / 0.725. See percentToFraction for the rule. */
+/** Parse a typed GP: "72", "72%", "0.72", "72.5", "72,5" -> 0.72 / 0.725. See percentToFraction for the rule. */
 export function parseGpInput(s: string): number | null {
-  const t = s.trim().replace(/[%\s]/g, "").replace(",", ".");
-  if (!t) return null;
-  return percentToFraction(Number(t));
+  const n = parseDecimal(s);
+  return n == null ? null : percentToFraction(n);
 }
 
-/** Same rule for yield / percent fields ("90" -> 0.9, "0.9" -> 0.9). Adopt this instead of `n > 1 ? n / 100 : n`. */
+/** Same rule for other percent fields ("90" -> 0.9, "0.9" -> 0.9). Yield fields use parseYieldInput instead. */
 export const parsePercentInput = parseGpInput;
 
-/** Parse a typed price: "$18.50", "18,5", "18" → 18.5 / 18. */
+/**
+ * A typed yield (usable share after trim, cook loss...) as a fraction. Same as parsePercentInput except a bare "1" (or
+ * "1%") means 100%: a yield of 1% is never intended and would cost 100x. "85" -> 0.85, "0.85" -> 0.85, "100" -> 1.
+ * Null for empty, zero, negative, unreadable, or anything above 300% (a typo).
+ */
+export function parseYieldInput(s: string): number | null {
+  const n = parseDecimal(s);
+  if (n == null || n === 0) return null;
+  const f = n === 1 ? 1 : n > 1 ? n / 100 : n;
+  return f > 0 && f <= 3 ? f : null;
+}
+
+/** Parse a typed price: "$18.50", "18,5", "1,234.50" -> 18.5 / 18.5 / 1234.5. Null for empty, negative or unreadable text. $0 parses (callers that must not accept it check > 0). */
 export function parsePriceInput(s: string): number | null {
-  const t = s.trim().replace(/[$\s]/g, "").replace(",", ".");
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return parseDecimal(s);
 }

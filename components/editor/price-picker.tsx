@@ -68,7 +68,7 @@ export function PricePicker({ cost, settings, setPrice }: { cost: ItemCost; sett
                     {o.kind === "suggested" ? "Suggested" : o.kind === "current" ? "Current" : o.belowTarget ? "Below Target" : " "}
                   </span>
                   <span className="mt-1 text-[17px] font-semibold leading-tight tnum">{money(o.price)}</span>
-                  <span className="text-[13px] leading-tight tnum">GP {gp(o.gpPct, o.belowTarget && Math.round(o.gpPct * 100) >= Math.round(target * 100) ? 1 : 0)}</span>
+                  <span className="text-[13px] leading-tight tnum">GP {gp(o.gpPct, 0, target)}</span>
                 </button>
               );
             })}

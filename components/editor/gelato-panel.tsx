@@ -69,7 +69,7 @@ export function GelatoFlavourPanel({ flavourId, mixCost, batchKg, lines }: { fla
                 <span className="block text-[15px]">{c.serve.sell_price_inc != null ? money(Number(c.serve.sell_price_inc)) : "—"}</span>
                 <span className={cx("flex items-center justify-end gap-1 text-[13px]", c.underTarget ? "font-semibold text-danger" : "text-label-2")}>
                   {c.underTarget ? <Dot className="bg-danger" /> : null}
-                  {c.gpPct != null ? gp(c.gpPct) : "No price"}
+                  {c.gpPct != null ? gp(c.gpPct, 1, targetOf(c.serve)) : "No price"}
                 </span>
               </span>
               <ChevronRight className="-mr-1 h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} aria-hidden />

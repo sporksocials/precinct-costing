@@ -221,7 +221,7 @@ export default function MenuPage() {
                       worst?.gpPct != null ? (
                         <span className={cx("flex items-center gap-1.5 font-semibold", worst.underTarget ? "text-danger" : "text-label")}>
                           {worst.underTarget ? <Dot className="bg-danger" /> : null}
-                          {gp(worst.gpPct)}
+                          {gp(worst.gpPct, 1, worst.targetGp)}
                         </span>
                       ) : null
                     }
@@ -290,7 +290,7 @@ function GpCell({ c }: { c: ItemCost }) {
     <span className="flex flex-col items-end leading-tight">
       <span className={cx("flex items-center gap-1.5 font-semibold", c.underTarget ? "text-danger" : "text-label")}>
         {c.underTarget ? <Dot className="bg-danger" /> : null}
-        {gp(c.gpPct)}
+        {gp(c.gpPct, 1, c.targetGp)}
       </span>
       <span className="mt-0.5 text-[13px] font-normal text-label-2">{money(c.sellInc)}</span>
     </span>
@@ -337,7 +337,7 @@ function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: b
         ) : (
           <span className={cx("inline-flex items-center gap-1.5 font-semibold", c.underTarget ? "text-danger" : "text-label")}>
             {c.underTarget ? <Dot className="bg-danger" /> : null}
-            {gp(c.gpPct)}
+            {gp(c.gpPct, 1, c.targetGp)}
           </span>
         ),
       sort: (c) => c.gpPct,
@@ -359,7 +359,7 @@ function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: Item
         worst?.gpPct != null ? (
           <>
             {worst.underTarget ? <Dot className="bg-danger" /> : null}
-            <span className="text-label">{gp(worst.gpPct)}</span>
+            <span className="text-label">{gp(worst.gpPct, 1, worst.targetGp)}</span>
           </>
         ) : (
           <span className="text-label-3">No price</span>

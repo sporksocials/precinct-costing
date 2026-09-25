@@ -236,7 +236,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
           <div>
             <section className="rounded-2xl bg-surface px-4 py-4" aria-label="Offer totals">
               <p className="eyebrow text-[12px] text-label-2">Impact Before Saving</p>
-              <p className={cx("display mt-1 text-[64px] leading-none tnum", c.gpPct == null ? "text-label-3" : good ? "text-good" : "text-danger")}>{gp(c.gpPct)}</p>
+              <p className={cx("display mt-1 text-[64px] leading-none tnum", c.gpPct == null ? "text-label-3" : good ? "text-good" : "text-danger")}>{gp(c.gpPct, 1, c.targetGp)}</p>
               <p className="mt-1 text-[15px] text-label-2 tnum">
                 GP {c.gpDollars != null ? money(c.gpDollars) : "—"} ex GST · target {gp(c.targetGp, 0)}
                 {c.targetSource === "dominant" && c.targetFrom ? ` (from ${c.targetFrom})` : c.targetSource === "override" ? " (yours)" : ""}
@@ -291,7 +291,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
                         <button key={s.price} type="button" aria-pressed={sel} onClick={() => set({ price: s.price.toFixed(2) })} className={cx("flex min-h-[64px] min-w-[96px] shrink-0 flex-col items-center justify-center rounded-xl px-3 py-1.5 active:opacity-70", s.meetsTarget ? "bg-good-soft text-good" : "bg-danger-soft text-danger", sel && "ring-2 ring-accent")}>
                           <span className="text-[11px] font-semibold uppercase leading-none tracking-wide">{s.isSuggested ? "Suggested" : s.meetsTarget ? " " : "Below"}</span>
                           <span className="mt-1 text-[17px] font-semibold leading-tight tnum">{money(s.price)}</span>
-                          <span className="text-[13px] leading-tight tnum">GP {gp(s.gpPct, !s.meetsTarget && Math.round(s.gpPct * 100) >= Math.round(c.targetGp * 100) ? 1 : 0)}</span>
+                          <span className="text-[13px] leading-tight tnum">GP {gp(s.gpPct, 0, c.targetGp)}</span>
                           <span className="mt-0.5 text-[11px] leading-tight opacity-90 tnum">{priceBreakEvenLabel(simInput, s.price) || " "}</span>
                         </button>
                       );

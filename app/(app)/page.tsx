@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Clock, Plus, Store, Tag, TrendingUp } from "lucide-react";
+import { AlertTriangle, Check, CircleDollarSign, Clock, Plus, Store, Tag, TrendingUp } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInUse, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
+import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInUse, missingPriceGroups, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
 import { costBreakdown, type ItemCost } from "@/lib/costing";
 import { buildReviewChanges, gelatoServeStats } from "@/lib/price-review";
 import { parseVirtualItemId } from "@/lib/gelato";
@@ -19,7 +19,7 @@ import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
 import { DealsFeed } from "@/components/deals-feed";
 import { brisbaneToday } from "@/lib/deals";
-import { liveOffersUnderTarget } from "@/lib/offers";
+import { liveOffersToCheck, liveOffersUnderTarget } from "@/lib/offers";
 
 /** Counts a number up from where it last was (first paint from ~92%), eased; static under reduced motion. */
 function useCountUp(target: number | null, ms = 700): number | null {
@@ -59,6 +59,8 @@ export default function HomePage() {
   const newRecipe = useNewRecipe();
 
   const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
+
+  const missingPrice = useMemo(() => missingPriceGroups(store.itemCosts.values(), venue?.id ?? null).length, [store.itemCosts, venue]);
 
   const shownAvg = useCountUp(headline.avg);
   const isGelato = venue?.slug === "gelato";
@@ -109,7 +111,7 @@ export default function HomePage() {
       </section>
 
       {/* 3. today: what needs doing, with the fix one tap away */}
-      {empty && !headline.excluded ? null : <Today venueId={venue?.id ?? null} />}
+      {empty && !headline.excluded && !missingPrice ? null : <Today venueId={venue?.id ?? null} />}
     </div>
   );
 }
@@ -120,6 +122,7 @@ function Today({ venueId }: { venueId: number | null }) {
   const [allRises, setAllRises] = useState(false);
   const [allCheck, setAllCheck] = useState(false);
   const [allHappy, setAllHappy] = useState(false);
+  const [allMissing, setAllMissing] = useState(false);
   const [priceFor, setPriceFor] = useState<ItemCost | null>(null);
   const [reviewing, setReviewing] = useState(false);
   useEffect(() => {
@@ -132,6 +135,7 @@ function Today({ venueId }: { venueId: number | null }) {
     [store.itemCosts, venueId, store.settings.gst_rate],
   );
   const check = useMemo(() => checkCostGroups(checkCostRows(store.itemCosts.values(), venueId)), [store.itemCosts, venueId]);
+  const missing = useMemo(() => missingPriceGroups(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
   const happy = useMemo(() => happyHourRows(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
   const itemById = useMemo(() => new Map(store.items.map((i) => [i.id, i])), [store.items]);
   const rises = useMemo(
@@ -140,15 +144,17 @@ function Today({ venueId }: { venueId: number | null }) {
   );
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
   const stale = useMemo(() => staleIngredients(store.ingredients, inUse), [store.ingredients, inUse]);
-  const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate), [store.ingredients, store.portalPrices, store.settings.gst_rate]);
+  const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById), [store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById]);
   const dealRows = useMemo(() => dealFeedRows(store.deals, store.ingredients, inUse, brisbaneToday()), [store.deals, store.ingredients, inUse]);
 
   const offersBelow = useMemo(() => liveOffersUnderTarget(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
+  const offersCheck = useMemo(() => liveOffersToCheck(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
   const today = new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", timeZone: "Australia/Brisbane" });
-  const clear = !offersBelow.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
+  const clear = !offersBelow.length && !offersCheck.length && !missing.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
   const shownUnder = allUnder ? under : under.slice(0, 5);
   const shownRises = allRises ? rises : rises.slice(0, 3);
   const shownCheck = allCheck ? check : check.slice(0, 4);
+  const shownMissing = allMissing ? missing : missing.slice(0, 4);
   const shownHappy = allHappy ? happy : happy.slice(0, 4);
   const reviewButton =
     changes.length >= 2 ? (
@@ -176,7 +182,7 @@ function Today({ venueId }: { venueId: number | null }) {
         </div>
       ) : null}
 
-      <OffersFeed rows={offersBelow} showVenue={venueId == null} />
+      <OffersFeed rows={offersBelow} checkRows={offersCheck} showVenue={venueId == null} />
       <DealsFeed rows={dealRows} />
 
       {/* price rises: the cause, before the symptoms */}
@@ -236,6 +242,40 @@ function Today({ venueId }: { venueId: number | null }) {
         </div>
       ) : null}
 
+      {/* on the menu with no sell price: no GP, so nothing else flags them. Suggestions only, nothing is applied from here */}
+      {missing.length ? (
+        <Group
+          title={`Missing Price · ${missing.length}`}
+          className="mt-6"
+          inset="3.75rem"
+          footer="These are on the menu with no sell price, so they have no GP. Open one to enter a price. The price shown is only a suggestion."
+        >
+          {shownMissing.map((m) => (
+            <Row
+              key={m.id}
+              href={m.href}
+              leading={
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                  <CircleDollarSign className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                </span>
+              }
+              title={m.count > 1 ? `${m.name} (${m.count} serves)` : m.name}
+              wrapSub
+              sub={[
+                venueName(store, m.venueId),
+                m.cost > 0 ? `Cost ${money(m.cost)}` : "No cost yet",
+                m.suggestedInc != null ? `${money(m.suggestedInc)} would give ${gp(m.targetGp, 0)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              trailing={<span className="text-[15px] font-semibold text-accent sm:text-[13px]">Add Price</span>}
+              chevron
+            />
+          ))}
+          {missing.length > 4 ? <Row onClick={() => setAllMissing((x) => !x)} title={<span className="text-accent">{allMissing ? "Show Fewer" : `Show All ${missing.length}`}</span>} /> : null}
+        </Group>
+      ) : null}
+
       {/* below target, with the fix on the row */}
       {under.length ? (
         <>
@@ -269,7 +309,7 @@ function Today({ venueId }: { venueId: number | null }) {
               columns={[
                 { key: "name", label: "Item", render: (r) => <span className="font-medium">{rowName(r)}</span>, sort: (r) => rowName(r) },
                 ...(venueId == null ? [{ key: "venue", label: "Venue", render: (r: UnderRow) => <span className="text-label-2">{venueShort(store, r)}</span>, sort: (r: UnderRow) => venueShort(store, r) }] : []),
-                { key: "gp", label: "GP / Target", align: "right", render: (r) => <span><span className="font-semibold text-danger">{gp(r.cost.gpPct)}</span> <span className="text-label-2">/ {gp(r.cost.targetGp, 0)}</span></span>, sort: (r) => r.cost.gpPct },
+                { key: "gp", label: "GP / Target", align: "right", render: (r) => <span><span className="font-semibold text-danger">{gp(r.cost.gpPct, 1, r.cost.targetGp)}</span> <span className="text-label-2">/ {gp(r.cost.targetGp, 0)}</span></span>, sort: (r) => r.cost.gpPct },
                 { key: "driver", label: "Biggest Cost", render: (r) => <span className="block max-w-[9rem] truncate text-label-2 xl:max-w-[16rem]" title={driverText(r.cost) ?? undefined}>{driverText(r.cost) ?? (parseVirtualItemId(r.cost.item.id) ? "Shared by all flavours" : "—")}</span> },
                 {
                   key: "now",
@@ -313,8 +353,8 @@ function Today({ venueId }: { venueId: number | null }) {
               }
               title={h.cost.item.name}
               wrapSub
-              sub={`${venueName(store, h.cost.item.venue_id)} · ${money(h.hhPrice)} · ${h.belowCost ? `below cost (${money(h.cost.costPerPortion)})` : `${gp(h.hhGpPct, 0)} vs ${gp(h.cost.targetGp, 0)} target`}`}
-              trailing={<span className={cx("font-semibold", h.belowCost ? "text-danger" : "text-warn")}>{gp(h.hhGpPct, 0)}</span>}
+              sub={`${venueName(store, h.cost.item.venue_id)} · ${money(h.hhPrice)} · ${h.belowCost ? `below cost (${money(h.cost.costPerPortion)})` : `${gp(h.hhGpPct, 0, h.cost.targetGp)} vs ${gp(h.cost.targetGp, 0)} target`}`}
+              trailing={<span className={cx("font-semibold", h.belowCost ? "text-danger" : "text-warn")}>{gp(h.hhGpPct, 0, h.cost.targetGp)}</span>}
               chevron
             />
           ))}
@@ -387,7 +427,7 @@ function UnderRowView({ r, showVenue, onPrice }: { r: UnderRow; showVenue: boole
         <span className="block truncate text-[17px] leading-snug sm:text-[15px]">{rowName(r)}</span>
         <span className="mt-0.5 block truncate text-[15px] leading-snug text-label-2 tnum sm:text-[13px]">
           {showVenue ? `${venueShort(store, r)} · ` : ""}
-          <span className="text-danger">{gp(c.gpPct)}</span> vs {gp(c.targetGp, 0)}
+          <span className="text-danger">{gp(c.gpPct, 1, c.targetGp)}</span> vs {gp(c.targetGp, 0)}
         </span>
         {shared ? (
           <span className="mt-0.5 block text-[13px] leading-snug text-label-2">Applies to all flavours. Suggested from the dearest, {c.item.name.split(" - ")[0]}.</span>

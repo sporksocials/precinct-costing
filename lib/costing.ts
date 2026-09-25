@@ -89,6 +89,23 @@ export interface LineWarning {
   message: string;
 }
 
+/** One reason a cost can't be trusted, remembered with the chain of preps it sits inside. */
+export interface CostIssue {
+  /** 'zero' = a component costs $0; 'problem' = missing component, unit mismatch, cycle or depth */
+  kind: "zero" | "problem";
+  /** what is wrong, e.g. "Beef Mince" */
+  subject: string;
+  /** why, e.g. "pack price is 0" */
+  reason: string;
+  /** preps between the recipe being costed and the subject, outermost first (empty when it is a direct line) */
+  via: string[];
+}
+
+/** "Beef Mince (in Napoli Sauce): pack price is 0" */
+export function formatCostIssue(i: CostIssue): string {
+  return `${i.subject}${i.via.length ? ` (in ${i.via.join(" > ")})` : ""}: ${i.reason}`;
+}
+
 export interface LineCost {
   line: RecipeLine;
   componentName: string;
@@ -100,6 +117,11 @@ export interface LineCost {
   warning: LineWarning | null;
   /** set when the line has a quantity but its component costs $0 (bad price, pack size, yield or empty prep) */
   costIssue?: string | null;
+  /**
+   * Every reason this line's cost can't be trusted, including problems deeper in a prep it uses
+   * (a $0 ingredient inside the prep, a unit mismatch, a missing component). Empty = clean.
+   */
+  issues?: CostIssue[];
 }
 
 export interface RecipeCost {
@@ -169,6 +191,7 @@ export function costLines(
     let componentBase: PackUnit | null = null;
     let warning: LineWarning | null = null;
     let costIssue: string | null = null;
+    const issues: CostIssue[] = [];
 
     if (line.component_type === "ingredient") {
       const ing = index.ingredients.get(line.component_id);
@@ -178,7 +201,11 @@ export function costLines(
         componentName = ing.name;
         componentBase = ing.pack_unit;
         unitCost = ingredientCostPerBase(ing, gst);
-        if (unitCost <= 0 && qty > 0) costIssue = `${ing.name}: ${ingredientCostIssue(ing) ?? "costs $0"}`;
+        if (unitCost <= 0 && qty > 0) {
+          const reason = ingredientCostIssue(ing) ?? "costs $0";
+          costIssue = `${ing.name}: ${reason}`;
+          issues.push({ kind: "zero", subject: ing.name, reason, via: [] });
+        }
       }
     } else {
       const prep = index.preps.get(line.component_id);
@@ -194,7 +221,14 @@ export function costLines(
         } else {
           const pc = costPrep(prep, index, gst, stack, cache);
           unitCost = pc.costPerUnit;
-          if (unitCost <= 0 && qty > 0) costIssue = `${prep.name}: ${(Number(prep.yield_qty) || 0) > 0 ? "prep costs $0" : "prep yield is 0"}`;
+          if (qty > 0) {
+            // problems inside the prep (a $0 ingredient, a missing or mismatched component) belong to every recipe that uses it
+            for (const inner of pc.recipe.lines) for (const i of inner.issues ?? []) issues.push({ ...i, via: [prep.name, ...i.via] });
+            if (!issues.length && unitCost <= 0) {
+              issues.push({ kind: "zero", subject: prep.name, reason: (Number(prep.yield_qty) || 0) > 0 ? "prep costs $0" : "prep yield is 0", via: [] });
+            }
+            if (issues.length) costIssue = formatCostIssue(issues[0]) + (issues.length > 1 ? ` (+${issues.length - 1} more)` : "");
+          }
           if (pc.recipe.nested || pc.recipe.lines.some((l) => l.line.component_type === "prep")) nested = true;
           for (const w of pc.recipe.warnings) {
             if (w.kind === "cycle" || w.kind === "depth") warnings.push({ ...w, lineId: line.id });
@@ -211,10 +245,19 @@ export function costLines(
       };
     }
 
+    if (warning && (warning.kind === "missing_component" || warning.kind === "unit_mismatch")) {
+      // cycle and depth warnings travel through recipe.warnings; these two are recorded as line issues as well
+      issues.push({
+        kind: "problem",
+        subject: warning.kind === "missing_component" ? `Missing ${line.component_type}` : componentName,
+        reason: warning.kind === "missing_component" ? "no longer exists" : `line is in ${line.unit} but it is priced per ${componentBase}`,
+        via: [],
+      });
+    }
     const cost = qty * factor * unitCost;
     total += cost;
     if (warning) warnings.push(warning);
-    out.push({ line, componentName, componentBase, unitCost, cost, warning, costIssue });
+    out.push({ line, componentName, componentBase, unitCost, cost, warning, costIssue, issues });
   }
 
   return { lines: out, total, warnings, nested };
@@ -402,7 +445,14 @@ export function costItem(
   if (item.source === "beer" && lines.length === 0) costWarnings.push("No keg linked to this beer");
   else if (lines.length === 0) costWarnings.push("No recipe lines, so cost is $0");
   if (!portionsOk) costWarnings.push("Portions is 0 or blank, costed as 1 portion");
-  for (const l of recipe.lines) if (l.costIssue) costWarnings.push(`Zero cost line, ${l.costIssue}`);
+  // every issue on every line, including ones inside preps (deduped: one bad ingredient can sit behind several lines)
+  const addWarning = (text: string) => {
+    if (!costWarnings.includes(text)) costWarnings.push(text);
+  };
+  for (const l of recipe.lines) {
+    for (const i of l.issues ?? []) addWarning(`${i.kind === "zero" ? "Zero cost line" : "Recipe problem"}, ${formatCostIssue(i)}`);
+  }
+  for (const w of recipe.warnings) if (w.kind === "cycle" || w.kind === "depth") addWarning(`Recipe problem, ${w.message}`);
   if (gpPct != null && gpPct > SUSPICIOUS_GP) costWarnings.push(`GP is ${Math.round(gpPct * 100)}%, check the recipe cost`);
 
   return {

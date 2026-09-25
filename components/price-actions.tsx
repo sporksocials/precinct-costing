@@ -156,7 +156,7 @@ export function PriceSheet({ c, onClose }: { c: ItemCost; onClose: () => void })
       <div className="pb-2 pt-3">
         <p className="text-center text-[17px] font-semibold">{labelOf(c)}</p>
         <p className="mt-0.5 text-center text-[13px] text-label-2 tnum">
-          Cost {money(c.costPerPortion)} · target {gp(c.targetGp, 0)} · now {money(now)} ({gp(c.gpPct)})
+          Cost {money(c.costPerPortion)} · target {gp(c.targetGp, 0)} · now {money(now)} ({gp(c.gpPct, 1, c.targetGp)})
         </p>
         {shared ? <p className="mt-1 text-center text-[13px] text-label-2">Applies to every flavour. Cost shown is the dearest flavour, {c.item.name.split(" - ")[0]}.</p> : null}
 
@@ -178,7 +178,7 @@ export function PriceSheet({ c, onClose }: { c: ItemCost; onClose: () => void })
                 >
                   <span className="text-[11px] font-semibold uppercase leading-none tracking-wide">{s.isSuggested ? "Suggested" : s.meetsTarget ? " " : "Below Target"}</span>
                   <span className="mt-1 text-[17px] font-semibold leading-tight tnum">{money(s.price)}</span>
-                  <span className="text-[13px] leading-tight tnum">GP {gp(s.gpPct, 0)}</span>
+                  <span className="text-[13px] leading-tight tnum">GP {gp(s.gpPct, 0, c.targetGp)}</span>
                 </button>
               );
             })}
@@ -209,7 +209,7 @@ export function PriceSheet({ c, onClose }: { c: ItemCost; onClose: () => void })
           ) : (
             <>
               <p className={cx("text-[17px] font-semibold tnum", meets ? "text-good" : "text-danger")}>
-                GP {gp(c.gpPct, 0)} → {gp(newGp, 1)}
+                GP {gp(c.gpPct, 0, c.targetGp)} → {gp(newGp, 1, c.targetGp)}
               </p>
               <p className="mt-0.5 text-[13px] text-label-2">{meets ? `Meets the ${gp(c.targetGp, 0)} target.` : `Still below the ${gp(c.targetGp, 0)} target.`}</p>
             </>

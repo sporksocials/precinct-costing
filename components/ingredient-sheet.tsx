@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
-import { money, unitShort } from "@/lib/format";
+import { money, parseDecimal, unitShort } from "@/lib/format";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
 import { Banner, Segmented, Sheet, Toggle } from "./ui";
@@ -77,10 +77,12 @@ export function IngredientSheet({
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof IngredientDraft>(k: K, v: IngredientDraft[K]) => setF((p) => ({ ...p, [k]: v }));
 
-  const size = Number(sizeText.replace(",", ".")) || 0;
-  const price = Number(priceText.replace(/[$,\s]/g, "")) || 0;
+  const size = parseDecimal(sizeText) ?? 0;
+  // a blank price is allowed (new items are often priced later); text that is not a price is not
+  const parsedPrice = priceText.trim() === "" ? 0 : parseDecimal(priceText);
+  const price = parsedPrice ?? 0;
   const unitCost = ingredientCostPerBase({ ...f, pack_size: size, pack_price: price }, store.settings.gst_rate);
-  const valid = f.name.trim() && size > 0 && !busy;
+  const valid = f.name.trim() && size > 0 && parsedPrice != null && !busy;
 
   async function save() {
     if (!valid) return;

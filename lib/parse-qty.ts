@@ -1,4 +1,5 @@
 import { unitBase } from "./costing";
+import { parseDecimal } from "./format";
 import type { LineUnit, PackUnit } from "./types";
 
 /**
@@ -66,8 +67,7 @@ export function parseNumberToken(raw: string): number | null {
   if (frac) return Number(frac[2]) === 0 ? null : Number(frac[1]) / Number(frac[2]);
   const withVulgar = s.match(/^(\d*\.?\d+)([½¼¾⅓⅔⅛])$/);
   if (withVulgar) return Number(withVulgar[1]) + VULGAR[withVulgar[2]];
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
+  return parseDecimal(raw);
 }
 
 function unitFromWord(w: string | undefined): LineUnit | null {

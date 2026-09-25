@@ -81,7 +81,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
   const allActive = useMemo(() => store.ingredients.filter((i) => i.active), [store.ingredients]);
   const unusedCount = useMemo(() => allActive.filter((i) => !inUse.has(i.id)).length, [allActive, inUse]);
-  const gaps = useMemo(() => (filter === "catalogue" ? catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate) : []), [filter, store.ingredients, store.portalPrices, store.settings.gst_rate]);
+  const gaps = useMemo(() => (filter === "catalogue" ? catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById) : []), [filter, store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById]);
   const gapById = useMemo(() => new Map(gaps.map((g) => [g.ingredient.id, g])), [gaps]);
   const active = useMemo(() => {
     if (filter === "stale") return staleIngredients(store.ingredients, inUse);

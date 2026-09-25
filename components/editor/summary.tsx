@@ -123,7 +123,7 @@ export function HappyHourNote({ cost, className }: { cost: ItemCost; className?:
       <span className="text-label-2">Happy hour </span>
       <span className="font-semibold tnum">{money(cost.hhSellInc)}</span>
       <span className={cx("tnum", bad ? "font-semibold text-danger" : "text-label-2")}>
-        {" · "}GP {gp(cost.hhGpPct)}
+        {" · "}GP {gp(cost.hhGpPct, 1, cost.targetGp)}
         {cost.hhBelowCost ? ", below cost" : cost.hhUnderTarget ? `, below the ${gp(cost.targetGp, 0)} target` : ", meets target"}
       </span>
     </div>
@@ -140,7 +140,7 @@ export function ItemSummaryCard(m: PriceModel) {
       <div className={cx("flex items-baseline gap-1", l.under ? "text-danger" : "text-accent")}>
         <ValueInput
           ariaLabel="GP percent"
-          display={l.gpPct == null ? "—" : gp(l.gpPct)}
+          display={l.gpPct == null ? "—" : gp(l.gpPct, 1, l.target)}
           raw={l.gpPct == null ? "" : (l.gpPct * 100).toFixed(1)}
           onCommit={l.commitGp}
           placeholder="—"
@@ -207,7 +207,7 @@ export function ItemSummaryBar(m: PriceModel) {
           <p className="text-[12px] text-label-2">GP · target {gp(l.target, 0)}</p>
           <ValueInput
             ariaLabel="GP percent"
-            display={l.gpPct == null ? "—" : gp(l.gpPct)}
+            display={l.gpPct == null ? "—" : gp(l.gpPct, 1, l.target)}
             raw={l.gpPct == null ? "" : (l.gpPct * 100).toFixed(1)}
             onCommit={l.commitGp}
             className={cx("h-10 w-full rounded-lg bg-fill px-2 text-right text-[24px] font-bold", l.under ? "text-danger" : "text-label")}

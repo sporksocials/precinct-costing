@@ -90,7 +90,7 @@ export default function SpecialsPage() {
                     trailing={
                       <>
                         <span>{money(c?.offerPriceInc)}</span>
-                        <span className={cx("w-14 text-right font-semibold", c?.gpPct == null ? "text-label-3" : c.underTarget ? "text-danger" : "text-good")}>{gp(c?.gpPct)}</span>
+                        <span className={cx("w-14 text-right font-semibold", c?.gpPct == null ? "text-label-3" : c.underTarget ? "text-danger" : "text-good")}>{gp(c?.gpPct, 1, c?.targetGp)}</span>
                       </>
                     }
                     chevron
@@ -133,7 +133,7 @@ function HhGroup({ title, rows, showVenue }: { title: string; rows: ItemCost[]; 
             trailing={
               <>
                 <span>{money(c.hhSellInc)}</span>
-                <span className={cx("w-14 text-right font-semibold", bad ? "text-danger" : "text-good")}>{gp(c.hhGpPct)}</span>
+                <span className={cx("w-14 text-right font-semibold", bad ? "text-danger" : "text-good")}>{gp(c.hhGpPct, 1, c.targetGp)}</span>
               </>
             }
             chevron

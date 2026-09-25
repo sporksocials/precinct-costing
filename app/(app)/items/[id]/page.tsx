@@ -61,7 +61,7 @@ function GelatoServeView({ id }: { id: string }) {
           <span className="text-[17px] tnum sm:text-[15px]">{money(c.costPerPortion)}</span>
         </FieldRow>
         <FieldRow label="GP" sub={`Target ${gp(c.targetGp, 0)} · suggested ${money(c.suggestedInc)}`}>
-          <span className={cx("text-[17px] font-semibold tnum sm:text-[15px]", c.underTarget ? "text-danger" : "text-label")}>{c.gpPct != null ? gp(c.gpPct) : "—"}</span>
+          <span className={cx("text-[17px] font-semibold tnum sm:text-[15px]", c.underTarget ? "text-danger" : "text-label")}>{c.gpPct != null ? gp(c.gpPct, 1, c.targetGp) : "—"}</span>
         </FieldRow>
       </div>
 

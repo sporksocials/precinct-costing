@@ -105,6 +105,8 @@ export interface MenuItem {
   allergen_add?: string[] | null;
   allergen_remove?: string[] | null;
   allergen_notes?: Record<string, string> | null;
+  /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
+  off_menu?: boolean;
 }
 
 export interface RecipeLine {
@@ -168,6 +170,8 @@ export interface GelatoServe {
   notes: string | null;
   /** own GP target for this serve (take-home tubs, wholesale); null uses the venue's Gelato target */
   target_gp?: number | null;
+  /** ids of the old stored menu items this serve replaced; hides them by id instead of by name (optional column, not yet in the database) */
+  legacy_item_ids?: string[] | null;
 }
 
 export interface GelatoServeLine {

@@ -64,6 +64,12 @@ export interface Ingredient {
   source: string | null;
   notes: string | null;
   updated_at: string | null;
+  /** confirmed allergen ids (lib/allergens.ts); absent until the allergens migration is applied */
+  allergens?: string[] | null;
+  /** a person has looked at this ingredient's allergens (until then it is "not reviewed") */
+  allergens_reviewed?: boolean | null;
+  /** confirmed diet flags: meat, fish, dairy, egg, honey */
+  diet_flags?: string[] | null;
 }
 
 export interface Prep {
@@ -76,6 +82,11 @@ export interface Prep {
   active: boolean;
   source: string | null;
   notes: string | null;
+  /** chef overrides on the rolled-up allergens (optional: absent until the allergens migration is applied) */
+  allergen_add?: string[] | null;
+  allergen_remove?: string[] | null;
+  /** per-allergen "made without" note, e.g. { milk: "no aioli" } */
+  allergen_notes?: Record<string, string> | null;
 }
 
 export interface MenuItem {
@@ -91,6 +102,9 @@ export interface MenuItem {
   active: boolean;
   source: string | null;
   notes: string | null;
+  allergen_add?: string[] | null;
+  allergen_remove?: string[] | null;
+  allergen_notes?: Record<string, string> | null;
 }
 
 export interface RecipeLine {

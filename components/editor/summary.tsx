@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { gp, money, unitShort } from "@/lib/format";
 import { gpForPrice, parseGpInput, parsePriceInput, priceForGp } from "@/lib/solver";
 import type { ItemCost } from "@/lib/costing";
@@ -94,11 +95,47 @@ function TargetChip({ price, target, onUse }: { price: number | null; target: nu
   );
 }
 
+/** "Check Cost" with the reasons the engine gave (zero-cost line, no lines, GP too good to be true...). */
+export function CheckCostBanner({ cost, className }: { cost: ItemCost; className?: string }) {
+  if (!cost.needsCheck) return null;
+  return (
+    <div className={cx("rounded-2xl bg-warn-soft px-4 py-3", className)}>
+      <p className="flex items-center gap-2 text-[15px] font-semibold text-warn">
+        <AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
+        Check Cost
+      </p>
+      <ul className="mt-1 space-y-0.5 text-[13px] leading-snug text-label-2">
+        {cost.costWarnings.map((w) => (
+          <li key={w}>{w}</li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-[12px] text-label-3">Left out of the average GP until the cost looks right.</p>
+    </div>
+  );
+}
+
+/** Happy hour price with the GP it gives against the SAME target; red when below target or below cost. */
+export function HappyHourNote({ cost, className }: { cost: ItemCost; className?: string }) {
+  if (cost.hhSellInc == null || cost.hhGpPct == null) return null;
+  const bad = cost.hhUnderTarget || cost.hhBelowCost;
+  return (
+    <div className={cx("rounded-2xl px-4 py-2.5 text-[15px] sm:text-[13px]", bad ? "bg-danger-soft" : "bg-surface", className)}>
+      <span className="text-label-2">Happy hour </span>
+      <span className="font-semibold tnum">{money(cost.hhSellInc)}</span>
+      <span className={cx("tnum", bad ? "font-semibold text-danger" : "text-label-2")}>
+        {" · "}GP {gp(cost.hhGpPct)}
+        {cost.hhBelowCost ? ", below cost" : cost.hhUnderTarget ? `, below the ${gp(cost.targetGp, 0)} target` : ", meets target"}
+      </span>
+    </div>
+  );
+}
+
 /** Sticky summary card (desktop, right column). */
 export function ItemSummaryCard(m: PriceModel) {
   const l = useLinked(m);
   return (
     <div className="rounded-2xl bg-surface p-5">
+      {m.cost.needsCheck ? <CheckCostBanner cost={m.cost} className="mb-4" /> : null}
       <p className="eyebrow text-[12px] text-label-2">GP</p>
       <div className={cx("flex items-baseline gap-1", l.under ? "text-danger" : "text-accent")}>
         <ValueInput
@@ -136,6 +173,7 @@ export function ItemSummaryCard(m: PriceModel) {
         </div>
         <p className="text-[12px] text-label-3">Prices include GST</p>
       </div>
+      {m.cost.hhSellInc != null ? <HappyHourNote cost={m.cost} className="mt-3 !bg-fill" /> : null}
     </div>
   );
 }

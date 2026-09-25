@@ -17,7 +17,7 @@ import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput
 import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
 import { PricePicker } from "./price-picker";
-import { ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
+import { CheckCostBanner, HappyHourNote, ItemSummaryBar, ItemSummaryCard, PrepSummary } from "./summary";
 import { GelatoFlavourPanel } from "./gelato-panel";
 import { PriceHistory } from "./price-history";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
@@ -471,6 +471,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           </Group>
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
+          {itemCost && item && (itemCost.needsCheck || itemCost.hhSellInc != null) ? (
+            <div className="mt-6 space-y-2 lg:hidden">
+              <CheckCostBanner cost={itemCost} />
+              <HappyHourNote cost={itemCost} />
+            </div>
+          ) : null}
           {itemCost && item ? <PricePicker cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} /> : null}
 
           {itemCost && item ? (
@@ -514,7 +520,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           ) : null}
 
           {/* details */}
-          <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
+          <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}${itemCost?.hhBelowCost ? " (below cost)" : itemCost?.hhUnderTarget ? " (below target)" : ""}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
             <div className="group-list">
               {item ? (
                 <>
@@ -529,7 +535,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
                       onCommit={(t) => setDraft((d) => ({ ...d, target_override: t.trim() ? parseGpInput(t) : null }))}
                     />
                   </FieldRow>
-                  <FieldRow label="Happy Hour Price" sub={item.hh_price_inc && itemCost ? `GP ${gp(gpForPrice(itemCost.costPerPortion, item.hh_price_inc, store.settings.gst_rate))}` : undefined}>
+                  <FieldRow label="Happy Hour Price" sub={item.hh_price_inc && itemCost ? (
+                    <span className={itemCost.hhUnderTarget || itemCost.hhBelowCost ? "font-medium text-danger" : undefined}>
+                      GP {gp(gpForPrice(itemCost.costPerPortion, item.hh_price_inc, store.settings.gst_rate))}
+                      {itemCost.hhBelowCost ? ", below cost" : itemCost.hhUnderTarget ? `, below the ${gp(itemCost.targetGp, 0)} target` : ""}
+                    </span>
+                  ) : undefined}>
                     <InlineInput value={item.hh_price_inc != null ? Number(item.hh_price_inc).toFixed(2) : ""} placeholder="None" prefix="$" onCommit={(t) => setDraft((d) => ({ ...d, hh_price_inc: parsePriceInput(t) }))} />
                   </FieldRow>
                 </>

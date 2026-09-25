@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { gp } from "@/lib/format";
+import { parsePercentInput } from "@/lib/solver";
 import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
 import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
@@ -24,11 +25,7 @@ export default function SettingsPage() {
     p.catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
   const pctIn = (v: number) => String(Math.round(v * 1000) / 10);
-  const pctOut = (t: string) => {
-    const n = Number(t.replace(/[%\s]/g, ""));
-    if (!Number.isFinite(n) || t.trim() === "") return null;
-    return n > 1 ? n / 100 : n;
-  };
+  const pctOut = parsePercentInput;
 
   return (
     <div className="max-w-2xl">

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { SetPriceButton } from "@/components/price-actions";
+import { ReviewSheet } from "@/components/price-review";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
 import { dateShort, gp, money, movePct, num, packLabel, unitShort } from "@/lib/format";
 import { ingredientChangeImpact, type ImpactRow } from "@/lib/insights";
+import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
+import { parsePercentInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle } from "@/components/ui";
@@ -40,6 +42,8 @@ function Detail({ ing }: { ing: Ingredient }) {
   const [logs, setLogs] = useState<PriceLog[] | null>(null);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingEdit | null>(null);
+  const [review, setReview] = useState<ReviewChange[] | null>(null);
   const gst = store.settings.gst_rate;
   const supplier = store.supplierById.get(ing.supplier_id ?? -1);
   const unitCost = ingredientCostPerBase(ing, gst);
@@ -77,9 +81,42 @@ function Detail({ ing }: { ing: Ingredient }) {
     return s;
   }, [history]);
 
-  const patch = (p: Partial<Ingredient>) => {
+  const save = (p: Partial<Ingredient>) => {
     setError(null);
     store.updateIngredient(ing.id, p).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  // Edits that change what a unit costs (pack size or unit, yield, rebate, GST) show their impact on
+  // dishes first when it matters: unit cost moves by more than 5%, a dish falls below target, or the
+  // pack unit changes. Anything smaller applies straight away. Nothing else is touched.
+  const patch = (p: Partial<Ingredient>) => {
+    if (COST_KEYS.some((k) => k in p)) {
+      const next = { ...ing, ...p };
+      const before = ingredientCostPerBase(ing, gst);
+      const after = ingredientCostPerBase(next, gst);
+      const change = before > 0 ? (after - before) / before : after > 0 ? 1 : 0;
+      const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
+      const unitChanged = p.pack_unit !== undefined && p.pack_unit !== ing.pack_unit;
+      const newlyUnder = rows.some((r) => r.after.underTarget && !r.before.underTarget);
+      if (rows.length && (Math.abs(change) > 0.05 || newlyUnder || unitChanged)) {
+        setPending({ patch: p, rows, before, after, change, unitChanged });
+        return;
+      }
+    }
+    save(p);
+  };
+  const confirmPending = async () => {
+    if (!pending) return;
+    const { patch: p, rows } = pending;
+    setError(null);
+    try {
+      await store.updateIngredient(ing.id, p);
+      const changes = reviewChangesFromImpact(rows.filter((r) => r.after.underTarget), store.itemCosts.values(), gst);
+      setPending(null);
+      if (changes.length) setReview(changes);
+    } catch (e) {
+      setPending(null);
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -210,7 +247,7 @@ function Detail({ ing }: { ing: Ingredient }) {
                 <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => patch({ rebate: Number(t) || 0 })} />
               </FieldRow>
               <FieldRow label="Yield" sub="Usable share after trim, e.g. 85">
-                <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = Number(t); if (n > 0) patch({ yield_pct: n > 1 ? n / 100 : n }); }} />
+                <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = parsePercentInput(t); if (n != null && n > 0) patch({ yield_pct: n }); }} />
               </FieldRow>
               <Toggle label="Price Includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
               <Toggle label="GST-free" checked={ing.gst_free} onChange={(v) => patch({ gst_free: v })} />
@@ -230,7 +267,90 @@ function Detail({ ing }: { ing: Ingredient }) {
       </div>
 
       {updating ? <UpdatePriceSheet ing={ing} onClose={() => setUpdating(false)} /> : null}
+      {pending ? <CostImpactSheet ing={ing} pending={pending} onCancel={() => setPending(null)} onConfirm={() => void confirmPending()} /> : null}
+      {review ? <ReviewSheet changes={review} onClose={() => setReview(null)} intro="This edit pushed these dishes below target. Nothing has changed on the menu yet." /> : null}
     </div>
+  );
+}
+
+/** Ingredient fields that change what a unit costs. */
+const COST_KEYS: (keyof Ingredient)[] = ["pack_size", "pack_unit", "yield_pct", "rebate", "price_inc_gst", "gst_free"];
+
+interface PendingEdit {
+  patch: Partial<Ingredient>;
+  rows: ImpactRow[];
+  /** cost per base unit before and after (ex GST) */
+  before: number;
+  after: number;
+  /** relative move in unit cost */
+  change: number;
+  unitChanged: boolean;
+}
+
+/** "Yield 100% → 85%": what an Advanced edit changes, in words. */
+function describeEdit(ing: Ingredient, p: Partial<Ingredient>): string {
+  const parts: string[] = [];
+  if (p.pack_size !== undefined) parts.push(`Pack size ${num(ing.pack_size)} → ${num(p.pack_size)}`);
+  if (p.pack_unit !== undefined) parts.push(`Pack unit ${ing.pack_unit} → ${p.pack_unit}`);
+  if (p.yield_pct !== undefined) parts.push(`Yield ${gp(ing.yield_pct, 0)} → ${gp(p.yield_pct, 0)}`);
+  if (p.rebate !== undefined) parts.push(`Rebate ${money(ing.rebate)} → ${money(p.rebate)}`);
+  if (p.price_inc_gst !== undefined) parts.push(p.price_inc_gst ? "Price now includes GST" : "Price now excludes GST");
+  if (p.gst_free !== undefined) parts.push(p.gst_free ? "Marked GST-free" : "No longer GST-free");
+  return parts.join(" · ");
+}
+
+/** Before/after GP of the dishes an ingredient edit touches, red when any fall below target. */
+function ImpactPreview({ rows }: { rows: ImpactRow[] }) {
+  const newlyUnder = rows.filter((r) => r.after.underTarget && !r.before.underTarget);
+  if (!rows.length) return null;
+  return (
+    <div className={cx("mt-3 rounded-2xl px-4 py-3", newlyUnder.length ? "bg-danger-soft" : "bg-surface")}>
+      <p className={cx("text-[15px] font-semibold", newlyUnder.length ? "text-danger" : "text-label")}>
+        {newlyUnder.length
+          ? `${newlyUnder.length} ${newlyUnder.length === 1 ? "dish falls" : "dishes fall"} below target`
+          : `Changes ${rows.length} ${rows.length === 1 ? "dish" : "dishes"}, all still on target`}
+      </p>
+      <ul className="mt-1.5 space-y-1">
+        {rows.slice(0, 4).map((r) => (
+          <li key={r.item.id} className="flex items-baseline gap-2 text-[13px] tnum">
+            <span className="min-w-0 flex-1 truncate text-label-2">{r.item.name}</span>
+            <span className="shrink-0 text-label-2">{gp(r.before.gpPct, 0)} →</span>
+            <span className={cx("shrink-0 font-semibold", r.after.underTarget ? "text-danger" : "text-label")}>{gp(r.after.gpPct, 0)}</span>
+          </li>
+        ))}
+      </ul>
+      {rows.length > 4 ? <p className="mt-1 text-[12px] text-label-3">and {rows.length - 4} more</p> : null}
+    </div>
+  );
+}
+
+/** Shown before an Advanced edit is saved when it moves the unit cost a lot or pushes a dish under target. */
+function CostImpactSheet({ ing, pending, onCancel, onConfirm }: { ing: Ingredient; pending: PendingEdit; onCancel: () => void; onConfirm: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const per = unitShort(ing.pack_unit);
+  const dearer = pending.after > pending.before;
+  return (
+    <Sheet open onClose={onCancel} title="Cost Impact" action={{ label: busy ? "Saving…" : "Save", onClick: () => { setBusy(true); onConfirm(); }, disabled: busy }}>
+      <div className="pb-2 pt-4">
+        <p className="text-center text-[15px] text-label-2">{ing.name}</p>
+        <p className="mt-1 text-center text-[15px] font-medium">{describeEdit(ing, pending.patch)}</p>
+        <div className="mt-3 rounded-2xl bg-surface px-4 py-4 text-center">
+          <p className="text-[13px] text-label-2">Cost per {per}, ex GST</p>
+          <p className="mt-1 text-[28px] font-semibold tnum">
+            {money(pending.before)} → <span className={dearer ? "text-danger" : "text-good"}>{money(pending.after)}</span>
+          </p>
+          {Math.abs(pending.change) > 1e-9 && Number.isFinite(pending.change) ? <p className={cx("mt-0.5 text-[15px] font-medium tnum", dearer ? "text-danger" : "text-good")}>{movePct(pending.change, 1)}</p> : null}
+        </div>
+        {pending.unitChanged ? <p className="mt-3 px-1 text-[13px] text-label-2">Changing the pack unit changes its family. Recipe lines in another unit will show a unit warning until you fix them.</p> : null}
+        <ImpactPreview rows={pending.rows} />
+        <button type="button" className="btn-primary mt-5 w-full" disabled={busy} onClick={() => { setBusy(true); onConfirm(); }}>
+          {busy ? "Saving…" : "Save Change"}
+        </button>
+        <button type="button" className="btn-text mt-1 w-full justify-center" onClick={onCancel}>
+          Leave It As It Is
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -259,6 +379,8 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [impact, setImpact] = useState<ImpactRow[] | null>(null);
+  const [changes, setChanges] = useState<ReviewChange[]>([]);
+  const [reviewing, setReviewing] = useState(false);
   const price = Number(text.replace(/[$,\s]/g, ""));
   const valid = text.trim() !== "" && Number.isFinite(price) && price >= 0;
   const move = valid ? priceMovePct(ing.pack_price, price) : null;
@@ -270,7 +392,6 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
     if (incGst !== ing.price_inc_gst) p.price_inc_gst = incGst;
     return ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
   }, [deferredPrice, incGst, ing, store]);
-  const newlyUnder = preview ? preview.filter((r) => r.after.underTarget && !r.before.underTarget) : [];
 
   async function save() {
     if (!valid || busy) return;
@@ -281,6 +402,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
     const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
     try {
       await store.updateIngredient(ing.id, p);
+      setChanges(reviewChangesFromImpact(rows.filter((r) => r.after.underTarget), store.itemCosts.values(), store.settings.gst_rate));
       setImpact(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -296,6 +418,17 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
         <div className="pb-2 pt-4">
           <p className="text-center text-[15px] text-label-2">{ing.name}</p>
           <p className="text-center text-[34px] font-semibold tnum">{money(price)}</p>
+          {changes.length ? (
+            <div className="mt-4 rounded-2xl bg-danger-soft px-4 py-3">
+              <p className="text-[15px] font-semibold text-danger">
+                {changes.length} {changes.length === 1 ? "price is" : "prices are"} now below target
+              </p>
+              <p className="mt-0.5 text-[13px] text-label-2">Nothing has changed on the menu. Review the suggested prices and decide.</p>
+              <button type="button" className="btn-primary mt-3 w-full" onClick={() => setReviewing(true)}>
+                Review &amp; Apply
+              </button>
+            </div>
+          ) : null}
           {impact.length === 0 ? (
             <p className="py-6 text-center text-[15px] text-label-2">Not used in any recipe — nothing else changes.</p>
           ) : (
@@ -311,9 +444,9 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
                     sub={venuesOf(r)}
                     trailing={
                       r.after.underTarget && r.after.sellInc != null ? (
-                        <span className="flex items-center gap-2 tnum">
+                        <span className="tnum">
+                          <span className="text-label-2">GP {gp(r.before.gpPct, 0)} → </span>
                           <span className="font-semibold text-danger">{gp(r.after.gpPct, 0)}</span>
-                          <SetPriceButton c={store.itemCosts.get(r.item.id) ?? r.after} />
                         </span>
                       ) : r.before.gpPct == null ? (
                         <span className="text-label-3">No price</span>
@@ -329,6 +462,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
               })}
             </Group>
           )}
+          {reviewing ? <ReviewSheet changes={changes} onClose={() => setReviewing(false)} onDone={onClose} intro="This price change pushed these dishes below target. Nothing has changed on the menu yet." /> : null}
         </div>
       </Sheet>
     );
@@ -370,25 +504,7 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
             `Currently ${money(ing.pack_price)}`
           )}
         </p>
-        {preview && preview.length ? (
-          <div className={cx("mt-3 rounded-2xl px-4 py-3", newlyUnder.length ? "bg-danger-soft" : "bg-surface")}>
-            <p className={cx("text-[15px] font-semibold", newlyUnder.length ? "text-danger" : "text-label")}>
-              {newlyUnder.length
-                ? `${newlyUnder.length} ${newlyUnder.length === 1 ? "dish falls" : "dishes fall"} below target`
-                : `Changes ${preview.length} ${preview.length === 1 ? "dish" : "dishes"}, all still on target`}
-            </p>
-            <ul className="mt-1.5 space-y-1">
-              {preview.slice(0, 4).map((r) => (
-                <li key={r.item.id} className="flex items-baseline gap-2 text-[13px] tnum">
-                  <span className="min-w-0 flex-1 truncate text-label-2">{r.item.name}</span>
-                  <span className="shrink-0 text-label-2">{gp(r.before.gpPct, 0)} →</span>
-                  <span className={cx("shrink-0 font-semibold", r.after.underTarget ? "text-danger" : "text-label")}>{gp(r.after.gpPct, 0)}</span>
-                </li>
-              ))}
-            </ul>
-            {preview.length > 4 ? <p className="mt-1 text-[12px] text-label-3">and {preview.length - 4} more</p> : null}
-          </div>
-        ) : null}
+        {preview && preview.length ? <ImpactPreview rows={preview} /> : null}
         <div className="group-list mt-4">
           <Toggle checked={incGst} onChange={setIncGst} label="Price Includes GST" />
           <div className="px-4">

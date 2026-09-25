@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Plus, SlidersHorizontal } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { resolveTargetGp, type ItemCost } from "@/lib/costing";
-import { FLAVOUR_PREP_TYPE, flavourName, virtualItemId } from "@/lib/gelato";
+import type { ItemCost } from "@/lib/costing";
+import { FLAVOUR_PREP_TYPE, flavourName, resolveGelatoTarget, virtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
 import type { GelatoServe, Prep } from "@/lib/types";
 import { AddButton, Banner, cx, Dot, Empty, Group, PageHeader, Row, Segmented, Sheet } from "@/components/ui";
@@ -21,7 +21,7 @@ export default function GelatoPage() {
   const [newOpen, setNewOpen] = useState(false);
 
   const venue = g.venue;
-  const target = venue ? resolveTargetGp({ venue_id: venue.id, category: "Gelato", target_override: null }, store.targets) : 0.72;
+  const target = venue ? resolveGelatoTarget(null, venue.id, store.targets) : 0.72;
   const onMenu = g.serves.filter((s) => s.on_menu);
   const serves = view === "menu" && onMenu.length ? onMenu : g.serves;
   const flavours = showInactive ? g.flavours : g.flavours.filter((f) => f.active);

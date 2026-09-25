@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { resolveTargetGp, type LineCost } from "@/lib/costing";
-import { costServe, virtualItemId } from "@/lib/gelato";
+import type { LineCost } from "@/lib/costing";
+import { costServe, resolveGelatoTarget, virtualItemId } from "@/lib/gelato";
+import type { GelatoServe } from "@/lib/types";
 import { ChevronRight } from "lucide-react";
 import { gp, money } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
@@ -22,12 +23,13 @@ export function GelatoFlavourPanel({ flavourId, mixCost, batchKg, lines }: { fla
   const [all, setAll] = useState(false);
   const [batch, setBatch] = useState<(typeof BATCHES)[number]>("4.5");
   const perKg = batchKg > 0 ? mixCost / batchKg : 0;
-  const target = venue ? resolveTargetGp({ venue_id: venue.id, category: "Gelato", target_override: null }, store.targets) : 0.72;
+  const target = venue ? resolveGelatoTarget(null, venue.id, store.targets) : 0.72;
+  const targetOf = (s: GelatoServe) => (venue ? resolveGelatoTarget(s, venue.id, store.targets) : target);
 
   const serves = useMemo(() => {
     const list = all ? store.gelato.serves : store.gelato.serves.filter((s) => s.on_menu);
-    return (list.length ? list : store.gelato.serves).map((s) => costServe(s, store.gelatoServeLines, perKg, store.settings.gelato_wastage, store.index, store.settings, s.target_gp != null ? Number(s.target_gp) : target));
-  }, [all, store.gelato.serves, store.gelatoServeLines, perKg, store.settings, store.index, target]);
+    return (list.length ? list : store.gelato.serves).map((s) => costServe(s, store.gelatoServeLines, perKg, store.settings.gelato_wastage, store.index, store.settings, targetOf(s)));
+  }, [all, store.gelato.serves, store.gelatoServeLines, perKg, store.settings, store.index, venue, store.targets]);
 
   const factor = batchKg > 0 ? Number(batch) / batchKg : 0;
 

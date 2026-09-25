@@ -379,8 +379,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         serves: data.gelatoServes,
         serveLines: data.gelatoServeLines,
         wastage: data.settings.gelato_wastage,
+        targets: data.targets,
       }),
-    [data.venues, data.preps, data.items, data.gelatoServes, data.gelatoServeLines, data.settings.gelato_wastage],
+    [data.venues, data.preps, data.items, data.gelatoServes, data.gelatoServeLines, data.settings.gelato_wastage, data.targets],
   );
   const beer = useMemo(() => buildBeer({ beers: data.beers, serves: data.beerServes, prices: data.beerPrices }), [data.beers, data.beerServes, data.beerPrices]);
   const items = useMemo(

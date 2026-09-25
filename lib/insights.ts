@@ -72,6 +72,55 @@ export function checkCostRows(costs: Iterable<ItemCost>, venueId?: number | null
   return out.sort((a, b) => b.warnings.length - a.warnings.length || a.cost.item.name.localeCompare(b.cost.item.name));
 }
 
+export interface CheckCostGroup {
+  id: string;
+  /** what the row is called */
+  name: string;
+  /** where tapping it goes */
+  href: string;
+  warnings: string[];
+  /** computed items folded into this row (1 for a normal item) */
+  count: number;
+  venueId: number;
+}
+
+/**
+ * Display rows for the Check Cost feed: a normal item is its own row; a tap beer's serves fold
+ * into one row per beer (tap goes to the beer); gelato serves that share the same warnings fold
+ * into one row (tap goes to Gelato), so a bad mix or packaging line is one row, not one per flavour.
+ */
+export function checkCostGroups(rows: CheckCostRow[]): CheckCostGroup[] {
+  const out: CheckCostGroup[] = [];
+  const byKey = new Map<string, CheckCostGroup>();
+  for (const r of rows) {
+    const it = r.cost.item;
+    const b = parseBeerItemId(it.id);
+    const g = parseVirtualItemId(it.id);
+    if (!b && !g) {
+      out.push({ id: it.id, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, venueId: it.venue_id });
+      continue;
+    }
+    const key = b ? `beer:${b.beerId}` : `gelato:${r.warnings.join("|")}`;
+    const cur = byKey.get(key);
+    if (cur) {
+      cur.count += 1;
+      continue;
+    }
+    const grp: CheckCostGroup = b
+      ? { id: key, name: it.name.split(" - ")[0], href: `/beers/${b.beerId}`, warnings: r.warnings, count: 1, venueId: it.venue_id }
+      : { id: key, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, venueId: it.venue_id };
+    byKey.set(key, grp);
+    out.push(grp);
+  }
+  for (const grp of out) {
+    if (grp.count > 1 && grp.id.startsWith("gelato:")) {
+      grp.name = `${grp.count} gelato serves`;
+      grp.href = "/gelato";
+    }
+  }
+  return out;
+}
+
 export interface HappyHourRow {
   kind: "happy_hour";
   cost: ItemCost;

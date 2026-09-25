@@ -96,6 +96,7 @@ export function Row({
   className,
   titleClassName,
   active,
+  wrapSub,
 }: {
   href?: string;
   onClick?: () => void;
@@ -107,13 +108,15 @@ export function Row({
   className?: string;
   titleClassName?: string;
   active?: boolean;
+  /** let the sub line wrap onto more lines instead of truncating (for reasons that must be read in full) */
+  wrapSub?: boolean;
 }) {
   const inner = (
     <>
       {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}
       <span className="min-w-0 flex-1">
         <span className={cx("block truncate text-[17px] leading-snug text-label sm:text-[15px]", titleClassName)}>{title}</span>
-        {sub ? <span className="mt-0.5 block truncate text-[15px] leading-snug text-label-2 sm:text-[13px]">{sub}</span> : null}
+        {sub ? <span className={cx("mt-0.5 block text-[15px] leading-snug text-label-2 sm:text-[13px]", !wrapSub && "truncate")}>{sub}</span> : null}
       </span>
       {trailing != null ? <span className="flex shrink-0 items-center gap-1.5 text-[17px] tnum text-label-2 sm:text-[15px]">{trailing}</span> : null}
       {chevron ? <ChevronRight className="-mr-1 h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} aria-hidden /> : null}

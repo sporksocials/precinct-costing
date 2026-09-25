@@ -271,8 +271,24 @@ export interface Offer {
   time_from: string | null;
   time_to: string | null;
   notes: string | null;
+  /** Sales Needed simulator inputs (cost_offers.assumptions jsonb); absent until the migration is applied */
+  assumptions?: OfferAssumptions | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+/** What the user typed into the Sales Needed simulator. Inputs only, never a price. */
+export interface OfferAssumptions {
+  /** usual units per week of this bundle or item */
+  usual_per_week?: number | null;
+  /** 'pos' once POS sales pre-fill usual_per_week */
+  baseline_source?: "manual" | "pos";
+  expected_per_week?: number | null;
+  /** 0 to 100 (percent), default 50 */
+  cannibalisation?: number | null;
+  weeks?: number | null;
+  /** extra profit goal per week, $ */
+  goal_per_week?: number | null;
 }
 
 export interface OfferLine {

@@ -8,8 +8,9 @@ import { useStore } from "@/lib/store";
 import { costOffer, dayName, OFFER_KINDS, OFFER_STATUSES, offerLineCostId } from "@/lib/offers";
 import { gp, money } from "@/lib/format";
 import { parseGpInput, parsePriceInput } from "@/lib/solver";
-import type { Offer, OfferKind, OfferLine, OfferStatus } from "@/lib/types";
+import type { Offer, OfferAssumptions, OfferKind, OfferLine, OfferStatus } from "@/lib/types";
 import { VenueAccent, VENUE_SHORT } from "./venue";
+import { OfferSimulator, priceBreakEvenLabel, simInputFrom } from "./offer-simulator";
 import { ComponentPicker, StatusPill, type NewOfferLine } from "./offers-parts";
 import { Banner, Chips, cx, FieldRow, Group, InlineInput, Row, Stepper, useToast } from "./ui";
 
@@ -26,11 +27,13 @@ export interface Draft {
   timeFrom: string;
   timeTo: string;
   notes: string;
+  /** Sales Needed simulator inputs; never prices */
+  assumptions: OfferAssumptions;
   lines: NewOfferLine[];
 }
 
 export function emptyDraft(venueId: number | null, kind: OfferKind = "combo"): Draft {
-  return { name: "", kind, venueId, price: "", target: "", status: "draft", startsOn: "", endsOn: "", days: [], timeFrom: "", timeTo: "", notes: "", lines: [] };
+  return { name: "", kind, venueId, price: "", target: "", status: "draft", startsOn: "", endsOn: "", days: [], timeFrom: "", timeTo: "", notes: "", assumptions: {}, lines: [] };
 }
 
 export function draftFromOffer(o: Offer, lines: OfferLine[]): Draft {
@@ -47,6 +50,7 @@ export function draftFromOffer(o: Offer, lines: OfferLine[]): Draft {
     timeFrom: (o.time_from ?? "").slice(0, 5),
     timeTo: (o.time_to ?? "").slice(0, 5),
     notes: o.notes ?? "",
+    assumptions: o.assumptions ?? {},
     lines: [...lines].sort((a, b) => a.sort - b.sort).map(({ id: _i, offer_id: _o, ...l }) => l),
   };
 }
@@ -66,6 +70,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
+  const setAssumptions = (p: Partial<OfferAssumptions>) => setD((x) => ({ ...x, assumptions: { ...x.assumptions, ...p } }));
   const dirty = JSON.stringify(d) !== base;
   const venue = d.venueId != null ? store.venueById.get(d.venueId) : undefined;
   const saved = offerId ? store.offers.find((o) => o.id === offerId) : undefined;
@@ -77,6 +82,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
     () => costOffer({ price_inc: price, target_override: targetOverride }, liveLines, { itemCosts: store.itemCosts, settings: store.settings }),
     [price, targetOverride, liveLines, store.itemCosts, store.settings],
   );
+  const simInput = useMemo(() => simInputFrom(c, d.assumptions, store.settings.gst_rate), [c, d.assumptions, store.settings.gst_rate]);
   const savedCost = offerId ? store.offerCosts.get(offerId) : undefined;
   const windowKind = d.kind !== "combo";
   const canSave = !!d.name.trim() && d.venueId != null && d.lines.length > 0 && !busy;
@@ -107,6 +113,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
       time_from: windowKind && d.timeFrom ? d.timeFrom : null,
       time_to: windowKind && d.timeTo ? d.timeTo : null,
       notes: d.notes.trim() || null,
+      assumptions: d.assumptions,
     };
     try {
       if (offerId) {
@@ -156,7 +163,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
       {error ? <Banner>{error}</Banner> : null}
 
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-x-8 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div>
+        <div className="lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <input className="field !text-[20px] font-semibold" placeholder="Name, e.g. Pot And Parma" value={d.name} onChange={(e) => set({ name: e.target.value })} aria-label="Offer name" />
 
           <p className="section-label !px-1 mt-5">Type</p>
@@ -225,8 +232,8 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
           <textarea className="field min-h-[72px]" placeholder="Anything the team should know" value={d.notes} onChange={(e) => set({ notes: e.target.value })} aria-label="Notes" />
         </div>
 
-        <div className="mt-6 lg:mt-0">
-          <div className="lg:sticky lg:top-6">
+        <div className="mt-6 lg:col-start-2 lg:row-start-1 lg:mt-0">
+          <div>
             <section className="rounded-2xl bg-surface px-4 py-4" aria-label="Offer totals">
               <p className="eyebrow text-[12px] text-label-2">Impact Before Saving</p>
               <p className={cx("display mt-1 text-[64px] leading-none tnum", c.gpPct == null ? "text-label-3" : good ? "text-good" : "text-danger")}>{gp(c.gpPct)}</p>
@@ -281,10 +288,11 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
                     {c.ladder.map((s) => {
                       const sel = price != null && Math.abs(price - s.price) < 0.005;
                       return (
-                        <button key={s.price} type="button" aria-pressed={sel} onClick={() => set({ price: s.price.toFixed(2) })} className={cx("flex min-h-[56px] min-w-[80px] shrink-0 flex-col items-center justify-center rounded-xl px-3 py-1.5 active:opacity-70", s.meetsTarget ? "bg-good-soft text-good" : "bg-danger-soft text-danger", sel && "ring-2 ring-accent")}>
+                        <button key={s.price} type="button" aria-pressed={sel} onClick={() => set({ price: s.price.toFixed(2) })} className={cx("flex min-h-[64px] min-w-[96px] shrink-0 flex-col items-center justify-center rounded-xl px-3 py-1.5 active:opacity-70", s.meetsTarget ? "bg-good-soft text-good" : "bg-danger-soft text-danger", sel && "ring-2 ring-accent")}>
                           <span className="text-[11px] font-semibold uppercase leading-none tracking-wide">{s.isSuggested ? "Suggested" : s.meetsTarget ? " " : "Below"}</span>
                           <span className="mt-1 text-[17px] font-semibold leading-tight tnum">{money(s.price)}</span>
                           <span className="text-[13px] leading-tight tnum">GP {gp(s.gpPct, !s.meetsTarget && Math.round(s.gpPct * 100) >= Math.round(c.targetGp * 100) ? 1 : 0)}</span>
+                          <span className="mt-0.5 text-[11px] leading-tight opacity-90 tnum">{priceBreakEvenLabel(simInput, s.price) || " "}</span>
                         </button>
                       );
                     })}
@@ -297,7 +305,15 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
               </button>
               {!canSave && !busy ? <p className="mt-1.5 text-center text-[13px] text-label-2">Add a name and at least one component to save.</p> : null}
             </section>
+          </div>
+        </div>
 
+        <div className="lg:col-span-2 lg:row-start-3">
+          <OfferSimulator cost={c} kind={d.kind} gstRate={store.settings.gst_rate} assumptions={d.assumptions} onChange={setAssumptions} unsaved={store.assumptionsUnsaved} />
+        </div>
+
+        <div className="lg:col-start-2 lg:row-start-2">
+          <div>
             <p className="section-label !px-1 mt-6">Status</p>
             <Chips ariaLabel="Status" value={d.status} onChange={(s) => void changeStatus(s)} options={OFFER_STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
             <p className="px-1 pt-1.5 text-[13px] text-label-2">

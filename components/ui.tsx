@@ -300,11 +300,11 @@ export function Toggle({ checked, onChange, label, sub }: { checked: boolean; on
 export function Stepper({ value, onChange, min = 1, step = 1, format }: { value: number; onChange: (v: number) => void; min?: number; step?: number; format?: (v: number) => string }) {
   return (
     <div className="inline-flex items-center rounded-full bg-fill">
-      <button type="button" aria-label="Decrease" className="flex h-9 w-10 items-center justify-center text-[20px] font-medium text-label disabled:opacity-30" disabled={value - step < min} onClick={() => onChange(Math.max(min, Math.round((value - step) * 1000) / 1000))}>
+      <button type="button" aria-label="Decrease" className="flex h-11 w-11 items-center justify-center text-[20px] font-medium text-label disabled:opacity-30 sm:h-9 sm:w-10" disabled={value - step < min} onClick={() => onChange(Math.max(min, Math.round((value - step) * 1000) / 1000))}>
         −
       </button>
       <span className="min-w-[1.75rem] text-center text-[15px] font-semibold tnum">{format ? format(value) : value}</span>
-      <button type="button" aria-label="Increase" className="flex h-9 w-10 items-center justify-center text-[20px] font-medium text-label" onClick={() => onChange(Math.round((value + step) * 1000) / 1000)}>
+      <button type="button" aria-label="Increase" className="flex h-11 w-11 items-center justify-center text-[20px] font-medium text-label sm:h-9 sm:w-10" onClick={() => onChange(Math.round((value + step) * 1000) / 1000)}>
         +
       </button>
     </div>

@@ -345,6 +345,8 @@ create table if not exists public.cost_offers (
   updated_at timestamptz not null default now()
 );
 create index if not exists cost_offers_venue_status_idx on public.cost_offers (venue_id, status);
+-- Sales Needed simulator inputs (mirrors supabase/migrations/20260926150000_offer_assumptions.sql). Not prices.
+alter table public.cost_offers add column if not exists assumptions jsonb not null default '{}'::jsonb;
 
 create table if not exists public.cost_offer_lines (
   id uuid primary key default gen_random_uuid(),

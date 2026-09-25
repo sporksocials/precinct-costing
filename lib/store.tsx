@@ -183,6 +183,8 @@ export interface StoreValue extends StoreData {
   itemCosts: Map<string, ItemCost>;
   /** costing of every offer (id -> OfferCost), from the same itemCosts as the menu */
   offerCosts: Map<string, OfferCost>;
+  /** true when saving offer assumptions failed because cost_offers.assumptions is not there yet; they live in this session only */
+  assumptionsUnsaved: boolean;
   /** supplier deals grouped by ingredient id */
   dealsByIngredient: Map<string, IngredientDeal[]>;
   prepCosts: Map<string, PrepCost>;
@@ -225,6 +227,11 @@ export interface StoreValue extends StoreData {
   addDeal: (deal: Omit<IngredientDeal, "id">) => Promise<string>;
   updateDeal: (id: string, patch: Partial<IngredientDeal>) => Promise<void>;
   deleteDeal: (id: string) => Promise<void>;
+}
+
+/** PostgREST / Postgres error text when cost_offers.assumptions has not been added yet. */
+function isMissingAssumptionsColumn(message: string): boolean {
+  return /assumptions/i.test(message);
 }
 
 const empty: StoreData = {
@@ -278,6 +285,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [portalPrices, setPortalPrices] = useState<PortalPrice[] | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [assumptionsUnsaved, setAssumptionsUnsaved] = useState(false);
   const portalLoading = useRef(false);
   const loadedOnce = useRef(false);
   const serverLoaded = useRef(false);
@@ -799,7 +807,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (o: Omit<Offer, "id" | "created_at" | "updated_at">, lines: Omit<OfferLine, "id" | "offer_id">[]) => {
       const id = newId();
       const row: Offer = { ...o, id };
-      const { error } = await sb.from("cost_offers").insert(row);
+      let { error } = await sb.from("cost_offers").insert(row);
+      if (error && isMissingAssumptionsColumn(error.message)) {
+        // the assumptions column is not there yet: save the offer without it and keep the assumptions in local state
+        const { assumptions: _a, ...bare } = row;
+        setAssumptionsUnsaved(true);
+        ({ error } = await sb.from("cost_offers").insert(bare));
+      }
       if (error) throw new Error(error.message);
       const newLines: OfferLine[] = lines.map((l, i) => ({ ...l, id: newId(), offer_id: id, sort: i + 1, qty: Number(l.qty) || 1 }));
       if (newLines.length) {
@@ -817,7 +831,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateOffer = useCallback(
     async (id: string, patch: Partial<Offer>) => {
-      const { error } = await sb.from("cost_offers").update(patch).eq("id", id);
+      let { error } = await sb.from("cost_offers").update(patch).eq("id", id);
+      if (error && "assumptions" in patch && isMissingAssumptionsColumn(error.message)) {
+        // keep the rest of the save, hold the assumptions in local state, and say so
+        const { assumptions: _a, ...bare } = patch;
+        setAssumptionsUnsaved(true);
+        ({ error } = await sb.from("cost_offers").update(bare).eq("id", id));
+      }
       if (error) throw new Error(error.message);
       setData((d) => ({ ...d, offers: d.offers.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
     },
@@ -918,6 +938,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     error,
     portalPrices,
     portalError,
+    assumptionsUnsaved,
     loadPortalPrices,
     userEmail,
     accessDenied,

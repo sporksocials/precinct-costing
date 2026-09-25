@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense } from "react";
-import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settings, Store } from "lucide-react";
+import { BookOpen, Carrot, Ellipsis, House, IceCreamCone, LogOut, Search, Settings, Store, Tag } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -14,6 +14,7 @@ const MAIN = [
   { href: "/", label: "Home", icon: House },
   { href: "/recipes", label: "Recipes", icon: BookOpen },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
+  { href: "/specials", label: "Specials", icon: Tag },
 ];
 const MORE = [
   { href: "/gelato", label: "Gelato", icon: IceCreamCone },
@@ -86,7 +87,7 @@ export function hidesTabBar(pathname: string) {
 function TabBar() {
   const pathname = usePathname();
   if (hidesTabBar(pathname)) return null;
-  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more";
+  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials");
   return (
     <nav className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden" aria-label="Main">
       <div className="mx-auto flex h-[50px] max-w-lg items-stretch">

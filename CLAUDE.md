@@ -6,7 +6,7 @@ Live: https://precinct-costing.vercel.app — pushes to `main` auto-deploy on Ve
 ## How to work here
 - Act as the orchestrator. Split any job with independent parts across parallel subagents (use worktrees when they touch different files), then review, merge, and run the checks below yourself before committing.
 - Make and own design calls; say what you decided and why. Don't ship something and wait for Troy to spot problems, and don't reply "I agree" to a flaw you introduced — fix it.
-- Before every commit: `npx tsc --noEmit`, `npm test` (vitest), `npm run build`. For UI changes, check both phone (390px) and desktop widths.
+- Before every commit: `npx tsc --noEmit`, `npm test` (vitest), `npm run build`. For UI changes, design and check BOTH phone (390px) and desktop widths every time, including small requests and subagent briefs; never ship one and leave the other behind (Troy's standing rule).
 - Commit and push to `main` when the checks pass, then confirm the Vercel deploy is READY.
 - Keep the repo clean: no scratch files, screenshots or exports committed.
 

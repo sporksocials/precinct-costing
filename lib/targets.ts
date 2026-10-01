@@ -1,19 +1,6 @@
 import type { ItemCost } from "@/lib/costing";
 import type { MenuItem, Target } from "@/lib/types";
 
-/** House guide per category (fraction). Shown as a hint beside each row; never written automatically. */
-export const GUIDE_GP: Record<string, number> = {
-  Food: 0.7,
-  Cocktail: 0.75,
-  Mocktail: 0.8,
-  Gelato: 0.72,
-  "Tap Beer": 0.7,
-  "Packaged Beer & Cider": 0.7,
-  Wine: 0.8,
-  Spirits: 0.7,
-  RTD: 0.7,
-};
-
 export interface TargetCell {
   venueId: number;
   category: string;

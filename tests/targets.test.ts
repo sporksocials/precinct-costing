@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { GUIDE_GP, targetGrid } from "@/lib/targets";
-import { MENU_CATEGORIES, type MenuItem, type Target } from "@/lib/types";
+import { targetGrid } from "@/lib/targets";
+import type { MenuItem, Target } from "@/lib/types";
 
 const item = (id: string, venue_id: number, category: string): Pick<MenuItem, "id" | "venue_id" | "category"> => ({
   id,
@@ -64,15 +64,5 @@ describe("targetGrid counts", () => {
   it("counts items with a missing itemCosts entry as not under", () => {
     const g = targetGrid([1], ["Food"], [], [item("p", 1, "Food"), item("q", 1, "Food")], costs({ p: true }));
     expect(g[0][0]).toMatchObject({ items: 2, under: 1 });
-  });
-});
-
-describe("GUIDE_GP", () => {
-  it("has a value for every menu category", () => {
-    for (const category of MENU_CATEGORIES) {
-      expect(typeof GUIDE_GP[category]).toBe("number");
-      expect(GUIDE_GP[category]).toBeGreaterThan(0);
-      expect(GUIDE_GP[category]).toBeLessThan(1);
-    }
   });
 });

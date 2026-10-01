@@ -313,9 +313,9 @@ describe("(m) duplicate ingredient names", () => {
     expect(r).toHaveLength(1);
     expect(r[0].detail).toContain("2 ingredients");
   });
-  it("does not match the same name at different venue scopes", () => {
-    const d = clean({ ingredients: [ing("a", { name: "Cream", venues: "Drift" }), ing("b", { name: "Cream", venues: "Chiobu" })] });
-    expect(codes(run(d))).not.toContain("duplicate_ingredient");
+  it("matches the same name regardless of the venues field (one shared catalogue)", () => {
+    const d = clean({ ingredients: [ing("a", { name: "Cream", venues: "All" }), ing("b", { name: "Cream", venues: "All" })] });
+    expect(codes(run(d))).toContain("duplicate_ingredient");
   });
   it("normaliseName collapses odd spaces", () => {
     expect(normaliseName("  Sea  Salt ")).toBe("sea salt");

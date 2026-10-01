@@ -263,9 +263,6 @@ export interface StoreValue extends StoreData {
   insertIngredient: (ing: Omit<Ingredient, "id" | "updated_at">) => Promise<string>;
   updateSetting: (key: keyof CostingSettings, value: number) => Promise<void>;
   upsertTarget: (venueId: number, category: string, targetGp: number) => Promise<void>;
-  insertSpecial: (s: Omit<Special, "id">) => Promise<void>;
-  updateSpecial: (id: number, patch: Partial<Special>) => Promise<void>;
-  deleteSpecial: (id: number) => Promise<void>;
   addAllowedUser: (email: string) => Promise<void>;
   removeAllowedUser: (email: string) => Promise<void>;
   insertServe: (s: Omit<GelatoServe, "id">) => Promise<string>;
@@ -1154,34 +1151,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
-  const insertSpecial = useCallback(
-    async (s: Omit<Special, "id">) => {
-      // cost_specials.id is a serial: the database assigns it, so the row is read back from the insert
-      const { data: rows, error } = await insertRow(sb, "cost_specials", s).select("*");
-      if (error) throw new Error(error.message);
-      const row = rows?.[0] as Special | undefined;
-      if (!row) throw new Error(NOT_SAVED);
-      setData((d) => ({ ...d, specials: [...d.specials, row] }));
-    },
-    [sb, setData],
-  );
-
-  const updateSpecial = useCallback(
-    async (id: number, patch: Partial<Special>) => {
-      await updateOne(sb, "cost_specials", "id", id, patch);
-      setData((d) => ({ ...d, specials: d.specials.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
-    },
-    [sb, setData],
-  );
-
-  const deleteSpecial = useCallback(
-    async (id: number) => {
-      await deleteOne(sb, "cost_specials", "id", id);
-      setData((d) => ({ ...d, specials: d.specials.filter((s) => s.id !== id) }));
-    },
-    [sb, setData],
-  );
-
   const addAllowedUser = useCallback(
     async (email: string) => {
       const clean = email.trim().toLowerCase();
@@ -1483,9 +1452,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     insertIngredient,
     updateSetting,
     upsertTarget,
-    insertSpecial,
-    updateSpecial,
-    deleteSpecial,
     addAllowedUser,
     removeAllowedUser,
     insertServe,

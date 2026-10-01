@@ -208,14 +208,10 @@ function itemIssue(ctx: Ctx, code: string, item: MenuItem, detail: string, sever
 function prepIssue(ctx: Ctx, code: string, prep: Prep, detail: string, severity?: Severity): Issue {
   return makeIssue(code, { kind: "prep", id: prep.id, name: prep.name, detail, severity, venue: prep.venue_id != null ? ctx.venueSlug.get(prep.venue_id) : undefined });
 }
-function ingredientVenue(ctx: Ctx, ing: Pick<Ingredient, "venues">): string | undefined {
-  const v = normaliseName(ing.venues);
-  if (!v) return undefined;
-  const hits = (ctx.data.venues ?? []).filter((x) => v.includes(x.slug) || v.includes(normaliseName(x.name)) || v.includes(normaliseName(x.name).split(" ")[0]));
-  return hits.length === 1 ? hits[0].slug : undefined;
-}
-function ingredientIssue(ctx: Ctx, code: string, ing: Ingredient, detail: string, severity?: Severity): Issue {
-  return makeIssue(code, { kind: "ingredient", id: ing.id, name: ing.name, detail, severity, venue: ingredientVenue(ctx, ing) });
+// Ingredients are one shared catalogue across every venue (Troy's call, 2 Oct 2026): cost_ingredients.venues
+// is always "All" now, so an ingredient issue never belongs to one venue tile; it shows under every one.
+function ingredientIssue(code: string, ing: Ingredient, detail: string, severity?: Severity): Issue {
+  return makeIssue(code, { kind: "ingredient", id: ing.id, name: ing.name, detail, severity });
 }
 
 /** The parent of a line as a record: name, kind and venue, or null when it does not exist. */
@@ -447,11 +443,11 @@ export function checkIngredients(ctx: Ctx): Issue[] {
     const size = num(ing.pack_size);
     const price = ing.pack_price == null ? NaN : num(ing.pack_price);
     const y = num(ing.yield_pct);
-    if (!(size > 0)) out.push(ingredientIssue(ctx, "ingredient_bad_pack_size", ing, `Pack size is ${ing.pack_size == null ? "blank" : ing.pack_size}, and this ingredient is used in recipes, so it costs $0 there.`));
-    if (!(price > 0)) out.push(ingredientIssue(ctx, "ingredient_bad_price", ing, `Pack price is ${ing.pack_price == null ? "blank" : money(price)}, and this ingredient is used in recipes, so it costs $0 there.`));
-    if (!(y > 0) || y > 1) out.push(ingredientIssue(ctx, "ingredient_bad_yield", ing, `Yield is ${Number.isFinite(y) ? `${Math.round(y * 1000) / 10}%` : "blank"}. It needs to be more than 0% and at most 100%.`));
+    if (!(size > 0)) out.push(ingredientIssue("ingredient_bad_pack_size", ing, `Pack size is ${ing.pack_size == null ? "blank" : ing.pack_size}, and this ingredient is used in recipes, so it costs $0 there.`));
+    if (!(price > 0)) out.push(ingredientIssue("ingredient_bad_price", ing, `Pack price is ${ing.pack_price == null ? "blank" : money(price)}, and this ingredient is used in recipes, so it costs $0 there.`));
+    if (!(y > 0) || y > 1) out.push(ingredientIssue("ingredient_bad_yield", ing, `Yield is ${Number.isFinite(y) ? `${Math.round(y * 1000) / 10}%` : "blank"}. It needs to be more than 0% and at most 100%.`));
     const rebate = num(ing.rebate) || 0;
-    if (price > 0 && size > 0 && y > 0 && y <= 1 && rebate >= price) out.push(ingredientIssue(ctx, "ingredient_negative_cost", ing, `The rebate (${money(rebate)}) is as large as the pack price (${money(price)}), so it costs nothing.`));
+    if (price > 0 && size > 0 && y > 0 && y <= 1 && rebate >= price) out.push(ingredientIssue("ingredient_negative_cost", ing, `The rebate (${money(rebate)}) is as large as the pack price (${money(price)}), so it costs nothing.`));
   }
   return out;
 }
@@ -521,7 +517,7 @@ export function checkInactiveInUse(ctx: Ctx): Issue[] {
     const what = `${plural(s.size, "active recipe")}`;
     if (type === "ingredient") {
       const ing = ctx.ingredients.get(id)!;
-      out.push(ingredientIssue(ctx, "inactive_in_use", ing, `This ingredient is switched off but ${what} still use${s.size === 1 ? "s" : ""} it.`));
+      out.push(ingredientIssue("inactive_in_use", ing, `This ingredient is switched off but ${what} still use${s.size === 1 ? "s" : ""} it.`));
     } else {
       const p = ctx.preps.get(id)!;
       out.push(prepIssue(ctx, "inactive_in_use", p, `This prep is switched off but ${what} still use${s.size === 1 ? "s" : ""} it.`));
@@ -530,22 +526,22 @@ export function checkInactiveInUse(ctx: Ctx): Issue[] {
   return out;
 }
 
-/** (m) two ingredients with the same name (ignoring case and spacing) in the same venue scope. */
+/** (m) two ingredients with the same name (ignoring case and spacing). Ingredients are one shared catalogue
+ *  across every venue (Troy's call, 2 Oct 2026), so any match anywhere is a real duplicate, full stop. */
 export function checkDuplicateIngredients(ctx: Ctx): Issue[] {
   const groups = new Map<string, Ingredient[]>();
   for (const ing of ctx.data.ingredients) {
     const n = normaliseName(ing.name);
     if (!n) continue;
-    const key = `${n}|${normaliseName(ing.venues)}`;
-    const g = groups.get(key);
+    const g = groups.get(n);
     if (g) g.push(ing);
-    else groups.set(key, [ing]);
+    else groups.set(n, [ing]);
   }
   const out: Issue[] = [];
   for (const g of groups.values()) {
     if (g.length < 2) continue;
     const first = g[0];
-    out.push(ingredientIssue(ctx, "duplicate_ingredient", first, `${g.length} ingredients share this name${first.venues ? ` at ${first.venues}` : ""}. Keep one and move recipes across, or rename them so it is clear which is which.`));
+    out.push(ingredientIssue("duplicate_ingredient", first, `${g.length} ingredients share this name. Keep one and move recipes across, or rename them so it is clear which is which.`));
   }
   return out;
 }
@@ -642,9 +638,9 @@ export function checkDeals(ctx: Ctx): Issue[] {
       out.push(makeIssue("deal_orphan", { kind: "ingredient", id: d.ingredient_id, name: "Deleted ingredient", fixHref: "/ingredients", detail: "A deal is switched on for an ingredient that no longer exists." }));
       continue;
     }
-    if (dealStatus(d, ctx.today) === "expired") out.push(ingredientIssue(ctx, "deal_expired_active", ing, `A deal ended on ${d.ends_on} but is still switched on. Switch it off or set new dates.`));
+    if (dealStatus(d, ctx.today) === "expired") out.push(ingredientIssue("deal_expired_active", ing, `A deal ended on ${d.ends_on} but is still switched on. Switch it off or set new dates.`));
     const base = num(ing.pack_price) > 0 ? num(ing.pack_price) : 1;
-    if (dealPackPrice(base, d) == null) out.push(ingredientIssue(ctx, "deal_bad_price", ing, "A switched-on deal works out to a price of $0 or less, or is missing its numbers, so the app ignores it."));
+    if (dealPackPrice(base, d) == null) out.push(ingredientIssue("deal_bad_price", ing, "A switched-on deal works out to a price of $0 or less, or is missing its numbers, so the app ignores it."));
   }
   return out;
 }

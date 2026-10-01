@@ -58,7 +58,8 @@ export interface Ingredient {
   gst_free: boolean;
   rebate: number;
   yield_pct: number;
-  venues: string | null;
+  /** cost_ingredients.venues is NOT NULL (DB default 'All'); never assign null here. */
+  venues: string;
   active: boolean;
   last_price_update: string | null;
   previous_price: number | null;

@@ -21,7 +21,7 @@ const TODAY = "2026-09-25";
 
 const ing = (id: string, over: Partial<Ingredient> = {}): Ingredient => ({
   id, name: `Ing ${id}`, category: "Food", supplier_id: null, supplier_code: null, pack_size: 1, pack_unit: "kg", pack_price: 10,
-  price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 1, venues: null, active: true, last_price_update: null,
+  price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 1, venues: "All", active: true, last_price_update: null,
   previous_price: null, source: null, notes: null, updated_at: null, ...over,
 });
 const prep = (id: string, over: Partial<Prep> = {}): Prep => ({ id, name: `Prep ${id}`, venue_id: 1, prep_type: null, yield_qty: 1, yield_unit: "kg", active: true, source: null, notes: null, ...over });

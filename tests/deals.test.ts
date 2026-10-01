@@ -37,7 +37,7 @@ const ing = (over: Partial<Ingredient> = {}): Ingredient => ({
   gst_free: true,
   rebate: 0,
   yield_pct: 1,
-  venues: null,
+  venues: "All",
   active: true,
   last_price_update: null,
   previous_price: null,

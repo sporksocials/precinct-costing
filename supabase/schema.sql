@@ -48,7 +48,7 @@ create table if not exists public.cost_ingredients (
   gst_free boolean not null default false,
   rebate numeric not null default 0,
   yield_pct numeric not null default 1,
-  venues text,
+  venues text not null default 'All', -- was wrongly documented as nullable here; live DB has always enforced NOT NULL
   active boolean not null default true,
   last_price_update date,
   previous_price numeric,

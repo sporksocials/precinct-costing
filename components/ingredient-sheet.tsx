@@ -12,6 +12,8 @@ export type IngredientDraft = Omit<Ingredient, "id" | "updated_at">;
 
 /** `cost_ingredients.category` is NOT NULL (default 'Food'); the app must never send an explicit null for it. */
 export const DEFAULT_INGREDIENT_CATEGORY = "Food";
+/** `cost_ingredients.venues` is NOT NULL (default 'All'); same rule. There is no UI to edit this field yet. */
+export const DEFAULT_INGREDIENT_VENUES = "All";
 
 export function blankIngredient(over: Partial<IngredientDraft> = {}): IngredientDraft {
   return {
@@ -26,7 +28,7 @@ export function blankIngredient(over: Partial<IngredientDraft> = {}): Ingredient
     gst_free: false,
     rebate: 0,
     yield_pct: 1,
-    venues: null,
+    venues: DEFAULT_INGREDIENT_VENUES,
     active: true,
     last_price_update: null,
     previous_price: null,

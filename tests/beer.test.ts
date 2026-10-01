@@ -4,7 +4,7 @@ import { beerItemId, buildBeer, parseBeerItemId } from "@/lib/beer";
 import { isVirtualItemId, parseVirtualItemId } from "@/lib/gelato";
 import { DEFAULT_SETTINGS, type Beer, type BeerPrice, type BeerServe, type Ingredient } from "@/lib/types";
 
-const keg = { id: "keg", name: "XXXX Gold keg", category: "Food", supplier_id: null, supplier_code: null, pack_size: 50, pack_unit: "L", pack_price: 300, price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 0.99, venues: null, active: true, last_price_update: null, previous_price: null, source: null, notes: null, updated_at: null } as Ingredient;
+const keg = { id: "keg", name: "XXXX Gold keg", category: "Food", supplier_id: null, supplier_code: null, pack_size: 50, pack_unit: "L", pack_price: 300, price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 0.99, venues: "All", active: true, last_price_update: null, previous_price: null, source: null, notes: null, updated_at: null } as Ingredient;
 const serves: BeerServe[] = [
   { id: "pot", name: "Pot", sort: 1, ml: 285, active: true },
   { id: "sch", name: "Schooner", sort: 2, ml: 425, active: true },

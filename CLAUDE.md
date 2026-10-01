@@ -19,6 +19,7 @@ Live: https://precinct-costing.vercel.app — pushes to `main` auto-deploy on Ve
 - Database: Supabase project `precinct-costing`, ref `epktnpxjlkweyozpsvyr` (Sydney). Only use this project. Do NOT touch the `spork-ops` project (nagspgiqaenrzftmjejk) or its Site URL.
 - Before any bulk data change: back up the affected tables into the `backup` schema (`backup.<table>_<yyyymmdd>`). Delete data only with Troy's explicit OK.
 - Schema changes: apply as a migration AND mirror them in `supabase/schema.sql`. All `cost_*` tables use RLS via `cost_is_allowed()` (emails in `cost_allowed_users`).
+- **Every insert goes through `insertRow`/`insertRows` in `lib/store.tsx`, never `sb.from(table).insert(...)` directly.** They strip null/undefined keys before sending, so a NOT NULL column with a server-side default (category, venues, and others — see `withoutNulls`'s doc comment) gets that default instead of a hard failure. This bit twice on cost_ingredients (category, then venues) before the guard existed; don't reintroduce a raw `.insert(`. When auditing "could this field ever be null", check the LIVE database's `information_schema.columns` (`is_nullable`, `column_default`), not just `supabase/schema.sql` — that file has drifted from production before.
 
 ## Stack
 Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailwind, Supabase JS, lucide-react, vitest.

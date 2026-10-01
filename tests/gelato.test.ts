@@ -9,7 +9,7 @@ const venues: Venue[] = [
 ];
 const ing = (id: string, name: string, pack_size: number, pack_unit: Ingredient["pack_unit"], pack_price: number): Ingredient => ({
   id, name, category: "Food", supplier_id: null, supplier_code: null, pack_size, pack_unit, pack_price, price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 1,
-  venues: null, active: true, last_price_update: null, previous_price: null, source: null, notes: null, updated_at: null,
+  venues: "All", active: true, last_price_update: null, previous_price: null, source: null, notes: null, updated_at: null,
 } as Ingredient);
 const ingredients = [ing("base", "Base", 1, "kg", 5), ing("cup", "Cup", 1, "each", 0.1), ing("spoon", "Spoon", 1, "each", 0.02)];
 const prep = (id: string, name: string, over: Partial<Prep> = {}): Prep => ({ id, name, venue_id: 4, prep_type: "Gelato flavour mix", yield_qty: 1, yield_unit: "kg", active: true, source: null, notes: null, ...over });

@@ -22,7 +22,7 @@ const deal = (over: Partial<IngredientDeal>): IngredientDeal => ({
 });
 const ing = (): Ingredient => ({
   id: "keg", name: "Keg", category: "Food", supplier_id: null, supplier_code: null, pack_size: 50, pack_unit: "L", pack_price: 400,
-  price_inc_gst: false, gst_free: true, rebate: 0, yield_pct: 1, venues: null, active: true, last_price_update: null, previous_price: null,
+  price_inc_gst: false, gst_free: true, rebate: 0, yield_pct: 1, venues: "All", active: true, last_price_update: null, previous_price: null,
   source: null, notes: null, updated_at: null,
 });
 const line: RecipeLine = { id: "l1", parent_type: "item", parent_id: "it1", component_type: "ingredient", component_id: "keg", qty: 1, unit: "L", note: null, sort: 1 };

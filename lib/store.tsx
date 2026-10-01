@@ -489,6 +489,39 @@ function assertSaved(rows: unknown[] | null, expected = 1) {
   if (!rows || rows.length < expected) throw new Error(NOT_SAVED);
 }
 
+/**
+ * Drops every null/undefined key from a row before an INSERT. This is the one structural guard against
+ * "null value in column X violates not-null constraint" (hit twice on cost_ingredients: category, then
+ * venues): a column that is NOT NULL with a server-side default (category -> 'Food', venues -> 'All', and
+ * the same pattern on several other tables) only applies that default when the key is ABSENT from the
+ * insert payload. Supabase sends whatever key/value pairs the row object has, so a draft that explicitly
+ * carries `field: null` for such a column always fails, even though the column has a perfectly good
+ * default. Omitting the key instead lets Postgres's own default apply, exactly as if the UI had never
+ * had an opinion on that field. For a column that is NOT NULL with NO default (e.g. name), this changes
+ * nothing: the key is still required and Postgres still (correctly) rejects a genuinely missing value.
+ * EVERY insert() in this file must go through this (or insertRow below), not call `.insert(row)` directly,
+ * so a future table/column can't reintroduce this bug the way category and venues did.
+ */
+export function withoutNulls<T extends object>(row: T): T {
+  const out = {} as T;
+  for (const k of Object.keys(row) as (keyof T)[]) {
+    const v = row[k];
+    if (v !== null && v !== undefined) out[k] = v;
+  }
+  // still "shaped like T" at runtime for every row the app actually builds (every required field is a real
+  // value; only genuinely-nullable-with-a-DB-default fields are ever candidates for omission here).
+  return out;
+}
+
+// Not async: callers chain .select() (or just await it directly) the same way they would on a plain .insert(...).
+function insertRow<T extends object>(sb: SupabaseClient, table: string, row: T) {
+  return sb.from(table).insert(withoutNulls(row));
+}
+
+function insertRows<T extends object>(sb: SupabaseClient, table: string, rows: T[]) {
+  return sb.from(table).insert(rows.map(withoutNulls));
+}
+
 async function updateOne(sb: SupabaseClient, table: string, col: string, val: string | number, patch: object) {
   const { data: rows, error } = await sb.from(table).update(patch).eq(col, val).select(col);
   if (error) throw new Error(error.message);
@@ -899,11 +932,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (item: Omit<MenuItem, "id">, lines: Omit<RecipeLine, "id" | "parent_id" | "parent_type">[]) => {
       const id = newId();
       const row: MenuItem = { ...item, id };
-      const { error } = await sb.from("cost_menu_items").insert(row);
+      const { error } = await insertRow(sb, "cost_menu_items", row);
       if (error) throw new Error(error.message);
       const newLines: RecipeLine[] = lines.map((l) => ({ ...l, id: newId(), parent_type: "item", parent_id: id }));
       if (newLines.length) {
-        const { error: e2 } = await sb.from("cost_recipe_lines").insert(newLines);
+        const { error: e2 } = await insertRows(sb, "cost_recipe_lines", newLines);
         if (e2) {
           // don't leave a dish with no recipe behind
           const { error: e3 } = await sb.from("cost_menu_items").delete().eq("id", id);
@@ -949,7 +982,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (prep: Omit<Prep, "id">) => {
       const id = newId();
       const row: Prep = { ...prep, id };
-      const { error } = await sb.from("cost_preps").insert(row);
+      const { error } = await insertRow(sb, "cost_preps", row);
       if (error) throw new Error(error.message);
       setData((d) => ({ ...d, preps: [...d.preps, row] }));
       return id;
@@ -1016,10 +1049,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setData((d) => ({ ...d, ingredients: d.ingredients.map((i) => (i.id === id ? (fresh ?? { ...i, last_price_update: brisbaneToday() }) : i)) }));
       // history entry (same price on both sides); the confirmation itself is already saved if this fails
       let logId: number | null = null;
-      const { data: logRows } = await sb
-        .from("cost_price_log")
-        .insert({ ingredient_id: id, changed_at: new Date().toISOString(), old_price: ing.pack_price, new_price: ing.pack_price, source: "Price confirmed", entered_by: userEmail })
-        .select("*");
+      const { data: logRows } = await insertRow(sb, "cost_price_log", {
+        ingredient_id: id,
+        changed_at: new Date().toISOString(),
+        old_price: ing.pack_price,
+        new_price: ing.pack_price,
+        source: "Price confirmed",
+        entered_by: userEmail,
+      }).select("*");
       const log = logRows?.[0] as PriceLog | undefined;
       if (log) {
         logId = log.id;
@@ -1080,7 +1117,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const id = newId();
       // cost_ingredients.category is NOT NULL; never send an explicit null even if a caller forgot to set one.
       const row = { ...ing, category: ing.category?.trim() || "Food", id };
-      const { data: rows, error } = await sb.from("cost_ingredients").insert(row).select("*");
+      const { data: rows, error } = await insertRow(sb, "cost_ingredients", row).select("*");
       if (error) throw new Error(error.message);
       const fresh = rows?.[0] as Ingredient | undefined;
       if (!fresh) throw new Error(NOT_SAVED);
@@ -1120,7 +1157,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const insertSpecial = useCallback(
     async (s: Omit<Special, "id">) => {
       // cost_specials.id is a serial: the database assigns it, so the row is read back from the insert
-      const { data: rows, error } = await sb.from("cost_specials").insert(s).select("*");
+      const { data: rows, error } = await insertRow(sb, "cost_specials", s).select("*");
       if (error) throw new Error(error.message);
       const row = rows?.[0] as Special | undefined;
       if (!row) throw new Error(NOT_SAVED);
@@ -1148,7 +1185,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const addAllowedUser = useCallback(
     async (email: string) => {
       const clean = email.trim().toLowerCase();
-      const { error } = await sb.from("cost_allowed_users").insert({ email: clean });
+      const { error } = await insertRow(sb, "cost_allowed_users", { email: clean });
       if (error) throw new Error(error.message);
       setData((d) => ({ ...d, allowedUsers: [...d.allowedUsers, { email: clean }].sort((a, b) => a.email.localeCompare(b.email)) }));
     },
@@ -1167,7 +1204,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (s: Omit<GelatoServe, "id">) => {
       const id = newId();
       const row: GelatoServe = { ...s, id };
-      const { error } = await sb.from("cost_gelato_serves").insert(row);
+      const { error } = await insertRow(sb, "cost_gelato_serves", row);
       if (error) throw new Error(error.message);
       setData((d) => ({ ...d, gelatoServes: [...d.gelatoServes, row] }));
       return id;
@@ -1216,11 +1253,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (b: Omit<Beer, "id">, prices: { serve_id: string; sell_price_inc: number | null }[]) => {
       const id = newId();
       const row: Beer = { ...b, id };
-      const { error } = await sb.from("cost_beers").insert(row);
+      const { error } = await insertRow(sb, "cost_beers", row);
       if (error) throw new Error(error.message);
       const priceRows: BeerPrice[] = prices.map((p) => ({ id: newId(), beer_id: id, serve_id: p.serve_id, sell_price_inc: p.sell_price_inc, hh_price_inc: null }));
       if (priceRows.length) {
-        const { error: e2 } = await sb.from("cost_beer_prices").insert(priceRows);
+        const { error: e2 } = await insertRows(sb, "cost_beer_prices", priceRows);
         if (e2) {
           // don't leave a beer with no prices behind (its price rows cascade)
           const { error: e3 } = await sb.from("cost_beers").delete().eq("id", id);
@@ -1273,17 +1310,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (o: Omit<Offer, "id" | "created_at" | "updated_at">, lines: Omit<OfferLine, "id" | "offer_id">[]) => {
       const id = newId();
       const row: Offer = { ...o, id };
-      let { error } = await sb.from("cost_offers").insert(row);
+      let { error } = await insertRow(sb, "cost_offers", row);
       if (error && isMissingAssumptionsColumn(error.message)) {
         // the assumptions column is not there yet: save the offer without it and keep the assumptions in local state
         const { assumptions: _a, ...bare } = row;
         setAssumptionsUnsaved(true);
-        ({ error } = await sb.from("cost_offers").insert(bare));
+        ({ error } = await insertRow(sb, "cost_offers", bare));
       }
       if (error) throw new Error(error.message);
       const newLines: OfferLine[] = lines.map((l, i) => ({ ...l, id: newId(), offer_id: id, sort: i + 1, qty: Number(l.qty) || 1 }));
       if (newLines.length) {
-        const { error: e2 } = await sb.from("cost_offer_lines").insert(newLines);
+        const { error: e2 } = await insertRows(sb, "cost_offer_lines", newLines);
         if (e2) {
           const { error: e3 } = await sb.from("cost_offers").delete().eq("id", id); // don't leave an offer with no lines behind
           if (e3) await resync(["cost_offers", "cost_offer_lines"]);
@@ -1326,7 +1363,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const oldIds = dataRef.current.offerLines.filter((l) => l.offer_id === offerId).map((l) => l.id);
       // add the new lines first, then remove the old ones: a failure part way never leaves the offer without lines
       if (next.length) {
-        const { error } = await sb.from("cost_offer_lines").insert(next);
+        const { error } = await insertRows(sb, "cost_offer_lines", next);
         if (error) throw new Error(error.message);
       }
       if (oldIds.length) {
@@ -1363,7 +1400,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     async (deal: Omit<IngredientDeal, "id">) => {
       const row: IngredientDeal = { ...deal, id: newId() };
       setData((d) => ({ ...d, deals: [...d.deals, row] }));
-      const { error } = await sb.from("cost_ingredient_deals").insert(row);
+      const { error } = await insertRow(sb, "cost_ingredient_deals", row);
       if (error) {
         setData((d) => ({ ...d, deals: d.deals.filter((x) => x.id !== row.id) }));
         throw new Error(error.message);

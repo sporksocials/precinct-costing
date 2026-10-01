@@ -14,7 +14,9 @@ const SCALE_LABEL: Record<(typeof SCALES)[number], string> = { "0.8": "−20%", 
 
 /**
  * Try a price and a portion size without touching the recipe. Apply it to this dish, or save the
- * result as a special: a recipe of its own ("… (Special)") that can be priced and changed later.
+ * result as a new dish: a recipe of its own ("… (New)") that can be priced and changed later.
+ * Not to be confused with the Specials & Combos feature (cost_offers, app/(app)/specials) — this
+ * just forks a recipe, it does not create a time-boxed offer.
  */
 export function WhatIfSheet({
   cost,
@@ -45,14 +47,14 @@ export function WhatIfSheet({
   const suggested = useMemo(() => priceForGp(costNow, cost.targetGp, gst, store.settings.round_to), [costNow, cost.targetGp, gst, store.settings.round_to]);
   const changed = k !== 1 || (price ?? null) !== (cost.sellInc ?? null);
 
-  async function saveSpecial() {
+  async function saveAsNewDish() {
     setBusy(true);
     setError(null);
     try {
       const { id: _i, ...rest } = item;
       void _i;
       const id = await store.insertItem(
-        { ...rest, name: `${item.name} (Special)`, section: "Special", sell_price_inc: price, source: "what-if" },
+        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if" },
         lines.filter((l) => l.component_id).map((l, i) => ({ component_type: l.component_type, component_id: l.component_id, qty: Math.round(Number(l.qty) * k * 1000) / 1000, unit: l.unit, note: l.note, sort: i + 1 })),
       );
       onClose();
@@ -111,10 +113,10 @@ export function WhatIfSheet({
           <button type="button" className="btn-primary w-full" disabled={!changed} onClick={() => onApply(price, k)}>
             Apply to {item.name.length > 22 ? "This Dish" : item.name}
           </button>
-          <button type="button" className="btn-plain w-full" disabled={busy} onClick={() => void saveSpecial()}>
-            {busy ? "Saving…" : "Save as a Special"}
+          <button type="button" className="btn-plain w-full" disabled={busy} onClick={() => void saveAsNewDish()}>
+            {busy ? "Saving…" : "Save as New Dish"}
           </button>
-          <p className="px-1 pt-1 text-center text-[13px] text-label-2">A special is saved as its own recipe, so this dish stays as it is.</p>
+          <p className="px-1 pt-1 text-center text-[13px] text-label-2">Saved as its own recipe, so this dish stays as it is.</p>
         </div>
       </div>
     </Sheet>

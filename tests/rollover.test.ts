@@ -21,7 +21,7 @@ const deal = (over: Partial<IngredientDeal>): IngredientDeal => ({
   ...over,
 });
 const ing = (): Ingredient => ({
-  id: "keg", name: "Keg", category: null, supplier_id: null, supplier_code: null, pack_size: 50, pack_unit: "L", pack_price: 400,
+  id: "keg", name: "Keg", category: "Food", supplier_id: null, supplier_code: null, pack_size: 50, pack_unit: "L", pack_price: 400,
   price_inc_gst: false, gst_free: true, rebate: 0, yield_pct: 1, venues: null, active: true, last_price_update: null, previous_price: null,
   source: null, notes: null, updated_at: null,
 });

@@ -38,7 +38,7 @@ create table if not exists public.cost_suppliers (
 create table if not exists public.cost_ingredients (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
-  category text,
+  category text not null default 'Food', -- was wrongly documented as nullable here; live DB has always enforced NOT NULL
   supplier_id int references public.cost_suppliers (id),
   supplier_code text,
   pack_size numeric not null default 1,

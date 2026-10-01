@@ -21,3 +21,13 @@ describe("ingredient drafts never carry a null category", () => {
     expect(d.category).toBe(DEFAULT_INGREDIENT_CATEGORY);
   });
 });
+
+describe("the ingredient detail page never clears category to blank", () => {
+  it("falls back to Food when the Category field is committed empty", () => {
+    // mirrors app/(app)/ingredients/[id]/page.tsx's onCommit for the Category FieldRow
+    const onCommit = (t: string) => t.trim() || DEFAULT_INGREDIENT_CATEGORY;
+    expect(onCommit("")).toBe("Food");
+    expect(onCommit("   ")).toBe("Food");
+    expect(onCommit("Spirits")).toBe("Spirits");
+  });
+});

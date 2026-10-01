@@ -47,7 +47,8 @@ export interface Supplier {
 export interface Ingredient {
   id: string;
   name: string;
-  category: string | null;
+  /** cost_ingredients.category is NOT NULL (DB default 'Food'); never assign null here. */
+  category: string;
   supplier_id: number | null;
   supplier_code: string | null;
   pack_size: number;

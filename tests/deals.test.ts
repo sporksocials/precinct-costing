@@ -27,7 +27,7 @@ const bxgy = (buy: number, free: number, over: Partial<IngredientDeal> = {}) => 
 const ing = (over: Partial<Ingredient> = {}): Ingredient => ({
   id: "keg",
   name: "Keg",
-  category: null,
+  category: "Food",
   supplier_id: null,
   supplier_code: null,
   pack_size: 50,

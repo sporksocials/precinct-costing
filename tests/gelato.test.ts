@@ -8,7 +8,7 @@ const venues: Venue[] = [
   { id: 4, slug: "gelato", name: "Gelato Rumba" } as Venue,
 ];
 const ing = (id: string, name: string, pack_size: number, pack_unit: Ingredient["pack_unit"], pack_price: number): Ingredient => ({
-  id, name, category: null, supplier_id: null, supplier_code: null, pack_size, pack_unit, pack_price, price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 1,
+  id, name, category: "Food", supplier_id: null, supplier_code: null, pack_size, pack_unit, pack_price, price_inc_gst: false, gst_free: false, rebate: 0, yield_pct: 1,
   venues: null, active: true, last_price_update: null, previous_price: null, source: null, notes: null, updated_at: null,
 } as Ingredient);
 const ingredients = [ing("base", "Base", 1, "kg", 5), ing("cup", "Cup", 1, "each", 0.1), ing("spoon", "Spoon", 1, "each", 0.02)];

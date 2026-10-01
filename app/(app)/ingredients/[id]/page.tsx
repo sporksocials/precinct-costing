@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ReviewSheet } from "@/components/price-review";
 import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
+import { DEFAULT_INGREDIENT_CATEGORY } from "@/components/ingredient-sheet";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
@@ -257,7 +258,7 @@ function Detail({ ing }: { ing: Ingredient }) {
                 </span>
               </FieldRow>
               <FieldRow label="Category">
-                <InlineInput value={ing.category ?? ""} placeholder="None" inputMode="text" width="w-40" onCommit={(t) => patch({ category: t.trim() || null })} />
+                <InlineInput value={ing.category} placeholder={DEFAULT_INGREDIENT_CATEGORY} inputMode="text" width="w-40" onCommit={(t) => patch({ category: t.trim() || DEFAULT_INGREDIENT_CATEGORY })} />
               </FieldRow>
               <FieldRow label="Rebate per Pack">
                 <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => { const n = t.trim() === "" ? 0 : parseDecimal(t); if (n != null) patch({ rebate: n }); }} />

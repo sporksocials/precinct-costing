@@ -1049,14 +1049,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateIngredient = useCallback(
     async (id: string, patch: Partial<Ingredient>) => {
+      // category is NOT NULL: a patch that touches it must never clear it to blank/null.
+      const safePatch = "category" in patch ? { ...patch, category: patch.category?.trim() || "Food" } : patch;
       // The DB trigger maintains previous_price / last_price_update / cost_price_log when pack_price changes.
-      const { data: rows, error } = await sb.from("cost_ingredients").update(patch).eq("id", id).select("*");
+      const { data: rows, error } = await sb.from("cost_ingredients").update(safePatch).eq("id", id).select("*");
       if (error) throw new Error(error.message);
       assertSaved(rows);
       const fresh = (rows?.[0] as Ingredient | undefined) ?? null;
       setData((d) => ({
         ...d,
-        ingredients: d.ingredients.map((i) => (i.id === id ? (fresh ? fresh : { ...i, ...patch }) : i)),
+        ingredients: d.ingredients.map((i) => (i.id === id ? (fresh ? fresh : { ...i, ...safePatch }) : i)),
       }));
       if (patch.pack_price !== undefined) {
         // pull the trigger-written log rows for this ingredient so alerts refresh without a full reload

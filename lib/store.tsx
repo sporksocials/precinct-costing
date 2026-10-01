@@ -1076,7 +1076,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const insertIngredient = useCallback(
     async (ing: Omit<Ingredient, "id" | "updated_at">) => {
       const id = newId();
-      const row = { ...ing, id };
+      // cost_ingredients.category is NOT NULL; never send an explicit null even if a caller forgot to set one.
+      const row = { ...ing, category: ing.category?.trim() || "Food", id };
       const { data: rows, error } = await sb.from("cost_ingredients").insert(row).select("*");
       if (error) throw new Error(error.message);
       const fresh = rows?.[0] as Ingredient | undefined;

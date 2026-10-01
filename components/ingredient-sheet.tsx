@@ -10,10 +10,13 @@ import { Banner, Segmented, Sheet, Toggle } from "./ui";
 
 export type IngredientDraft = Omit<Ingredient, "id" | "updated_at">;
 
+/** `cost_ingredients.category` is NOT NULL (default 'Food'); the app must never send an explicit null for it. */
+export const DEFAULT_INGREDIENT_CATEGORY = "Food";
+
 export function blankIngredient(over: Partial<IngredientDraft> = {}): IngredientDraft {
   return {
     name: "",
-    category: null,
+    category: DEFAULT_INGREDIENT_CATEGORY,
     supplier_id: null,
     supplier_code: null,
     pack_size: 1,
@@ -43,7 +46,6 @@ export function draftFromPortal(r: PortalPrice, suppliers: { id: number; name: s
     name: titleCase(r.description ?? ""),
     supplier_id: sup?.id ?? null,
     supplier_code: r.product_code ?? null,
-    category: null,
     pack_price: Math.round(ex * 100) / 100,
     price_inc_gst: false,
     pack_size: pack?.pack_size ?? 1,
@@ -82,7 +84,8 @@ export function IngredientSheet({
   const parsedPrice = priceText.trim() === "" ? 0 : parseDecimal(priceText);
   const price = parsedPrice ?? 0;
   const unitCost = ingredientCostPerBase({ ...f, pack_size: size, pack_price: price }, store.settings.gst_rate);
-  const valid = f.name.trim() && size > 0 && parsedPrice != null && !busy;
+  const categories = Array.from(new Set(store.ingredients.map((i) => i.category).filter((c): c is string => !!c))).sort();
+  const valid = f.name.trim() && !!f.category?.trim() && size > 0 && parsedPrice != null && !busy;
 
   async function save() {
     if (!valid) return;
@@ -111,6 +114,22 @@ export function IngredientSheet({
         {error ? <Banner>{error}</Banner> : null}
         {note ? <p className="px-1 text-[13px] text-label-2">{note}</p> : null}
         <input autoFocus={!initial.name} className="field !text-[20px] font-semibold" placeholder="Name" value={f.name} onChange={(e) => set("name", e.target.value)} aria-label="Name" />
+        <div>
+          <p className="section-label !px-1">Category</p>
+          <input
+            className="field"
+            list="ingredient-category-options"
+            placeholder="Food"
+            value={f.category ?? ""}
+            onChange={(e) => set("category", e.target.value)}
+            aria-label="Category"
+          />
+          <datalist id="ingredient-category-options">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </div>
         <div>
           <p className="section-label !px-1">Supplier</p>
           <select className="field appearance-none" value={f.supplier_id ?? ""} onChange={(e) => set("supplier_id", e.target.value ? Number(e.target.value) : null)} aria-label="Supplier">

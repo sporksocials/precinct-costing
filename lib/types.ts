@@ -113,6 +113,8 @@ export interface MenuItem {
   method?: string[] | null;
   /** Bar display: ordered garnish items */
   garnish?: string[] | null;
+  /** Bar display: reference photo: an uploaded storage path ("uploads/...") or a file in public/bar/cocktails/; null uses the name */
+  bar_photo?: string | null;
   /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
   off_menu?: boolean;
 }

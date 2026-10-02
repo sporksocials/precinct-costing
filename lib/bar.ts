@@ -158,6 +158,25 @@ export type GlassType = "martini" | "rocks" | "highball" | "coupe" | "wine";
 /** A plain file name only ("mai-tai.jpg"): no folders, no dots at the start, so a stored value can't point outside the photo folder. */
 const PHOTO_FILE = /^[a-z0-9][a-z0-9._-]*\.(?:jpe?g|png|webp)$/i;
 
+/** Photos uploaded from the recipe editor live in the `bar-photos` storage bucket as "uploads/<item id>-<stamp>.jpg". */
+const UPLOADED_PHOTO = /^uploads\/[a-z0-9][a-z0-9-]*\.(?:jpe?g|png|webp)$/i;
+export function isUploadedPhoto(photo: string | null | undefined): photo is string {
+  return !!photo && UPLOADED_PHOTO.test(photo);
+}
+
+/** A new, never-reused storage path for an item's photo, so a replaced photo can't be served stale from any cache. */
+export function barUploadPath(itemId: string, now: number): string {
+  return `uploads/${itemId.toLowerCase()}-${now.toString(36)}.jpg`;
+}
+
+/** Longest side capped at `max`, shape kept, never scaled up. */
+export function fitWithin(width: number, height: number, max: number): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  if (longest <= max) return { width, height };
+  const k = max / longest;
+  return { width: Math.max(1, Math.round(width * k)), height: Math.max(1, Math.round(height * k)) };
+}
+
 /** "Piña Colada" -> "pina-colada": accents folded to plain letters, apostrophes dropped, the rest to hyphens. */
 export function slugForPhoto(name: string): string {
   return name
@@ -170,11 +189,13 @@ export function slugForPhoto(name: string): string {
 }
 
 /**
- * Reference photo path for a cocktail. The item's own `photo` file wins (set when it was photographed, so renaming
- * the drink in the costing app can't orphan it); otherwise the file named after the drink. Not every item has a
+ * Reference photo path for a cocktail. The item's own `photo` wins (an upload, or a file set when it was photographed, so
+ * renaming the drink in the costing app can't orphan it); otherwise the file named after the drink. Not every item has a
  * file yet, so the station hides the photo on a 404 rather than reserve space for a broken image.
  */
 export function barPhotoSrc(name: string, photo?: string | null): string {
+  // uploaded photos are served through the app's own /bar/photo/ path (a rewrite to storage) so the iPad's offline copy can hold them
+  if (isUploadedPhoto(photo)) return `/bar/photo/${photo}`;
   if (photo && PHOTO_FILE.test(photo)) return `/bar/cocktails/${photo}`;
   return `/bar/cocktails/${slugForPhoto(name)}.jpg`;
 }

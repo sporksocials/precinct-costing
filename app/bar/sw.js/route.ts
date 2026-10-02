@@ -26,7 +26,7 @@ self.addEventListener("activate", (event) => {
 
 const isBarPage = (p) => p === "/bar" || p.startsWith("/bar/");
 const isAsset = (p) =>
-  p.startsWith("/_next/static/") || p.startsWith("/bar/cocktails/") || p.startsWith("/brand/") ||
+  p.startsWith("/_next/static/") || p.startsWith("/bar/cocktails/") || p.startsWith("/bar/photo/") || p.startsWith("/brand/") ||
   p.startsWith("/icon") || p.startsWith("/apple-touch-icon");
 
 async function trim(cache) {

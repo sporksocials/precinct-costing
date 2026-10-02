@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
-import { isBarVenue, textList } from "@/lib/bar";
+import { ArrowDown, ArrowUp, Camera, Plus, X } from "lucide-react";
+import { barPhotoSrc, isBarVenue, isUploadedPhoto, textList } from "@/lib/bar";
+import { uploadBarPhoto } from "@/lib/bar-photo";
+import { DEMO, getSupabaseBrowser } from "@/lib/supabase/client";
 import type { MenuItem } from "@/lib/types";
 import { FieldRow, Group, InlineInput, useToast } from "../ui";
 
@@ -26,6 +28,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           ) : null
         }
       >
+        <PhotoField item={item} onPatch={onPatch} />
         <FieldRow label="Glass">
           <InlineInput
             value={item.glass ?? ""}
@@ -47,6 +50,87 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         footer="The cocktail station shows this drink once it has a glass, method or garnish."
       />
     </>
+  );
+}
+
+/**
+ * The drink's reference photo: shown beside the ingredients on the cocktail station. Upload one (shrunk in the browser
+ * before it goes up) and it replaces the placeholder; the station picks it up on its next refresh.
+ */
+function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<MenuItem>) => void }) {
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [broken, setBroken] = useState(false);
+  const src = barPhotoSrc(item.name, item.bar_photo);
+  const uploaded = isUploadedPhoto(item.bar_photo);
+  useEffect(() => setBroken(false), [src]);
+
+  async function pick(file: File) {
+    if (DEMO) {
+      toast.show({ message: "Photo upload isn't available in demo mode." });
+      return;
+    }
+    setBusy(true);
+    try {
+      const path = await uploadBarPhoto(getSupabaseBrowser(), item.id, file);
+      onPatch({ bar_photo: path });
+      toast.show({ message: "Photo uploaded. The station shows it within 5 minutes." });
+    } catch (e) {
+      toast.show({ message: e instanceof Error && e.message ? e.message : "Couldn't upload the photo. Try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const sub = broken ? "No photo yet. Upload one of the finished drink." : uploaded ? "Shown on the cocktail station." : "Placeholder photo. Upload a real one to replace it.";
+  return (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <div className="relative h-[92px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-fill">
+        {broken ? (
+          <Camera aria-hidden className="absolute inset-0 m-auto h-6 w-6 text-label-3" strokeWidth={1.75} />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt="" className="h-full w-full object-cover" onError={() => setBroken(true)} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[17px] sm:text-[15px]">Reference Photo</p>
+        <p className="text-[13px] text-label-2">{sub}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent-soft px-4 text-[15px] font-semibold text-accent transition-opacity active:opacity-70 disabled:opacity-50 sm:min-h-[36px]"
+          >
+            <Camera aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
+            {busy ? "Uploading…" : broken ? "Upload Photo" : "Replace Photo"}
+          </button>
+          {uploaded && !busy ? (
+            <button
+              type="button"
+              onClick={() => onPatch({ bar_photo: null })}
+              className="min-h-[44px] rounded-lg px-3 text-[15px] font-medium text-label-2 transition-colors hover:bg-fill active:bg-fill-2 sm:min-h-[36px]"
+            >
+              Remove Upload
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-label="Choose a photo"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void pick(f);
+        }}
+      />
+    </div>
   );
 }
 

@@ -7,6 +7,12 @@ const nextConfig = {
     // the demo fixture is local-only client data: never trace it into a deployment bundle
     outputFileTracingExcludes: { "*": [".demo/**"] },
   },
+  async rewrites() {
+    // Cocktail station photos uploaded from the recipe editor sit in the public `bar-photos` storage bucket. Serving them from our own
+    // /bar/photo/ path (not the storage URL) keeps them same-origin, so the iPad's offline copy (app/bar/sw.js) can hold them.
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    return base ? [{ source: "/bar/photo/:path*", destination: `${base}/storage/v1/object/public/bar-photos/:path*` }] : [];
+  },
   async redirects() {
     return [
       // Recipes became Menu (dishes and drinks) and Ingredients > Preps; tap beer and gelato live inside Menu

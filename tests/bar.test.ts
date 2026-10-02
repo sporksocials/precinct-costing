@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barIngredientName, barPhotoSrc, isStale, staleAge, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
+import { barIngredientName, barPhotoSrc, barUploadPath, fitWithin, isUploadedPhoto, isStale, staleAge, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
 
 describe("shotsFor", () => {
   it("turns clean jigger measures into shots", () => {
@@ -166,5 +166,31 @@ describe("stale copy", () => {
     expect(staleAge("2026-10-03T08:00:00Z", at(25))).toBe("25 min ago");
     expect(staleAge("2026-10-03T08:00:00Z", at(185))).toBe("3 hr ago");
     expect(staleAge("2026-10-03T08:00:00Z", at(60 * 72))).toBe("3 days ago");
+  });
+});
+
+describe("uploaded bar photos", () => {
+  const id = "2e537205-690d-479d-808c-b7499ff662c5";
+  it("builds a fresh storage path per upload", () => {
+    expect(barUploadPath(id, 1790900000000)).toBe(`uploads/${id}-${(1790900000000).toString(36)}.jpg`);
+    expect(barUploadPath(id, 1)).not.toBe(barUploadPath(id, 2));
+  });
+  it("serves an uploaded photo through /bar/photo/ and a stored file from the photo folder", () => {
+    const up = barUploadPath(id, 1790900000000);
+    expect(isUploadedPhoto(up)).toBe(true);
+    expect(barPhotoSrc("Anything", up)).toBe(`/bar/photo/${up}`);
+    expect(barPhotoSrc("Mai Tai", "mai-tai.jpg")).toBe("/bar/cocktails/mai-tai.jpg");
+  });
+  it("ignores an upload path that tries to leave the uploads folder", () => {
+    for (const bad of ["uploads/../secret.jpg", "uploads/a/b.jpg", "other/x.jpg", "uploads/.x.jpg", "uploads/x.svg", "/uploads/x.jpg"]) {
+      expect(isUploadedPhoto(bad)).toBe(false);
+      expect(barPhotoSrc("Mai Tai", bad)).toBe("/bar/cocktails/mai-tai.jpg");
+    }
+  });
+  it("shrinks big photos to the longest side, keeps the shape, never enlarges", () => {
+    expect(fitWithin(4032, 3024, 1200)).toEqual({ width: 1200, height: 900 });
+    expect(fitWithin(3024, 4032, 1200)).toEqual({ width: 900, height: 1200 });
+    expect(fitWithin(800, 600, 1200)).toEqual({ width: 800, height: 600 });
+    expect(fitWithin(10000, 1, 1200)).toEqual({ width: 1200, height: 1 });
   });
 });

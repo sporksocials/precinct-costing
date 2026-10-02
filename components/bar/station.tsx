@@ -17,11 +17,11 @@ function PhotoColumn({ name }: { name: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
   return (
-    <div className="w-[216px] shrink-0 text-center">
+    <div className="w-full text-center sm:w-[216px] sm:shrink-0">
       <img
         src={barPhotoSrc(name)}
         alt=""
-        className="h-[460px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover"
+        className="h-[260px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover sm:h-[460px]"
         onError={() => setBroken(true)}
       />
       <p className="mt-[6px] text-[12px] text-[#6E6C66]">Drink should look similar to this once finished</p>
@@ -283,7 +283,7 @@ function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
       </button>
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
-        <div className="flex items-start gap-5">
+        <div className="flex flex-col items-start gap-5 sm:flex-row">
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-[52px] leading-none tracking-[0.5px]">{item.name}</h1>
             {item.glass ? (

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PrecinctMark, VenueLogo } from "@/components/brand";
 import { BAR_VENUES } from "@/lib/bar";
 import { fetchBarMenu } from "@/lib/bar-server";
 
@@ -22,9 +23,9 @@ export default async function BarSelectPage() {
   return (
     <main className="bar-root min-h-[100dvh] w-full bg-[#0E0E10] text-[#F5F3EE]">
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-[calc(28px+env(safe-area-inset-top))]">
-        <p className="text-[16px] text-[#9B9890]">Caloundra Food Precinct</p>
-        <h1 className="mt-[2px] font-display text-[48px] leading-none tracking-[1px]">COCKTAIL STATION</h1>
-        <p className="mt-3 text-[19px] text-[#9B9890]">Which bar is this iPad for?</p>
+        <PrecinctMark size="sm" />
+        <h1 className="mt-4 font-display text-[48px] leading-none tracking-[1px]">COCKTAIL STATION</h1>
+        <p className="mt-3 text-[19px] text-[#9B9890]">Which bar are you working at?</p>
 
         <ul className="mt-8 grid gap-[14px]">
           {BAR_VENUES.map((slug, i) => {
@@ -37,6 +38,7 @@ export default async function BarSelectPage() {
                 >
                   <span aria-hidden className="absolute inset-x-0 top-0 h-[6px] bg-[color:var(--bar-accent)]" />
                   <span className="min-w-0">
+                    <VenueLogo slug={slug} height={32} className="mb-3" />
                     <span className="block font-display text-[64px] uppercase leading-[0.95] tracking-[1px] text-[color:var(--bar-text)]">{NAMES[slug]}</span>
                     <span className="mt-2 block text-[19px] text-[#9B9890]">{n == null ? "Cocktail Station" : n === 0 ? "No cocktails added yet" : `${n} ${n === 1 ? "cocktail" : "cocktails"}`}</span>
                   </span>

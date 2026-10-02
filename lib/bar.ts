@@ -197,3 +197,21 @@ export function syncedLabel(syncedAt: string, now: number): string {
   if (mins < 60) return `Synced ${mins} min ago`;
   return `Synced ${Math.floor(mins / 60)} hr ago`;
 }
+
+/** The station refreshes every 5 minutes, so 15 minutes without a good copy means three failed tries in a row. */
+export const STALE_AFTER_MS = 15 * 60_000;
+
+/** True when the copy on screen is old enough that a bartender shouldn't trust it without knowing. */
+export function isStale(syncedAt: string, now: number): boolean {
+  const t = Date.parse(syncedAt);
+  return !Number.isFinite(t) || now - t >= STALE_AFTER_MS;
+}
+
+/** "Last updated 25 min ago" / "Last updated 3 hr ago" for the out-of-date banner. */
+export function staleAge(syncedAt: string, now: number): string {
+  const mins = Math.floor((now - Date.parse(syncedAt)) / 60000);
+  if (!Number.isFinite(mins) || mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 48 ? `${hrs} hr ago` : `${Math.floor(hrs / 24)} days ago`;
+}

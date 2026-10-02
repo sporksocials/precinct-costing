@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { barPhotoSrc, glassType, ingredientDisplay, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
+import { barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
 import { cx } from "../ui";
 import { GlassIcon } from "./glass-icon";
 
@@ -10,6 +10,8 @@ import { GlassIcon } from "./glass-icon";
 function Photo({ name, photo, className }: { name: string; photo: string | null; className: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
+  // plain <img>: the iPad's offline cache holds these exact files (next/image would route through the optimiser instead)
+  // eslint-disable-next-line @next/next/no-img-element
   return <img src={barPhotoSrc(name, photo)} alt="" className={className} onError={() => setBroken(true)} />;
 }
 
@@ -18,6 +20,7 @@ function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
   if (broken) return null;
   return (
     <div className="w-full text-center sm:w-[216px] sm:shrink-0">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={barPhotoSrc(name, photo)}
         alt=""
@@ -34,6 +37,17 @@ function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
  * A port of the approved prototype (grid → one recipe full screen). No login; the iPad stays on this page,
  * so it refreshes its data in the background and drops back to the grid when left on a recipe.
  */
+
+/** Shown only when the recipes on screen are 15+ minutes old (Wi-Fi down, server unreachable). Big on purpose: a bartender must know before trusting a measure. */
+function StaleBanner({ menu, now }: { menu: BarMenu | null; now: number }) {
+  if (!menu || !isStale(menu.syncedAt, now)) return null;
+  return (
+    <div role="alert" className="border-y-[0.5px] border-[#F2C46D]/40 bg-[#2B2210] px-6 py-4 text-center">
+      <p className="text-[20px] font-semibold leading-tight text-[#F2C46D]">Recipes May Be Out Of Date</p>
+      <p className="mt-1 text-[16px] leading-snug text-[#F2C46D]">Last updated {staleAge(menu.syncedAt, now)}. Check the iPad&rsquo;s Wi-Fi. This screen keeps trying.</p>
+    </div>
+  );
+}
 
 const IDLE_MS = 120_000; // back to the grid after 2 minutes untouched on a recipe
 const REFRESH_MS = 5 * 60_000; // fetch the latest recipes every 5 minutes
@@ -56,14 +70,18 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   const [activeCategory, setActiveCategory] = useState<CatKey>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [now, setNow] = useState(() => Date.now());
+  // starts at the copy's own timestamp so the server HTML and the first client render agree (a page cached hours ago would otherwise
+  // hydrate with a different "Synced" line and banner); the effect below moves it to the real time straight after mount
+  const [now, setNow] = useState(() => (initial ? Date.parse(initial.syncedAt) : 0));
 
   // ---------- background refresh (keeps the last good copy when the network drops) ----------
   const refresh = useCallback(async () => {
     try {
       const res = await fetch(`/api/bar/${slug}`, { cache: "no-store" });
       if (!res.ok) return;
-      setMenu((await res.json()) as BarMenu);
+      const next = (await res.json()) as BarMenu;
+      // the iPad's offline copy can hand back an older reply: never swap a newer copy on screen for it
+      setMenu((prev) => (prev && Date.parse(next.syncedAt) < Date.parse(prev.syncedAt) ? prev : next));
     } catch {
       // offline: keep showing what we have; "Synced … ago" tells the truth
     }
@@ -83,6 +101,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   }, [refresh, menu]);
 
   useEffect(() => {
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
@@ -131,9 +150,10 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   return (
     <div className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
       {view === "detail" && selected ? (
-        <Detail item={selected} onBack={goBack} />
+        <Detail item={selected} onBack={goBack} menu={menu} now={now} />
       ) : (
         <div className="flex w-full flex-col">
+          <StaleBanner menu={menu} now={now} />
           <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
             <Link href="/bar" className="inline-flex min-h-[32px] items-center gap-[6px] text-[14px] font-medium text-[color:var(--bar-accent)]">
               <span aria-hidden className="text-[16px] leading-none">
@@ -266,7 +286,7 @@ function EmptyState({ title, body, action }: { title: string; body?: string; act
   );
 }
 
-function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
+function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void; menu: BarMenu | null; now: number }) {
   return (
     <div className="flex w-full flex-col">
       <button
@@ -279,6 +299,7 @@ function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
         </span>
         BACK TO ALL COCKTAILS
       </button>
+      <StaleBanner menu={menu} now={now} />
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
         <div className="flex flex-col items-start gap-5 sm:flex-row">

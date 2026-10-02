@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barIngredientName, barPhotoSrc, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
+import { barIngredientName, barPhotoSrc, isStale, staleAge, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
 
 describe("shotsFor", () => {
   it("turns clean jigger measures into shots", () => {
@@ -149,5 +149,22 @@ describe("bar screens text contrast", () => {
     const light = [...found].filter((c) => lum(c) > 0.2); // dark text sits on light accent fills, checked by hand
     expect(light.length).toBeGreaterThan(0);
     for (const c of light) expect({ c, ratio: ratio(c, worstCard) >= 4.5 }).toEqual({ c, ratio: true });
+  });
+});
+
+describe("stale copy", () => {
+  const t0 = Date.parse("2026-10-03T08:00:00Z");
+  const at = (mins: number) => t0 + mins * 60_000;
+  it("flags a copy once it is 15 minutes old, not before", () => {
+    expect(isStale("2026-10-03T08:00:00Z", at(0))).toBe(false);
+    expect(isStale("2026-10-03T08:00:00Z", at(14))).toBe(false);
+    expect(isStale("2026-10-03T08:00:00Z", at(15))).toBe(true);
+    expect(isStale("not a date", at(0))).toBe(true);
+  });
+  it("words the age", () => {
+    expect(staleAge("2026-10-03T08:00:00Z", at(0))).toBe("just now");
+    expect(staleAge("2026-10-03T08:00:00Z", at(25))).toBe("25 min ago");
+    expect(staleAge("2026-10-03T08:00:00Z", at(185))).toBe("3 hr ago");
+    expect(staleAge("2026-10-03T08:00:00Z", at(60 * 72))).toBe("3 days ago");
   });
 });

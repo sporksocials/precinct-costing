@@ -50,6 +50,13 @@ export default async function BarSelectPage() {
             );
           })}
         </ul>
+
+        <p className="mt-8 text-[15px] text-[#9B9890]">
+          Setting up an iPad?{" "}
+          <Link href="/bar/setup" className="font-medium text-[#B3E3F2] underline underline-offset-4">
+            Read the setup steps
+          </Link>
+        </p>
       </div>
     </main>
   );

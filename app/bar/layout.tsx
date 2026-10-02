@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BarKiosk } from "@/components/bar/kiosk";
 
 /**
  * Bar display: the public cocktail station iPads. Outside the (app) group and listed as public in
@@ -14,5 +15,10 @@ export const metadata: Metadata = {
 };
 
 export default function BarLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <BarKiosk />
+      {children}
+    </>
+  );
 }

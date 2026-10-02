@@ -89,6 +89,10 @@ export interface Prep {
   allergen_remove?: string[] | null;
   /** per-allergen "made without" note, e.g. { milk: "no aioli" } */
   allergen_notes?: Record<string, string> | null;
+  /** Kitchen display: ordered method steps, storage line, and the head chef's "Ready For Kitchen" sign-off */
+  kitchen_method?: string[] | null;
+  kitchen_storage?: string | null;
+  kitchen_ready?: boolean;
 }
 
 export interface MenuItem {
@@ -115,6 +119,11 @@ export interface MenuItem {
   garnish?: string[] | null;
   /** Bar display: reference photo: an uploaded storage path ("uploads/...") or a file in public/bar/cocktails/; null uses the name */
   bar_photo?: string | null;
+  /** Kitchen display (Food only): make/assemble steps, plating points, plated photo (uploaded path), and the head chef's sign-off */
+  kitchen_method?: string[] | null;
+  kitchen_plating?: string[] | null;
+  kitchen_photo?: string | null;
+  kitchen_ready?: boolean;
   /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
   off_menu?: boolean;
 }

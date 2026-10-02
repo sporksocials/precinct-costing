@@ -8,10 +8,16 @@ const nextConfig = {
     outputFileTracingExcludes: { "*": [".demo/**"] },
   },
   async rewrites() {
-    // Cocktail station photos uploaded from the recipe editor sit in the public `bar-photos` storage bucket. Serving them from our own
-    // /bar/photo/ path (not the storage URL) keeps them same-origin, so the iPad's offline copy (app/bar/sw.js) can hold them.
+    // Station photos uploaded from the recipe editor (cocktails at /bar, plated dishes at /kitchen) sit in the public `bar-photos` storage bucket.
+    // Serving them from our own /bar/photo/ and /kitchen/photo/ paths (not the storage URL) keeps them same-origin, so each iPad's offline
+    // copy (app/bar/sw.js, app/kitchen/sw.js) can hold them.
     const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    return base ? [{ source: "/bar/photo/:path*", destination: `${base}/storage/v1/object/public/bar-photos/:path*` }] : [];
+    if (!base) return [];
+    const photos = `${base}/storage/v1/object/public/bar-photos/:path*`;
+    return [
+      { source: "/bar/photo/:path*", destination: photos },
+      { source: "/kitchen/photo/:path*", destination: photos },
+    ];
   },
   async redirects() {
     return [

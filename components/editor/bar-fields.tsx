@@ -58,12 +58,47 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
  * before it goes up) and it replaces the placeholder; the station picks it up on its next refresh.
  */
 function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<MenuItem>) => void }) {
+  return (
+    <PhotoRow
+      itemId={item.id}
+      title="Reference Photo"
+      src={barPhotoSrc(item.name, item.bar_photo)}
+      uploaded={isUploadedPhoto(item.bar_photo)}
+      stationName="station"
+      noPhotoText="No photo yet. Upload one of the finished drink."
+      uploadedText="Shown on the cocktail station."
+      placeholderText="Placeholder photo. Upload a real one to replace it."
+      onChange={(path) => onPatch({ bar_photo: path })}
+    />
+  );
+}
+
+/** A photo row with Upload / Replace / Remove, shared by the bar and kitchen editors. `onChange` gets the new storage path, or null on Remove. */
+export function PhotoRow({
+  itemId,
+  title,
+  src,
+  uploaded,
+  stationName,
+  noPhotoText,
+  uploadedText,
+  placeholderText,
+  onChange,
+}: {
+  itemId: string;
+  title: string;
+  src: string | null;
+  uploaded: boolean;
+  stationName: string;
+  noPhotoText: string;
+  uploadedText: string;
+  placeholderText: string;
+  onChange: (path: string | null) => void;
+}) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [broken, setBroken] = useState(false);
-  const src = barPhotoSrc(item.name, item.bar_photo);
-  const uploaded = isUploadedPhoto(item.bar_photo);
   useEffect(() => setBroken(false), [src]);
 
   async function pick(file: File) {
@@ -73,9 +108,9 @@ function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<Me
     }
     setBusy(true);
     try {
-      const path = await uploadBarPhoto(getSupabaseBrowser(), item.id, file);
-      onPatch({ bar_photo: path });
-      toast.show({ message: "Photo uploaded. The station shows it within 5 minutes." });
+      const path = await uploadBarPhoto(getSupabaseBrowser(), itemId, file);
+      onChange(path);
+      toast.show({ message: `Photo uploaded. The ${stationName} shows it within 5 minutes.` });
     } catch (e) {
       toast.show({ message: e instanceof Error && e.message ? e.message : "Couldn't upload the photo. Try again." });
     } finally {
@@ -83,11 +118,12 @@ function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<Me
     }
   }
 
-  const sub = broken ? "No photo yet. Upload one of the finished drink." : uploaded ? "Shown on the cocktail station." : "Placeholder photo. Upload a real one to replace it.";
+  const missing = broken || !src;
+  const sub = missing ? noPhotoText : uploaded ? uploadedText : placeholderText;
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="relative h-[92px] w-[72px] shrink-0 overflow-hidden rounded-lg bg-fill">
-        {broken ? (
+        {missing ? (
           <Camera aria-hidden className="absolute inset-0 m-auto h-6 w-6 text-label-3" strokeWidth={1.75} />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
@@ -95,7 +131,7 @@ function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<Me
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[17px] sm:text-[15px]">Reference Photo</p>
+        <p className="text-[17px] sm:text-[15px]">{title}</p>
         <p className="text-[13px] text-label-2">{sub}</p>
         <div className="mt-2 flex flex-wrap gap-2">
           <button
@@ -105,12 +141,12 @@ function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<Me
             className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent-soft px-4 text-[15px] font-semibold text-accent transition-opacity active:opacity-70 disabled:opacity-50 sm:min-h-[36px]"
           >
             <Camera aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
-            {busy ? "Uploading…" : broken ? "Upload Photo" : "Replace Photo"}
+            {busy ? "Uploading…" : missing ? "Upload Photo" : "Replace Photo"}
           </button>
           {uploaded && !busy ? (
             <button
               type="button"
-              onClick={() => onPatch({ bar_photo: null })}
+              onClick={() => onChange(null)}
               className="min-h-[44px] rounded-lg px-3 text-[15px] font-medium text-label-2 transition-colors hover:bg-fill active:bg-fill-2 sm:min-h-[36px]"
             >
               Remove Upload
@@ -138,7 +174,7 @@ type Entry = { key: number; text: string };
 const clean = (rows: Entry[]) => rows.map((r) => r.text.trim()).filter(Boolean);
 
 /** An ordered list of short lines (method steps, garnishes): edit in place, move up or down, remove, add. */
-function OrderedList({
+export function OrderedList({
   title,
   noun,
   placeholder,

@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isBarPath } from "./lib/bar";
+import { isKitchenPath } from "./lib/kitchen";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/icon", "/icons", "/apple-icon"];
 
@@ -9,6 +10,8 @@ export async function middleware(request: NextRequest) {
   if (process.env.NEXT_PUBLIC_DEMO === "1") return NextResponse.next({ request });
   // the bar display (cocktail station iPads) never signs in: see isBarPath
   if (isBarPath(request.nextUrl.pathname)) return NextResponse.next({ request });
+  // ...and neither do the kitchen station iPads: see isKitchenPath
+  if (isKitchenPath(request.nextUrl.pathname)) return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
 

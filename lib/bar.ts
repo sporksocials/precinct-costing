@@ -152,6 +152,20 @@ export function ingredientDisplay(line: BarLine): IngredientDisplay {
 
 export type GlassType = "martini" | "rocks" | "highball" | "coupe" | "wine";
 
+/**
+ * Reference photo path for a cocktail, from its name: "Mai Tai" -> "/bar/cocktails/mai-tai.jpg".
+ * Not every item has a file yet (a new cocktail, or Chiobu/Greedy before they're photographed) — the
+ * station hides the photo on a 404 rather than reserve space for a broken image.
+ */
+export function barPhotoSrc(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `/bar/cocktails/${slug}.jpg`;
+}
+
 /** Which line icon to draw for a glass description. */
 export function glassType(glass: string | null | undefined): GlassType {
   const g = (glass ?? "").toLowerCase();

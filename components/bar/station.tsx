@@ -1,9 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { glassType, ingredientDisplay, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
+import { barPhotoSrc, glassType, ingredientDisplay, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
 import { cx } from "../ui";
 import { GlassIcon } from "./glass-icon";
+
+/** A reference photo that quietly disappears (no broken-image box, no orphaned caption) when this item has no file yet. */
+function Photo({ name, className }: { name: string; className: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return <img src={barPhotoSrc(name)} alt="" className={className} onError={() => setBroken(true)} />;
+}
+
+function PhotoColumn({ name }: { name: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return (
+    <div className="w-[216px] shrink-0 text-center">
+      <img
+        src={barPhotoSrc(name)}
+        alt=""
+        className="h-[460px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover"
+        onError={() => setBroken(true)}
+      />
+      <p className="mt-[6px] text-[12px] text-[#6E6C66]">Drink should look similar to this once finished</p>
+    </div>
+  );
+}
 
 /**
  * The cocktail station: one venue's cocktails on an iPad behind the bar, glanceable from about a metre away.
@@ -113,7 +137,13 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
       ) : (
         <div className="flex w-full flex-col">
           <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
-            <div className="flex items-baseline justify-between gap-4">
+            <Link href="/bar" className="inline-flex min-h-[32px] items-center gap-[6px] text-[14px] font-medium text-[color:var(--bar-accent)]">
+              <span aria-hidden className="text-[16px] leading-none">
+                &#8592;
+              </span>
+              All Venues
+            </Link>
+            <div className="mt-[6px] flex items-baseline justify-between gap-4">
               <h1 className="font-display text-[48px] uppercase leading-none tracking-[1px]">{menu?.venue.name ?? venueName}</h1>
               {menu ? (
                 <p className="shrink-0 text-[13px] text-[#9B9890]" aria-live="polite">
@@ -201,15 +231,18 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
                     key={c.id}
                     type="button"
                     onClick={() => openCocktail(c.id)}
-                    className={cx(CARD, "flex flex-col overflow-hidden px-4 py-[18px] text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
+                    className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
                   >
-                    <span className="text-[26px] font-medium leading-[1.2]">{c.name}</span>
-                    {c.glass ? (
-                      <span className="mt-[9px] flex items-center gap-2 text-[#9B9890]">
-                        <GlassIcon type={glassType(c.glass)} size={22} className="shrink-0" />
-                        <span className="text-[15px]">{c.glass}</span>
-                      </span>
-                    ) : null}
+                    <Photo name={c.name} className="h-[230px] w-full object-cover" />
+                    <div className="px-4 pb-[18px] pt-[14px]">
+                      <span className="text-[26px] font-medium leading-[1.2]">{c.name}</span>
+                      {c.glass ? (
+                        <span className="mt-[9px] flex items-center gap-2 text-[#9B9890]">
+                          <GlassIcon type={glassType(c.glass)} size={22} className="shrink-0" />
+                          <span className="text-[15px]">{c.glass}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -250,42 +283,47 @@ function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
       </button>
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
-        <h1 className="font-display text-[52px] leading-none tracking-[0.5px]">{item.name}</h1>
-        {item.glass ? (
-          <div className="mt-[10px] flex items-center gap-[9px] text-[#D9C3A0]">
-            <GlassIcon type={glassType(item.glass)} size={22} className="shrink-0" />
-            <p className="text-[18px] font-medium">{item.glass}</p>
-          </div>
-        ) : null}
+        <div className="flex items-start gap-5">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-display text-[52px] leading-none tracking-[0.5px]">{item.name}</h1>
+            {item.glass ? (
+              <div className="mt-[10px] flex items-center gap-[9px] text-[#D9C3A0]">
+                <GlassIcon type={glassType(item.glass)} size={22} className="shrink-0" />
+                <p className="text-[18px] font-medium">{item.glass}</p>
+              </div>
+            ) : null}
 
-        {item.lines.length ? (
-          <section className={cx(CARD, "mt-5 px-5 py-[18px]")}>
-            <h2 className={cx(HEADING, "mb-2")}>INGREDIENTS</h2>
-            <ul>
-              {item.lines.map((line, i) => {
-                const d = ingredientDisplay(line);
-                return (
-                  <li key={i} className={cx(ROW, "flex items-start gap-[14px] py-[14px]")}>
-                    <div className="w-[112px] shrink-0">
-                      {d.shots ? (
-                        <>
-                          <p className="text-[30px] font-medium leading-[1.1] text-[#D9C3A0]">{d.shots}</p>
-                          <p className="mt-[2px] text-[13px] text-[#6E6C66]">{d.qty}</p>
-                        </>
-                      ) : (
-                        <p className="text-[27px] font-medium leading-[1.15] text-[#D9C3A0]">{d.plain}</p>
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[27px] leading-[1.2]">{d.name}</p>
-                      {d.aside ? <p className="mt-1 text-[18px] leading-snug text-[#9B9890]">{d.aside}</p> : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : null}
+            {item.lines.length ? (
+              <section className={cx(CARD, "mt-5 px-5 py-[18px]")}>
+                <h2 className={cx(HEADING, "mb-2")}>INGREDIENTS</h2>
+                <ul>
+                  {item.lines.map((line, i) => {
+                    const d = ingredientDisplay(line);
+                    return (
+                      <li key={i} className={cx(ROW, "flex items-start gap-[14px] py-[14px]")}>
+                        <div className="w-[112px] shrink-0">
+                          {d.shots ? (
+                            <>
+                              <p className="text-[30px] font-medium leading-[1.1] text-[#D9C3A0]">{d.shots}</p>
+                              <p className="mt-[2px] text-[13px] text-[#6E6C66]">{d.qty}</p>
+                            </>
+                          ) : (
+                            <p className="text-[27px] font-medium leading-[1.15] text-[#D9C3A0]">{d.plain}</p>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[27px] leading-[1.2]">{d.name}</p>
+                          {d.aside ? <p className="mt-1 text-[18px] leading-snug text-[#9B9890]">{d.aside}</p> : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+          <PhotoColumn name={item.name} />
+        </div>
 
         {item.method.length ? <Steps title="METHOD" steps={item.method} circle="bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" /> : null}
         {item.garnish.length ? <Steps title="GARNISH" steps={item.garnish} circle="bg-[#D9C3A0] text-[#20191A]" /> : null}

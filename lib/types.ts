@@ -107,6 +107,12 @@ export interface MenuItem {
   allergen_add?: string[] | null;
   allergen_remove?: string[] | null;
   allergen_notes?: Record<string, string> | null;
+  /** Bar display (cocktails/mocktails only): which glass, e.g. "Rocks Glass, Salt Rim" */
+  glass?: string | null;
+  /** Bar display: ordered method steps */
+  method?: string[] | null;
+  /** Bar display: ordered garnish items */
+  garnish?: string[] | null;
   /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
   off_menu?: boolean;
 }

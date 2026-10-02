@@ -23,6 +23,8 @@ import { PriceHistory } from "./price-history";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
 import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
+import { isBarCategory } from "@/lib/bar";
+import { BarDisplayFields } from "./bar-fields";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -521,6 +523,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           ) : null}
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
+
+          {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {/* details */}
           <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}${itemCost?.hhBelowCost ? " (below cost)" : itemCost?.hhUnderTarget ? " (below target)" : ""}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>

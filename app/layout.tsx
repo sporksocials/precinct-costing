@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Precinct Costing",
   description: "Caloundra Food Precinct recipe costing and menu pricing for Drift Bar, Chiobu, Greedy Gringo's and Gelato Rumba",
   applicationName: "Precinct Costing",
+  manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Costing", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
   icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },

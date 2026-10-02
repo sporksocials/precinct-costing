@@ -119,6 +119,27 @@ html[data-venue="gelato"] .masthead,
   --mast-bg: linear-gradient(135deg, #2b1a26 0%, #16121a 100%);
   --mast-strip: linear-gradient(90deg, #ed8ccd 0 25%, #cded8c 25% 50%, #ffde59 50% 75%, #603e3e 75%);
 }
+/* Bar display (the public cocktail station iPads at /bar): the approved design sets type in the iPad's own
+ * system face, and each venue's accent fills the back bar, chosen chip and method numbers.
+ * --bar-accent  the fill; --bar-on  text on it; --bar-text  the accent as text on black */
+.bar-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.bar-drift {
+  --bar-accent: #b3e3f2;
+  --bar-on: #0e0e10;
+  --bar-text: #b3e3f2;
+}
+.bar-chiobu {
+  --bar-accent: #c6102e;
+  --bar-on: #ffffff;
+  --bar-text: #ff5a70;
+}
+.bar-greedy {
+  --bar-accent: #f26345;
+  --bar-on: #0e0e10;
+  --bar-text: #f26345;
+}
 .v-all {
   --accent: #d9c3a0;
   --accent-fill: #d9c3a0;

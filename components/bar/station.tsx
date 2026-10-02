@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { barPhotoSrc, glassType, ingredientDisplay, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
 import { cx } from "../ui";
 import { GlassIcon } from "./glass-icon";
@@ -57,7 +57,6 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const gridScroll = useRef(0);
 
   // ---------- background refresh (keeps the last good copy when the network drops) ----------
   const refresh = useCallback(async () => {
@@ -93,7 +92,6 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
 
   // ---------- views ----------
   const openCocktail = (id: string) => {
-    gridScroll.current = window.scrollY;
     (document.activeElement as HTMLElement | null)?.blur?.(); // put the iPad keyboard away
     setSelectedId(id);
     setView("detail");
@@ -101,7 +99,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   const goBack = useCallback(() => setView("grid"), []);
 
   useLayoutEffect(() => {
-    window.scrollTo(0, view === "detail" ? 0 : gridScroll.current);
+    window.scrollTo(0, 0);
   }, [view]);
 
   // a recipe that disappears in a refresh (deleted, made inactive) sends the screen back to the grid

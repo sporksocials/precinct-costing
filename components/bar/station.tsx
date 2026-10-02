@@ -7,24 +7,24 @@ import { cx } from "../ui";
 import { GlassIcon } from "./glass-icon";
 
 /** A reference photo that quietly disappears (no broken-image box, no orphaned caption) when this item has no file yet. */
-function Photo({ name, className }: { name: string; className: string }) {
+function Photo({ name, photo, className }: { name: string; photo: string | null; className: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
-  return <img src={barPhotoSrc(name)} alt="" className={className} onError={() => setBroken(true)} />;
+  return <img src={barPhotoSrc(name, photo)} alt="" className={className} onError={() => setBroken(true)} />;
 }
 
-function PhotoColumn({ name }: { name: string }) {
+function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
   return (
     <div className="w-full text-center sm:w-[216px] sm:shrink-0">
       <img
-        src={barPhotoSrc(name)}
+        src={barPhotoSrc(name, photo)}
         alt=""
         className="h-[260px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover sm:h-[460px]"
         onError={() => setBroken(true)}
       />
-      <p className="mt-[6px] text-[12px] text-[#6E6C66]">Drink should look similar to this once finished</p>
+      <p className="mt-[6px] text-[12px] text-[#8E8C85]">Drink should look similar to this once finished</p>
     </div>
   );
 }
@@ -154,7 +154,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
             {items.length ? (
               <>
                 <div className="relative mt-4">
-                  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6E6C66" strokeWidth="2" strokeLinecap="round" className="pointer-events-none absolute left-[18px] top-1/2 -translate-y-1/2">
+                  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8E8C85" strokeWidth="2" strokeLinecap="round" className="pointer-events-none absolute left-[18px] top-1/2 -translate-y-1/2">
                     <circle cx="11" cy="11" r="7" />
                     <line x1="21" y1="21" x2="16.2" y2="16.2" />
                   </svg>
@@ -172,7 +172,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
                     autoCorrect="off"
                     autoCapitalize="off"
                     spellCheck={false}
-                    className="h-[58px] w-full rounded-[14px] border-[0.5px] border-white/10 bg-[#1C1C1F] px-[50px] text-[19px] text-[#F5F3EE] outline-none placeholder:text-[#6E6C66] focus:border-white/25"
+                    className="h-[58px] w-full rounded-[14px] border-[0.5px] border-white/10 bg-[#1C1C1F] px-[50px] text-[19px] text-[#F5F3EE] outline-none placeholder:text-[#8E8C85] focus:border-white/25"
                   />
                   {hasSearch ? (
                     <button
@@ -231,7 +231,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
                     onClick={() => openCocktail(c.id)}
                     className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
                   >
-                    <Photo name={c.name} className="h-[230px] w-full object-cover" />
+                    <Photo name={c.name} photo={c.photo} className="h-[230px] w-full object-cover" />
                     <div className="px-4 pb-[18px] pt-[14px]">
                       <span className="text-[26px] font-medium leading-[1.2]">{c.name}</span>
                       {c.glass ? (
@@ -303,7 +303,7 @@ function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
                           {d.shots ? (
                             <>
                               <p className="text-[30px] font-medium leading-[1.1] text-[#D9C3A0]">{d.shots}</p>
-                              <p className="mt-[2px] text-[13px] text-[#6E6C66]">{d.qty}</p>
+                              <p className="mt-[2px] text-[13px] text-[#8E8C85]">{d.qty}</p>
                             </>
                           ) : (
                             <p className="text-[27px] font-medium leading-[1.15] text-[#D9C3A0]">{d.plain}</p>
@@ -320,7 +320,7 @@ function Detail({ item, onBack }: { item: BarItem; onBack: () => void }) {
               </section>
             ) : null}
           </div>
-          <PhotoColumn name={item.name} />
+          <PhotoColumn name={item.name} photo={item.photo} />
         </div>
 
         {item.method.length ? <Steps title="METHOD" steps={item.method} circle="bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" /> : null}

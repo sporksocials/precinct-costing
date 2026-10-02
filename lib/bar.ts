@@ -36,6 +36,8 @@ export interface BarItem {
   name: string;
   category: string;
   glass: string | null;
+  /** photo file name in public/bar/cocktails/ (cost_menu_items.bar_photo); null falls back to the item's name */
+  photo: string | null;
   method: string[];
   garnish: string[];
   lines: BarLine[];
@@ -66,6 +68,7 @@ export function parseBarMenu(raw: unknown, syncedAt: string): BarMenu | null {
       name: String(i.name ?? "").trim(),
       category: String(i.category ?? ""),
       glass: typeof i.glass === "string" && i.glass.trim() ? i.glass.trim() : null,
+      photo: typeof i.photo === "string" && i.photo.trim() ? i.photo.trim() : null,
       method: textList(i.method),
       garnish: textList(i.garnish),
       lines: (Array.isArray(i.lines) ? i.lines : []).map((y) => {
@@ -152,18 +155,28 @@ export function ingredientDisplay(line: BarLine): IngredientDisplay {
 
 export type GlassType = "martini" | "rocks" | "highball" | "coupe" | "wine";
 
-/**
- * Reference photo path for a cocktail, from its name: "Mai Tai" -> "/bar/cocktails/mai-tai.jpg".
- * Not every item has a file yet (a new cocktail, or Chiobu/Greedy before they're photographed) — the
- * station hides the photo on a 404 rather than reserve space for a broken image.
- */
-export function barPhotoSrc(name: string): string {
-  const slug = name
+/** A plain file name only ("mai-tai.jpg"): no folders, no dots at the start, so a stored value can't point outside the photo folder. */
+const PHOTO_FILE = /^[a-z0-9][a-z0-9._-]*\.(?:jpe?g|png|webp)$/i;
+
+/** "Piña Colada" -> "pina-colada": accents folded to plain letters, apostrophes dropped, the rest to hyphens. */
+export function slugForPhoto(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/'/g, "")
+    .replace(/['\u2019]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `/bar/cocktails/${slug}.jpg`;
+}
+
+/**
+ * Reference photo path for a cocktail. The item's own `photo` file wins (set when it was photographed, so renaming
+ * the drink in the costing app can't orphan it); otherwise the file named after the drink. Not every item has a
+ * file yet, so the station hides the photo on a 404 rather than reserve space for a broken image.
+ */
+export function barPhotoSrc(name: string, photo?: string | null): string {
+  if (photo && PHOTO_FILE.test(photo)) return `/bar/cocktails/${photo}`;
+  return `/bar/cocktails/${slugForPhoto(name)}.jpg`;
 }
 
 /** Which line icon to draw for a glass description. */

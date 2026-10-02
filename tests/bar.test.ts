@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barIngredientName, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
+import { barIngredientName, barPhotoSrc, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
 
 describe("shotsFor", () => {
   it("turns clean jigger measures into shots", () => {
@@ -82,11 +82,11 @@ describe("parseBarMenu", () => {
     const m = parseBarMenu(
       {
         venue: { slug: "drift", name: "Drift Bar" },
-        items: [{ id: "a", name: " Mojito ", category: "Cocktail", glass: " ", method: ["Shake", " ", 4], garnish: "nope", lines: [{ name: "Mint", qty: "2", unit: "g", note: "" }] }],
+        items: [{ id: "a", name: " Mojito ", category: "Cocktail", glass: " ", photo: " mojito.jpg ", method: ["Shake", " ", 4], garnish: "nope", lines: [{ name: "Mint", qty: "2", unit: "g", note: "" }] }],
       },
       "2026-10-02T00:00:00Z",
     );
-    expect(m?.items[0]).toEqual({ id: "a", name: "Mojito", category: "Cocktail", glass: null, method: ["Shake"], garnish: [], lines: [{ name: "Mint", qty: 2, unit: "g", note: null }] });
+    expect(m?.items[0]).toEqual({ id: "a", name: "Mojito", category: "Cocktail", glass: null, photo: "mojito.jpg", method: ["Shake"], garnish: [], lines: [{ name: "Mint", qty: 2, unit: "g", note: null }] });
     expect(parseBarMenu(null, "")).toBeNull();
   });
   it("textList ignores anything that isn't a list of strings", () => {
@@ -108,5 +108,46 @@ describe("isBarPath", () => {
   it("opens only the bar routes", () => {
     for (const p of ["/bar", "/bar/drift", "/bar/manifest.webmanifest", "/api/bar/greedy"]) expect(isBarPath(p)).toBe(true);
     for (const p of ["/", "/bars", "/barista", "/menu", "/api/demo-data", "/items/bar"]) expect(isBarPath(p)).toBe(false);
+  });
+});
+
+describe("bar photos", () => {
+  it("folds accents so a renamed drink keeps its file name", () => {
+    expect(slugForPhoto("Piña Colada")).toBe("pina-colada");
+    expect(slugForPhoto("Uncle Mark's Old Fashioned")).toBe("uncle-marks-old-fashioned");
+    expect(slugForPhoto("Uncle Mark\u2019s Old Fashioned")).toBe("uncle-marks-old-fashioned");
+    expect(slugForPhoto("  Espresso   Martini! ")).toBe("espresso-martini");
+  });
+  it("prefers the item's own photo file over its name", () => {
+    expect(barPhotoSrc("Piña Colada Special", "pina-colada.jpg")).toBe("/bar/cocktails/pina-colada.jpg");
+    expect(barPhotoSrc("Mai Tai", null)).toBe("/bar/cocktails/mai-tai.jpg");
+    expect(barPhotoSrc("Mai Tai")).toBe("/bar/cocktails/mai-tai.jpg");
+  });
+  it("ignores a stored value that isn't a plain image file name", () => {
+    for (const bad of ["../secret.jpg", "a/b.jpg", "/etc/passwd", ".hidden.jpg", "mai-tai.svg", "mai-tai", "http://x.com/a.jpg"]) {
+      expect(barPhotoSrc("Mai Tai", bad)).toBe("/bar/cocktails/mai-tai.jpg");
+    }
+  });
+});
+
+describe("bar screens text contrast", () => {
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a: string, b: string) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  it("keeps every light text colour at 4.5:1 or better on the lightest card state (WCAG AA)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const worstCard = "#232327"; // a pressed tile
+    const found = new Set<string>();
+    for (const f of ["components/bar/station.tsx", "app/bar/page.tsx"]) {
+      for (const m of readFileSync(f, "utf8").matchAll(/(?:text|placeholder:text)-\[(#[0-9a-fA-F]{6})\]/g)) found.add(m[1].toUpperCase());
+    }
+    const light = [...found].filter((c) => lum(c) > 0.2); // dark text sits on light accent fills, checked by hand
+    expect(light.length).toBeGreaterThan(0);
+    for (const c of light) expect({ c, ratio: ratio(c, worstCard) >= 4.5 }).toEqual({ c, ratio: true });
   });
 });

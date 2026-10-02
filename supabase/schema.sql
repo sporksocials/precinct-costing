@@ -85,7 +85,8 @@ create table if not exists public.cost_menu_items (
   -- Bar display (iPad cocktail station): null for everything except cocktails/mocktails that have been built out for it.
   glass text, -- which glass to serve in, e.g. "Rocks Glass, Salt Rim"
   method jsonb, -- ordered array of short method steps, e.g. ["Shake hard for 12 seconds","Strain into the glass"]
-  garnish jsonb -- ordered array of garnish items, e.g. ["Dehydrated lime wheel"]
+  garnish jsonb, -- ordered array of garnish items, e.g. ["Dehydrated lime wheel"]
+  bar_photo text -- reference photo file in public/bar/cocktails/, e.g. "mai-tai.jpg"; null falls back to a slug of the name
 );
 
 create table if not exists public.cost_recipe_lines (
@@ -600,6 +601,7 @@ as $$
           'name', mi.name,
           'category', mi.category,
           'glass', mi.glass,
+          'photo', mi.bar_photo,
           'method', coalesce(mi.method, '[]'::jsonb),
           'garnish', coalesce(mi.garnish, '[]'::jsonb),
           'lines', coalesce((

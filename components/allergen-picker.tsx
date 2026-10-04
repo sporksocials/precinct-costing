@@ -19,7 +19,7 @@ import {
   type AnimalFlag,
   type Rollup,
 } from "@/lib/allergens";
-import { badgeModel, type BadgeModel } from "@/lib/allergen-badges";
+import { badgeModel, DRINK_ALLERGEN_IDS, isDrinkItem, showsAllergen, type BadgeModel } from "@/lib/allergen-badges";
 import { BADGE_LABELS } from "@/lib/diet-legend";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
 import { BadgePanel } from "./allergen-badges";
@@ -267,9 +267,12 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
       return { ...d, allergen_notes: n };
     });
 
-  const rows = ALLERGENS.filter((a) => r.cells[a.id].state !== "none");
-  const cleared = ALLERGENS.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
-  const addable = ALLERGENS.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
+  // drinks mark only egg, milk and nuts: nothing else is listed, cleared or offered (Troy, 4 Oct 2026)
+  const drink = kind === "item" && isDrinkItem(rec as MenuItem);
+  const marked = ALLERGENS.filter((a) => showsAllergen(drink ? (rec as MenuItem) : null, a.id));
+  const rows = marked.filter((a) => r.cells[a.id].state !== "none");
+  const cleared = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
+  const addable = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
   const toReview = r.unreviewedIngredients;
   const shown = showAll ? toReview : toReview.slice(0, 6);
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";
@@ -354,7 +357,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
         ) : null}
 
         <div>
-          <p className="pb-2 text-[13px] font-medium text-label-2">Add Allergen, Sensitivity Or Alcohol</p>
+          <p className="pb-2 text-[13px] font-medium text-label-2">{drink ? "Add Allergen" : "Add Allergen, Sensitivity Or Alcohol"}</p>
           <div className="flex flex-wrap gap-2">
             {addable.map((a) => (
               <TickChip key={a.id} label={a.group === "attribute" ? BADGE_LABELS.containsAlcohol : a.label} state="off" disabled={!ready} onClick={() => setAdd(a.id, true)} />
@@ -369,7 +372,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
             <ul className="divide-y divide-[color:var(--separator)] rounded-xl bg-fill">
               {shown.map((i) => {
                 const ing = store.index.ingredients.get(i.id);
-                return ing ? <ReviewRow key={i.id} ing={ing} ready={ready} onReview={() => setReviewing(i.id)} /> : null;
+                return ing ? <ReviewRow key={i.id} ing={ing} ready={ready} drink={drink} onReview={() => setReviewing(i.id)} /> : null;
               })}
             </ul>
             {toReview.length > 6 ? (
@@ -393,10 +396,12 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
 }
 
 /** An ingredient still to review: its suggestions as dashed chips (one tap confirms) and a Review button. */
-function ReviewRow({ ing, ready, onReview }: { ing: Ingredient; ready: boolean; onReview: () => void }) {
+function ReviewRow({ ing, ready, drink, onReview }: { ing: Ingredient; ready: boolean; drink?: boolean; onReview: () => void }) {
   const store = useStore();
   const [error, setError] = useState<string | null>(null);
-  const st = ingredientAllergenState(ing);
+  const st0 = ingredientAllergenState(ing);
+  // on a drink only egg, milk and nuts are suggested; alcohol and sulphites stay recorded but are not offered here
+  const st = drink ? { ...st0, suggested: st0.suggested.filter((s) => DRINK_ALLERGEN_IDS.includes(s.id)) } : st0;
   const confirm = async (id: AllergenId) => {
     setError(null);
     try {

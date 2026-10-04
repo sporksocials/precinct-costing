@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
@@ -19,11 +19,14 @@ import {
   type AnimalFlag,
   type Rollup,
 } from "@/lib/allergens";
+import { allergenNote, remainingProposals, type AllergenAssistResult } from "@/lib/allergen-assist";
+import { requestAllergenSuggestions } from "@/lib/allergen-assist-client";
 import { badgeModel, type BadgeModel } from "@/lib/allergen-badges";
 import { BADGE_LABELS } from "@/lib/diet-legend";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
 import { BadgePanel } from "./allergen-badges";
-import { Banner, cx, Group, Segmented, Sheet, Toggle } from "./ui";
+import { friendlyError, portalDescription, proposalLabel, ReasonLines, toAssistIngredient, UnreviewedSuggestions } from "./allergen-suggest";
+import { Banner, cx, Group, Segmented, Sheet, Toggle, useToast } from "./ui";
 
 /** The costing index plus menu items by id, for allergen roll-ups (virtual gelato and beer items included). */
 export function useAllergenIndex(): AllergenIndex {
@@ -38,12 +41,6 @@ export function useBadgeModel(kind: "item" | "prep", rec: MenuItem | Prep, lines
   const r = useMemo(() => rollup({ kind, id: rec.id }, idx), [idx, kind, rec.id]);
   const model = useMemo(() => badgeModel(r, kind === "item" ? (rec as MenuItem) : null), [r, kind, rec]);
   return { r, model };
-}
-
-function friendlyError(e: unknown): string {
-  const m = e instanceof Error ? e.message : String(e);
-  if (/column|schema cache|allergen|diet_flags/i.test(m)) return "Couldn’t save the allergens. The database still needs its allergen update, so nothing has changed.";
-  return "Couldn’t save the allergens. Check your connection and try again.";
 }
 
 const PENDING_NOTE = "Allergen ticks can’t be saved until the database has its allergen update. Suggestions are shown for now.";
@@ -93,31 +90,71 @@ function ChipGroup({ title, children }: { title: string; children: React.ReactNo
  */
 export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient; description?: string | null }) {
   const store = useStore();
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
+  const [smart, setSmart] = useState<AllergenAssistResult | null>(null);
+  const [asking, setAsking] = useState(false);
+  const run = useRef(0);
+  const results = useRef<HTMLDivElement>(null);
   const ready = allergensReady(ing);
   const st = ingredientAllergenState(ing, description);
-  const suggestedIds = st.suggested.map((s) => s.id);
+  const heurIds = st.suggested.map((s) => s.id);
+  const heurDiet = st.suggestedAnimal.filter((s) => s.flag === "meat" || s.flag === "honey");
+  // Smart Tidy's proposals for this ingredient (only what is still unticked). They only PROPOSE: they show as suggested chips and nothing is saved until a person confirms.
+  const asked = smart && smart.items[0]?.key === ing.id ? smart : null;
+  const proposals = asked ? remainingProposals(ing, asked.items[0]) : { allergens: [], diet: [] };
+  const smartReason = (id: AllergenId) => proposals.allergens.find((a) => a.id === id)?.reason;
+  const suggestedIds = [...new Set([...heurIds, ...proposals.allergens.map((a) => a.id)])];
+  const suggestedFlags = [...new Set([...heurDiet.map((s) => s.flag), ...proposals.diet.map((d) => d.flag)])];
   const kw = (id: AllergenId) => st.suggested.find((s) => s.id === id)?.keyword;
-  const suggestedDiet = st.suggestedAnimal.filter((s) => s.flag === "meat" || s.flag === "honey");
 
-  const save = async (patch: Partial<Ingredient>) => {
+  const save = async (patch: Partial<Ingredient>): Promise<boolean> => {
     setError(null);
     try {
       await store.updateIngredient(ing.id, patch);
+      return true;
     } catch (e) {
       setError(friendlyError(e));
+      return false;
     }
   };
   const tick = (id: AllergenId) => void save({ allergens: st.confirmed.includes(id) ? st.confirmed.filter((x) => x !== id) : [...st.confirmed, id] });
   const tickFlag = (f: AnimalFlag) => void save({ diet_flags: st.tickedAnimal.includes(f) ? st.tickedAnimal.filter((x) => x !== f) : [...st.tickedAnimal, f] });
-  const confirmAll = () =>
-    void save({ allergens: [...new Set([...st.confirmed, ...suggestedIds])], diet_flags: [...new Set([...st.tickedAnimal, ...suggestedDiet.map((s) => s.flag)])] });
+  const labelsOf = (ids: AllergenId[], flags: AnimalFlag[]) => [...ids.map(proposalLabel), ...flags.map((f) => ANIMAL_LABELS[f])];
+  const confirmAll = async () => {
+    const previous = { allergens: ing.allergens ?? [], diet_flags: ing.diet_flags ?? [] };
+    const ok = await save({ allergens: [...new Set([...st.confirmed, ...suggestedIds])], diet_flags: [...new Set([...(ing.diet_flags ?? []), ...suggestedFlags])] });
+    if (!ok) return;
+    const update = store.updateIngredient;
+    toast.show(
+      {
+        message: `Ticked ${labelsOf(suggestedIds, suggestedFlags).join(", ")} on ${ing.name}`,
+        action: { label: "Undo", onClick: () => void update(ing.id, previous).catch((e) => setError(friendlyError(e))) },
+      },
+      8000,
+    );
+  };
+  const suggest = async () => {
+    const token = ++run.current;
+    setError(null);
+    setAsking(true);
+    const res = await requestAllergenSuggestions([toAssistIngredient(ing, description)]);
+    if (run.current !== token) return;
+    setAsking(false);
+    setSmart(res);
+  };
+  useEffect(() => {
+    if (asked) results.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [asked]);
 
   const allergenChip = (id: AllergenId, label: string) => {
     const state: ChipState = st.confirmed.includes(id) ? "on" : suggestedIds.includes(id) ? "suggested" : "off";
-    return <TickChip key={id} label={label} state={state} hint={state === "suggested" ? `“${kw(id)}”` : undefined} disabled={!ready} onClick={() => tick(id)} />;
+    const hint = state !== "suggested" ? undefined : kw(id) ? `“${kw(id)}”` : smartReason(id);
+    return <TickChip key={id} label={label} state={state} hint={hint} disabled={!ready} onClick={() => tick(id)} />;
   };
-  const nSuggest = suggestedIds.length + suggestedDiet.length;
+  const nSuggest = suggestedIds.length + suggestedFlags.length;
+  const used = store.usedIn("ingredient", ing.id);
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const hasSeafood = st.confirmed.some(isSeafoodAllergen);
   const seafoodReady = ready && ("seafood_origin" in ing || "seafood_exempt" in ing);
 
@@ -140,31 +177,55 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
       <ChipGroup title="Diet">
         {ANIMAL_FLAGS.map((f) => {
           const implied = st.confirmedAnimal.includes(f) && !st.tickedAnimal.includes(f);
-          const isSug = suggestedDiet.some((s) => s.flag === f);
+          const isSug = suggestedFlags.includes(f);
           const state: ChipState = implied ? "locked" : st.tickedAnimal.includes(f) ? "on" : isSug ? "suggested" : "off";
           return <TickChip key={f} label={ANIMAL_LABELS[f]} state={state} hint={implied ? "Set by the allergen ticks" : undefined} disabled={!ready} onClick={() => tickFlag(f)} />;
         })}
       </ChipGroup>
       <p className="mt-2 text-[13px] text-label-2">Animal products decide Vegetarian and Vegan. Dairy, egg and fish follow the allergen ticks; tick Meat or Honey here.</p>
 
-      {nSuggest > 0 && !st.reviewed ? (
+      {st.suggested.length + heurDiet.length > 0 && !st.reviewed ? (
         <p className="mt-3 text-[13px] text-label-2">
-          Suggested from the name: {[...st.suggested.map((s) => `${allergenLabel(s.id)} (${s.keyword})`), ...suggestedDiet.map((s) => `${ANIMAL_LABELS[s.flag]} (${s.keyword})`)].join(", ")}. Tap a dashed chip to confirm it.
+          Suggested from the name: {[...st.suggested.map((s) => `${allergenLabel(s.id)} (${s.keyword})`), ...heurDiet.map((s) => `${ANIMAL_LABELS[s.flag]} (${s.keyword})`)].join(", ")}. Tap a dashed chip to confirm it.
         </p>
       ) : null}
 
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        {nSuggest > 0 && !st.reviewed ? (
-          <button type="button" className="btn-tinted w-full sm:w-auto" disabled={!ready} onClick={confirmAll}>
+      {asking ? (
+        <p role="status" className="mt-4 text-[15px] text-label-2">
+          Checking the name…
+        </p>
+      ) : null}
+      {asked ? (
+        <div ref={results} className="mt-4 rounded-xl bg-fill px-3 py-3" aria-live="polite" data-testid="suggest-results">
+          <p className="text-[13px] font-medium text-label-2">{allergenNote(asked)}</p>
+          {proposals.allergens.length + proposals.diet.length ? (
+            <>
+              <ReasonLines proposals={proposals} className="mt-2" />
+              <p className="mt-2 text-[13px] text-label-2">
+                Confirm All ticks {labelsOf(suggestedIds, suggestedFlags).join(", ")} on this ingredient. It is used in {plural(used.items.length, "dish", "dishes")} and {plural(used.preps.length, "prep", "preps")}, so their allergen badges will change. Nothing is saved until you confirm, and this ingredient is not marked as reviewed.
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-[15px] text-label">Nothing new to suggest from the name. The ticks above are all the name points to.</p>
+          )}
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <button type="button" className="btn-tinted w-full sm:w-auto sm:whitespace-nowrap" disabled={!ready || asking} onClick={() => void suggest()}>
+          Suggest Allergens
+        </button>
+        {nSuggest > 0 ? (
+          <button type="button" className="btn-tinted w-full sm:w-auto sm:whitespace-nowrap" disabled={!ready} onClick={() => void confirmAll()}>
             Confirm All ({nSuggest})
           </button>
         ) : null}
         {st.reviewed ? (
-          <button type="button" className="btn-plain w-full sm:w-auto" disabled={!ready} onClick={() => void save({ allergens_reviewed: false })}>
+          <button type="button" className="btn-plain w-full sm:w-auto sm:whitespace-nowrap" disabled={!ready} onClick={() => void save({ allergens_reviewed: false })}>
             Review Again
           </button>
         ) : (
-          <button type="button" className="btn-primary w-full sm:w-auto" disabled={!ready} onClick={() => void save({ allergens_reviewed: true })}>
+          <button type="button" className="btn-primary w-full sm:w-auto sm:whitespace-nowrap" disabled={!ready} onClick={() => void save({ allergens_reviewed: true })}>
             Mark As Reviewed
           </button>
         )}
@@ -179,7 +240,7 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
  * Seafood origin for an ingredient with fish, crustacea or molluscs ticked: Australian, Imported (New Zealand counts as
  * imported) or Not Set, plus an exemption for seafood the origin standard leaves out (fish sauce, canned tuna, bonito powder).
  */
-function SeafoodOriginEditor({ ing, ready, save }: { ing: Ingredient; ready: boolean; save: (patch: Partial<Ingredient>) => Promise<void> }) {
+function SeafoodOriginEditor({ ing, ready, save }: { ing: Ingredient; ready: boolean; save: (patch: Partial<Ingredient>) => Promise<unknown> }) {
   const exempt = !!ing.seafood_exempt;
   const origin = ing.seafood_origin === "A" || ing.seafood_origin === "I" ? ing.seafood_origin : "none";
   return (
@@ -221,11 +282,7 @@ function SeafoodOriginEditor({ ing, ready, save }: { ing: Ingredient; ready: boo
 /** The ingredient page's Allergens section. */
 export function IngredientAllergensSection({ ing }: { ing: Ingredient }) {
   const { portalPrices, supplierById } = useStore();
-  const description = useMemo(() => {
-    if (!portalPrices || !ing.supplier_code) return null;
-    const sup = (supplierById.get(ing.supplier_id ?? -1)?.name ?? "").toLowerCase();
-    return portalPrices.find((p) => p.product_code === ing.supplier_code && (!sup || (p.supplier ?? "").toLowerCase() === sup))?.description ?? null;
-  }, [portalPrices, supplierById, ing.supplier_code, ing.supplier_id]);
+  const description = useMemo(() => portalDescription(ing, portalPrices, supplierById), [ing, portalPrices, supplierById]);
   return (
     <Group title="Allergens" className="mt-7 lg:mt-5">
       <div className="px-4 py-4">
@@ -271,6 +328,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
   const cleared = ALLERGENS.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
   const addable = ALLERGENS.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
   const toReview = r.unreviewedIngredients;
+  const unreviewed = useMemo(() => toReview.flatMap((i) => store.index.ingredients.get(i.id) ?? []), [toReview, store.index.ingredients]);
   const shown = showAll ? toReview : toReview.slice(0, 6);
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";
   const item = kind === "item" ? (rec as MenuItem) : null;
@@ -366,6 +424,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
         {toReview.length ? (
           <div>
             <p className="pb-1.5 text-[13px] font-medium text-label-2">Ingredients To Review</p>
+            <UnreviewedSuggestions ingredients={unreviewed} ready={ready} onReview={setReviewing} />
             <ul className="divide-y divide-[color:var(--separator)] rounded-xl bg-fill">
               {shown.map((i) => {
                 const ing = store.index.ingredients.get(i.id);

@@ -130,6 +130,11 @@ export function isFiningCategory(category: string | null | undefined): boolean {
 /** which animal flags an allergen implies */
 const IMPLIES: Partial<Record<AllergenId, AnimalFlag>> = { milk: "dairy", egg: "egg", fish: "fish", crustacea: "fish", molluscs: "fish" };
 
+/** The animal flag a ticked allergen implies (milk is dairy, egg is egg, fish, crustacea and molluscs are fish), if any. */
+export function impliedAnimalFlag(id: AllergenId): AnimalFlag | undefined {
+  return IMPLIES[id];
+}
+
 export const CHEF_SOURCE = "Chef";
 
 /** Sentence for the matrix and every roll-up. */

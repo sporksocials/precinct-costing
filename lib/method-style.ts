@@ -37,20 +37,27 @@ export interface TidyResult {
   fallback?: string;
 }
 
-/** Plain words for a manager under the preview: which tidy wrote the step, and why not the smart one. */
-export function tidyNote(r: Pick<TidyResult, "source" | "fallback">): string {
-  if (r.source === "ai") return "Wording by Smart Tidy.";
-  const f = r.fallback ?? "";
-  const why =
-    f === "no_key" ? "Smart Tidy is not switched on: the server has no key."
+/**
+ * Plain words for why Smart Tidy did not answer; every smart helper's note shares it. Empty when the reason is unknown.
+ * `unreachable` is worded by the caller, since it names the thing that could not be reached.
+ */
+export function smartTidyWhy(fallback: string | undefined, unreachable: string): string {
+  const f = fallback ?? "";
+  return f === "no_key" ? "Smart Tidy is not switched on: the server has no key."
     : f === "credits" ? "Smart Tidy could not run: the account has no credit left."
     : f === "http_401" || f === "http_403" ? "Smart Tidy could not run: the key was refused."
     : f === "timeout" ? "Smart Tidy took too long."
     : f === "network" ? "Smart Tidy could not be reached."
     : f.startsWith("bad_reply") ? `Smart Tidy gave a reply that did not pass the checks (${f.slice(10).replace(/^_/, "") || "format"}).`
-    : f === "unreachable" ? "The tidy service could not be reached, so this page did it."
+    : f === "unreachable" ? unreachable
     : f.startsWith("http_") ? `Smart Tidy could not run (error ${f.slice(5)}).`
     : "";
+}
+
+/** Plain words for a manager under the preview: which tidy wrote the step, and why not the smart one. */
+export function tidyNote(r: Pick<TidyResult, "source" | "fallback">): string {
+  if (r.source === "ai") return "Wording by Smart Tidy.";
+  const why = smartTidyWhy(r.fallback, "The tidy service could not be reached, so this page did it.");
   return why ? `Wording by Built-In Tidy. ${why}` : "Wording by Built-In Tidy.";
 }
 

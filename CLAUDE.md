@@ -37,6 +37,7 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
   - `ANTHROPIC_API_KEY`: turns on the smarter tidy. Without it the built-in engine answers.
   - `METHOD_ASSIST_MODEL`: model for the tidy (default `claude-haiku-4-5-20251001`).
   - `ANTHROPIC_BASE_URL`: API base URL (default `https://api.anthropic.com`); only changed in tests to point at a local mock.
+- **Smart allergen suggestions** (`lib/allergen-assist.ts` prompt, checks and keyword fallback, `app/api/allergen-assist/route.ts`, `lib/allergen-assist-client.ts`, `components/allergen-suggest.tsx`): the Suggest Allergens button in the ingredient allergen editor and Suggest For Unreviewed Ingredients on the dish card send one ingredient or a batch of up to 20 and get proposed allergen and diet ids with a one-sentence reason each. Same pattern as the step tidy: signed-in and allow-listed only, reply must be JSON that passes strict checks (known ids, no duplicates, short plain reasons, no dashes), otherwise the keyword check in `lib/allergens.ts` answers in the same shape with a `fallback` reason (`allergenNote` words it). It only proposes: nothing is saved until a person accepts, accepting never sets `allergens_reviewed`, and the toast can undo it. Uses `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` as above, plus optional `ALLERGEN_ASSIST_MODEL` (default `claude-haiku-4-5-20251001`); no key values anywhere in the repo.
 - Demo mode for local visual QA: `NEXT_PUBLIC_DEMO=1 npx next dev -p 3100` (reads `.demo/`, local only).
 
 ## Design rules (Apple HIG thinking)

@@ -14,7 +14,7 @@ import {
   type AllergenId,
   type MatrixRow,
 } from "@/lib/allergens";
-import { badgeModel, hidesQuietTiers, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
+import { badgeModel, isDrinkItem, showsAllergen, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
 import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
 import { useAllergenIndex } from "./allergen-picker";
@@ -225,7 +225,7 @@ export function AllergenMatrix() {
     () =>
       all.filter((r) => {
         if (needle && !`${r.name} ${r.category}`.toLowerCase().includes(needle)) return false;
-        for (const id of free) if (!isFreeFrom(r.rollup, id)) return false;
+        for (const id of free) if (!showsAllergen(r.item, id) || !isFreeFrom(r.rollup, id)) return false;
         for (const d of diet) if (r.model.diet.find((x) => x.id === d)?.state !== "is") return false;
         return true;
       }),
@@ -361,24 +361,24 @@ export function AllergenMatrix() {
                         </th>
                         {MAIN.map((a) => (
                           <td key={a.id} className="border-b border-[color:var(--separator)] p-0.5">
-                            <Cell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.label} />
+                            {showsAllergen(r.item, a.id) ? <Cell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.label} /> : null}
                           </td>
                         ))}
                         {[...SENS, ...ATTR].map((a, i) => (
                           <td key={a.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
-                            {hidesQuietTiers(r.item) ? null : <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />}
+                            {isDrinkItem(r.item) ? null : <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />}
                           </td>
                         ))}
                         {DIETS.map((d, i) => (
                           <td key={d.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
-                            <DietCell m={r.model} id={d.id} />
+                            {isDrinkItem(r.item) ? null : <DietCell m={r.model} id={d.id} />}
                           </td>
                         ))}
                         <td className="border-b border-l border-[color:var(--separator)] p-0.5">
-                          <OptionsCell m={r.model} />
+                          {isDrinkItem(r.item) ? null : <OptionsCell m={r.model} />}
                         </td>
                         <td className="border-b border-[color:var(--separator)] p-0.5">
-                          <SeafoodCell m={r.model} />
+                          {isDrinkItem(r.item) ? null : <SeafoodCell m={r.model} />}
                         </td>
                       </tr>
                     ))}

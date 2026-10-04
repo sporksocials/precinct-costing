@@ -5,9 +5,9 @@
  * every check below. With no key, a failed call, a timeout or a reply that does not check out, the built-in engine
  * (lib/method-style.ts) answers instead. The answer shape is the same either way.
  */
-import { findStepIndex, STEP_MAX, STEP_MIN, tidyBuiltin, type MethodOp, type TidyInput, type TidyLine, type TidyResult } from "./method-style";
+import { chooseIndex, findStepIndex, isGlassIceStep, STEP_MAX, STEP_MIN, tidyBuiltin, type MethodOp, type TidyInput, type TidyLine, type TidyResult } from "./method-style";
 
-export const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
 export const DEFAULT_BASE_URL = "https://api.anthropic.com";
 export const TIMEOUT_MS = 8000;
 
@@ -39,8 +39,10 @@ export function parseRequest(body: unknown): TidyInput | null {
   }
   const replaces = b.replaces == null ? undefined : str(b.replaces, 300);
   const noteTitle = b.noteTitle == null ? undefined : str(b.noteTitle, 200);
-  if (replaces === null || noteTitle === null) return null;
-  return { itemName, category, glass, lines, method: method as string[], mode: b.mode, text, replaces, noteTitle };
+  const question = b.question == null ? undefined : str(b.question, 300);
+  const noteBody = b.noteBody == null ? undefined : str(b.noteBody, 700);
+  if (replaces === null || noteTitle === null || question === null || noteBody === null) return null;
+  return { itemName, category, glass, lines, method: method as string[], mode: b.mode, text, replaces, noteTitle, question, noteBody };
 }
 
 // ---------------------------------------------------------------- prompt
@@ -58,6 +60,9 @@ House style:
 - Fix spelling. Keep the person's meaning.
 
 Where it goes, by the usual order of a drink: rim and chill the glass first, then ingredients added, then shake or stir or blend, then strain or dump, then top and fill, then garnish steps last.
+- Ice for the serving glass is a glass step. When the drink is shaken or stirred and then strained or dumped into the glass, "Fill the glass with ice" goes straight after the rim and chill steps, before the ingredients and before the shake. Ice that goes into the shaker belongs with the shake. Ice added to a drink that is built straight in the glass goes after the liquid it is built with, as the card says.
+- When a question was asked, the typed text answers that question. Write the step that answers it. If the typed text holds two actions, keep the one that answers the question, and add the other only when it happens at the same point in the drink; never merge steps that belong at different points.
+- Read the whole current method before choosing the index. The index is the position the new step takes, so the step before it must belong before it and the step after it must belong after it.
 - "insert" puts the step at an index from 0 (the very start) to the number of current steps (the very end). The new step takes that position.
 - "replace" swaps the step at that index for the new one. Use it only when the user message names a step to replace.
 
@@ -67,9 +72,10 @@ Reply with ONLY JSON in exactly this shape and nothing else, no code fence and n
 export function buildUserPrompt(input: TidyInput): string {
   const lines = input.lines.length ? input.lines.map((l) => `- ${l.name}${l.qty != null ? `: ${l.qty}${l.unit ? ` ${l.unit}` : ""}` : ""}`).join("\n") : "(none)";
   const method = input.method.length ? input.method.map((m, i) => `${i}. ${m}`).join("\n") : "(no steps yet)";
+  const asked = [input.question ? `The question was: "${input.question}"` : "", input.noteBody ? `The note said: "${input.noteBody}"` : ""].filter(Boolean).join("\n");
   const ask =
     input.mode === "answer"
-      ? `The venue was asked${input.noteTitle ? ` "${input.noteTitle}"` : " a question about this drink"} and typed this answer. Turn it into one method step:`
+      ? `${asked ? asked + "\n" : ""}The venue was asked${input.noteTitle ? ` "${input.noteTitle}"` : " a question about this drink"} and typed this answer. Turn it into one method step:`
       : `A suggested step${input.noteTitle ? ` (note: "${input.noteTitle}")` : ""} to tidy and place:`;
   return [
     `Drink: ${input.itemName}${input.category ? ` (${input.category})` : ""}`,
@@ -136,7 +142,9 @@ export function validateReplyDetailed(raw: string, input: Pick<TidyInput, "metho
   }
   if (o.op !== "insert") return { reason: "bad_reply_op" };
   if (o.index < 0 || o.index > n) return { reason: "bad_reply_index" };
-  return { ops: [{ op: "insert", index: o.index, text }] };
+  // a clear ordering rule beats the model's guess: glass ice goes before the shake in a shaken and strained drink
+  const index = isGlassIceStep(text) ? chooseIndex(input.method, text) : o.index;
+  return { ops: [{ op: "insert", index, text }] };
 }
 
 /** The validated ops, or null on any failure. */

@@ -28,6 +28,10 @@ export interface TidyInput {
   text: string;
   replaces?: string;
   noteTitle?: string;
+  /** the question the note asked ("Does the poco glass have ice?"), so an answer is read as an answer to it */
+  question?: string;
+  /** the note's own text, for context */
+  noteBody?: string;
 }
 
 export interface TidyResult {
@@ -422,8 +426,32 @@ export function stageOf(step: string): number | null {
   return stage;
 }
 
+/**
+ * "Fill the glass with ice": ice for the serving glass, one action, nothing about the shaker. In a drink that is shaken,
+ * stirred or blended and then strained, that is a glass step and goes with the glass steps, before the shake.
+ */
+export function isGlassIceStep(text: string): boolean {
+  const t = text.toLowerCase();
+  if (!/^(fill|add|put|pack|load)\b/.test(t) || !/\bice\b/.test(t)) return false;
+  if (/\b(shaker|tin|shake|stir|strain|dump|premix|pre mix|soda|sprite|lift|juice)\b|\btop (with (?!ice\b)|up)|\btopped\b/.test(t)) return false;
+  return /\b(glass|cup|jug|carafe|tumbler|mug)\b/.test(t);
+}
+
+/** True when the method shakes, stirs or blends and then strains or dumps: the ice is in the glass before the shake. */
+function isShakenAndStrained(method: readonly string[]): boolean {
+  return method.some((m) => stageOf(m) === 2) && method.some((m) => stageOf(m) === 3);
+}
+
 /** Where a step of this kind goes: after the last step that comes before or at the same stage, else by default. */
 export function chooseIndex(method: readonly string[], text: string): number {
+  if (isGlassIceStep(text) && isShakenAndStrained(method)) {
+    // glass ice goes after the rim and chill steps, before any ingredient or shake
+    let lastGlass = -1;
+    method.forEach((m, i) => {
+      if (stageOf(m) === 0) lastGlass = i;
+    });
+    return lastGlass + 1;
+  }
   const s = stageOf(text);
   if (s == null) return method.length;
   let last = -1;

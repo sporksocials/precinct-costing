@@ -35,7 +35,7 @@ Next.js 14 (app router, client components + `lib/store.tsx` global store), Tailw
 - **Research Notes apply** (`lib/research-notes.ts`, `components/editor/research-notes.tsx`): Approve on a note with priced `changes`, a `method_step` or an `answer_prompt` first shows a one-tap preview of exactly what changes, then writes it (on the recipe page through the editor draft and its autosave; on `/research-notes` through the store) and records `applied` on the note for Undo / Undo And Reopen. Prep notes and notes with nothing to apply just close.
 - **Method step tidy** (`lib/method-style.ts` built-in engine, `lib/method-assist.ts` + `app/api/method-assist/route.ts` smart path, `lib/method-assist-client.ts`): the suggested or typed step is tidied into the house style and placed by stage; the route is signed-in and allow-listed only. With no key everything runs through the built-in engine. Env vars (all optional, set by Troy in the Vercel project settings; never written to disk or the repo, never read or printed in a session):
   - `ANTHROPIC_API_KEY`: turns on the smarter tidy. Without it the built-in engine answers.
-  - `METHOD_ASSIST_MODEL`: model for the tidy (default `claude-haiku-4-5-20251001`).
+  - `METHOD_ASSIST_MODEL`: model for the tidy (default `claude-sonnet-5-5`).
   - `ANTHROPIC_BASE_URL`: API base URL (default `https://api.anthropic.com`); only changed in tests to point at a local mock.
 - Demo mode for local visual QA: `NEXT_PUBLIC_DEMO=1 npx next dev -p 3100` (reads `.demo/`, local only).
 

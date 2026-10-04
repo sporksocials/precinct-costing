@@ -137,7 +137,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
       <div>
         <TierLabel>{BADGE_LABELS.contains}</TierLabel>
         {mainEmpty ? (
-          <p className="text-[15px] text-label-2">{m.notReviewed ? "Nothing found so far." : "No allergens ticked on any ingredient."}</p>
+          <p className="text-[15px] text-label-2">{m.notReviewed ? "Nothing found so far." : m.drink ? "No egg, milk or nuts ticked on any ingredient." : "No allergens ticked on any ingredient."}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {m.contains.map((id) => (
@@ -178,6 +178,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
         </div>
       ) : null}
 
+      {m.drink ? null : (
       <div>
         <TierLabel>Dietary</TierLabel>
         {m.diet.length ? (
@@ -203,8 +204,9 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
           </ul>
         ) : null}
       </div>
+      )}
 
-      {seafood || seafoodLabel ? (
+      {!m.drink && (seafood || seafoodLabel) ? (
         <div>
           <TierLabel>{BADGE_LABELS.seafoodOrigin}</TierLabel>
           {seafood ? (

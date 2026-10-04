@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askModel, assist, buildUserPrompt, DEFAULT_MODEL, isValidStepText, parseRequest, SYSTEM_PROMPT, validateReply } from "@/lib/method-assist";
 import { requestTidy } from "@/lib/method-assist-client";
-import { TidyError, tidyNote, type TidyInput } from "@/lib/method-style";
+import { chooseIndex, isGlassIceStep, TidyError, tidyNote, type TidyInput } from "@/lib/method-style";
 
 const METHOD = ["Chill the glass", "Add the lime juice", "Shake hard for 12 seconds", "Double strain into the glass", "Garnish with a lime wedge"];
 const INPUT: TidyInput = {
@@ -280,5 +280,46 @@ describe("POST /api/method-assist", () => {
     process.env.NEXT_PUBLIC_DEMO = "1";
     auth.user = null;
     expect((await post(reqBody)).status).toBe(200);
+  });
+});
+
+describe("placement: ice in the serving glass", () => {
+  const BULCOCK = ["Wet and rim the glass with coconut", "Pour 2.5 shots of Bulcock Banger Pre-Mix into the shaker", "Add the lime juice", "Shake hard for 12 seconds", "Strain into the glass", "Top with Sprite, then stir once gently"];
+  it("recognises glass ice and nothing else", () => {
+    expect(isGlassIceStep("Fill the glass with ice")).toBe(true);
+    expect(isGlassIceStep("Fill the glass to the top with ice")).toBe(true);
+    expect(isGlassIceStep("Fill the shaker with ice")).toBe(false);
+    expect(isGlassIceStep("Fill with ice and stir briefly")).toBe(false);
+    expect(isGlassIceStep("Fill the glass with ice, then top with soda")).toBe(false);
+    expect(isGlassIceStep("Shake hard for 12 seconds")).toBe(false);
+  });
+  it("puts glass ice after the rim and before the shake in a shaken and strained drink", () => {
+    expect(chooseIndex(BULCOCK, "Fill the glass with ice")).toBe(1);
+    expect(chooseIndex(["Add the gin", "Shake hard for 12 seconds", "Strain into the glass"], "Fill the glass with ice")).toBe(0);
+  });
+  it("leaves a built drink to the usual order", () => {
+    const built = ["Fill the wine glass with premix", "Top with Sprite"];
+    expect(chooseIndex(built, "Fill the glass with ice")).toBe(chooseIndex(built, "Fill the glass with ice"));
+    expect(chooseIndex(built, "Fill the glass with ice")).not.toBe(0);
+  });
+  it("overrides the model's index for glass ice (the Bulcock Banger case)", () => {
+    const r = validateReply(reply({ ops: [{ op: "insert", index: 4, text: "Fill the glass with ice" }] }), { method: BULCOCK });
+    expect(r).toEqual([{ op: "insert", index: 1, text: "Fill the glass with ice" }]);
+  });
+  it("keeps the model's index for any other step", () => {
+    const r = validateReply(reply({ ops: [{ op: "insert", index: 5, text: "Garnish with a lime wedge" }] }), { method: BULCOCK });
+    expect(r).toEqual([{ op: "insert", index: 5, text: "Garnish with a lime wedge" }]);
+  });
+  it("sends the question and the note to the model, and the ordering rules", () => {
+    const p = buildUserPrompt({ ...INPUT, question: "Does the poco glass have ice?", noteBody: "The sheet does not say whether the glass has ice." });
+    expect(p).toContain("Does the poco glass have ice?");
+    expect(p).toContain("The sheet does not say");
+    expect(SYSTEM_PROMPT).toMatch(/Ice for the serving glass is a glass step/);
+    expect(SYSTEM_PROMPT).toMatch(/Read the whole current method/);
+  });
+  it("accepts and bounds the question and note in a request", () => {
+    expect(parseRequest({ ...INPUT, question: "Does it?", noteBody: "x" })?.question).toBe("Does it?");
+    expect(parseRequest({ ...INPUT, question: "q".repeat(301) })).toBeNull();
+    expect(parseRequest({ ...INPUT, noteBody: "n".repeat(701) })).toBeNull();
   });
 });

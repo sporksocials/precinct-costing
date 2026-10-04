@@ -55,6 +55,8 @@ export type SeafoodBadge =
     };
 
 export interface BadgeModel {
+  /** a drink: only egg, milk and nuts are marked, and there are no dietary or seafood badges */
+  drink: boolean;
   /** set when anything is unreviewed (or the recipe is empty): show this banner first, in every view */
   notReviewed: { unreviewedNames: string[] } | null;
   /** confirmed main allergens (required, then chef extras), fixed order */
@@ -78,9 +80,20 @@ export interface BadgeModel {
 
 export type BadgeItem = Pick<MenuItem, "diet_options" | "seafood_label"> & { category?: string | null };
 
-/** Drinks never show Sulphites or Contains Alcohol (Troy, 4 Oct 2026). Both stay recorded on the ingredients. */
-export function hidesQuietTiers(item?: { category?: string | null } | null): boolean {
+/** Drink categories: cocktails, mocktails, wine, spirits, beer, RTD. */
+export function isDrinkItem(item?: { category?: string | null } | null): boolean {
   return !!item?.category && DRINK_CATEGORIES.has(item.category);
+}
+
+/**
+ * The only allergens marked on a drink (Troy, 4 Oct 2026): egg, milk and nuts. Nothing else is listed on drinks: no
+ * gluten or gluten free, no sulphites, no alcohol, no dietary badges. The ingredient data stays recorded.
+ */
+export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts"];
+
+/** True when this allergen is marked on this item: everything on food, only egg, milk and nuts on drinks. */
+export function showsAllergen(item: { category?: string | null } | null | undefined, id: AllergenId): boolean {
+  return !isDrinkItem(item) || DRINK_ALLERGEN_IDS.includes(id);
 }
 
 /** Dish seafood letter from the ingredient origins: all A is A, all I is I, both is M. Null when there is no seafood. */
@@ -128,11 +141,17 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
     options.push({ id, letter: def.letter, label: def.label, note });
   }
 
-  if (hidesQuietTiers(item)) {
+  const drink = isDrinkItem(item);
+  if (drink) {
+    s.contains = s.contains.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
+    s.may = s.may.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
     s.sensitivities = [];
     s.sensitivitiesMay = [];
     s.attributes = [];
     s.attributesMay = [];
+    diet.length = 0;
+    options.length = 0;
+    optionsMissingNote.length = 0;
   }
   const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.sensitivities, ...s.sensitivitiesMay, ...s.attributes, ...s.attributesMay]);
   const notes = [...CONTAINS_IDS, ...s.sensitivities, ...s.attributes]
@@ -140,6 +159,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
     .map((id) => ({ id, label: allergenLabel(id), note: r.cells[id].note as string }));
 
   return {
+    drink,
     notReviewed: r.reviewed ? null : { unreviewedNames: r.unreviewed },
     contains: s.contains,
     mayContain: s.may,
@@ -150,7 +170,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
     diet,
     options,
     optionsMissingNote,
-    seafood: seafoodBadge(r, !!item?.seafood_label),
+    seafood: drink ? null : seafoodBadge(r, !!item?.seafood_label),
     notes,
   };
 }

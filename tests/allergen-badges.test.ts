@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildIndex } from "@/lib/costing";
 import { rollup, summarise, ALLERGENS, CONTAINS_IDS, SENSITIVITY_IDS, ATTRIBUTE_IDS, type AllergenIndex } from "@/lib/allergens";
-import { badgeModel, seafoodBadge } from "@/lib/allergen-badges";
+import { badgeModel, isDrinkItem, seafoodBadge, showsAllergen } from "@/lib/allergen-badges";
 import { BADGE_LABELS, DIET_OPTIONS, SEAFOOD_LETTERS, dietLegendLines, seafoodLegendLines } from "@/lib/diet-legend";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
 
@@ -56,27 +56,43 @@ describe("allergen groups", () => {
   });
 });
 
-describe("badgeModel: drinks never show sulphites or alcohol", () => {
-  const wine = () => [ing("w", "Chardonnay", ok({ allergens: ["sulphites", "alcohol", "milk"] }))];
-  it("hides both tiers on a cocktail but keeps real allergens", () => {
-    const m = model(wine(), { category: "Cocktail" });
+describe("badgeModel: drinks mark only egg, milk and nuts", () => {
+  const rich = () => [ing("w", "Amaretto", ok({ allergens: ["sulphites", "alcohol", "milk", "tree_nuts", "gluten", "soy", "egg", "fish"] }))];
+  it("lists egg, milk and nuts and nothing else on a cocktail", () => {
+    const m = model(rich(), { category: "Cocktail" });
+    expect(m.contains).toEqual(["egg", "milk", "tree_nuts"]);
     expect(m.sensitivities).toEqual([]);
-    expect(m.sensitivitiesMay).toEqual([]);
     expect(m.attributes).toEqual([]);
-    expect(m.attributesMay).toEqual([]);
-    expect(m.contains).toEqual(["milk"]);
+    expect(m.diet).toEqual([]);
+    expect(m.options).toEqual([]);
+    expect(m.seafood).toBeNull();
   });
-  it("hides the suggested (may) tiers too, for every drink category", () => {
+  it("never mentions gluten or gluten free on any drink category, even with a gluten option on the item", () => {
     for (const category of ["Cocktail", "Mocktail", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD"]) {
-      const m = model([ing("w", "Red Wine")], { category });
-      expect(m.sensitivitiesMay).toEqual([]);
-      expect(m.attributesMay).toEqual([]);
+      const m = model([ing("b", "Lager", ok({ allergens: ["gluten"] }))], { category, diet_options: { gfo: { note: "Use a cider" } } as never });
+      expect(m.contains).not.toContain("gluten");
+      expect(m.diet.map((d) => d.id)).not.toContain("no_gluten_ingredients");
+      expect(m.options).toEqual([]);
     }
   });
-  it("still shows them on food", () => {
-    const m = model(wine(), { category: "Food" });
+  it("hides suggested (may) tiers for unreviewed wine too, but keeps a may-contain milk", () => {
+    const m = model([ing("w", "Red Wine")], { category: "Wine" });
+    expect(m.sensitivitiesMay).toEqual([]);
+    expect(m.attributesMay).toEqual([]);
+  });
+  it("still shows everything on food", () => {
+    const m = model(rich(), { category: "Food" });
+    expect(m.contains).toContain("gluten");
     expect(m.sensitivities).toEqual(["sulphites"]);
     expect(m.attributes).toEqual(["alcohol"]);
+  });
+  it("showsAllergen and isDrinkItem agree", () => {
+    expect(isDrinkItem({ category: "Mocktail" })).toBe(true);
+    expect(isDrinkItem({ category: "Food" })).toBe(false);
+    expect(showsAllergen({ category: "Cocktail" }, "gluten")).toBe(false);
+    expect(showsAllergen({ category: "Cocktail" }, "tree_nuts")).toBe(true);
+    expect(showsAllergen({ category: "Food" }, "gluten")).toBe(true);
+    expect(showsAllergen(null, "gluten")).toBe(true);
   });
 });
 

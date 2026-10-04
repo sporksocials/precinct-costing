@@ -201,6 +201,8 @@ function useNoteController(note: ResearchNote, editor: RecipeTarget | undefined)
       text,
       replaces: note.method_replaces?.trim() || undefined,
       noteTitle: note.title,
+      question: kinds.question ? note.answer_prompt?.trim() || undefined : undefined,
+      noteBody: note.body?.trim() ? note.body.trim().slice(0, 700) : undefined,
     };
   };
 

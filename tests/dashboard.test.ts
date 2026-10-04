@@ -9,6 +9,7 @@ import {
   attentionVisibility,
   formatPts,
   gpStatus,
+  sliderPos,
   gpTarget,
   priceAlertsAnchor,
   rankAttention,
@@ -198,11 +199,25 @@ describe("summarySentence", () => {
   });
 });
 
+describe("sliderPos", () => {
+  it("puts the target in the middle and runs 25 points either side", () => {
+    expect(sliderPos(0.72, 0.72)).toBeCloseTo(0.5);
+    expect(sliderPos(0.47, 0.72)).toBeCloseTo(0);
+    expect(sliderPos(0.97, 0.72)).toBeCloseTo(1);
+    expect(sliderPos(0.67, 0.72)).toBeCloseTo(0.4);
+  });
+  it("clamps outside the scale", () => {
+    expect(sliderPos(0.1, 0.72)).toBe(0);
+    expect(sliderPos(1, 0.72)).toBe(1);
+  });
+});
+
 describe("gpStatus and formatPts", () => {
-  it("On Target at or over, Just Under within 5 points, Below Target beyond", () => {
+  it("On Target at or over, Nearly There within 3 points, Below Target beyond", () => {
     expect(gpStatus(0.74, 0.72)).toMatchObject({ level: "good", word: "On Target", gapText: "+2 pts" });
     expect(gpStatus(0.72, 0.72)).toMatchObject({ level: "good", word: "On Target", gapText: null });
-    expect(gpStatus(0.69, 0.72)).toMatchObject({ level: "warn", word: "Just Under", gapText: "-3 pts" });
+    expect(gpStatus(0.69, 0.72)).toMatchObject({ level: "warn", word: "Nearly There", gapText: "-3 pts" });
+    expect(gpStatus(0.68, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-4 pts" });
     expect(gpStatus(0.6, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-12 pts" });
   });
   it("has a word even with no GP", () => expect(gpStatus(null, null)).toMatchObject({ level: "none", word: "No GP Yet", gapText: null }));

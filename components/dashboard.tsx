@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronRight, TrendingDown } from "lucide-react";
+import { Check, ChevronRight, Target, TrendingDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { checkCostGroups, checkCostRows, gpSummary } from "@/lib/insights";
 import { gp } from "@/lib/format";
 import { ignoredCheckItemIds } from "@/lib/ignored-alerts";
-import { alertTotals, attentionVisibility, gpTarget, rankAttention, specialsSummary, venueGpRows, viewAllState } from "@/lib/dashboard";
+import { alertTotals, attentionVisibility, gpStatus, gpTarget, rankAttention, sliderPos, specialsSummary, venueGpRows, viewAllState, type GpLevel } from "@/lib/dashboard";
 import { useNewRecipe } from "@/components/new-recipe";
 import { VENUE_SHORT } from "@/components/venue";
 import { cx, Group, Row } from "@/components/ui";
@@ -48,33 +48,44 @@ function useSlideIn(): boolean {
   return on;
 }
 
-/** The slider scale: 40% to 90% GP, the same for every bar so venues compare at a glance. */
-const SCALE_MIN = 0.4;
-const SCALE_MAX = 0.9;
-const pos = (v: number) => Math.max(0, Math.min(1, (v - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)));
+/** Colour and icon for a GP level: green on target, amber nearly there, red below. The word always goes with it. */
+const LEVEL = {
+  good: { text: "text-good", fill: "bg-good", glow: "var(--good-soft)", word: "On Target" },
+  warn: { text: "text-warn", fill: "bg-warn", glow: "var(--warn-soft)", word: "Nearly There" },
+  bad: { text: "text-danger", fill: "bg-danger", glow: "var(--danger-soft)", word: "Below Target" },
+  none: { text: "text-label-3", fill: "bg-label-3", glow: "transparent", word: "No GP Yet" },
+} as const;
+
+function LevelIcon({ level, className }: { level: GpLevel; className?: string }) {
+  if (level === "good") return <Check aria-hidden className={className} strokeWidth={3} />;
+  if (level === "warn") return <Target aria-hidden className={className} strokeWidth={2.75} />;
+  if (level === "bad") return <TrendingDown aria-hidden className={className} strokeWidth={2.75} />;
+  return null;
+}
 
 /**
- * Where a GP sits against the target: a track, a fill that slides out to the value (green at or over target, red under),
- * a knob at the end of the fill and a tick on the target. The word beside it says the same thing, so colour is never alone.
+ * Where a GP sits against the target. The target is the tick in the MIDDLE of the track and the scale runs 25 points either
+ * side, so the bar shows how far over or under you are. The fill slides out from the left on load, a knob rides its end, and
+ * the colour (green, amber, red) is the level; the word beside it says the same thing.
  */
-function Slider({ value, target, label, big, delay = 0 }: { value: number | null; target: number; label: string; big?: boolean; delay?: number }) {
+function Slider({ value, target, level, label, big, delay = 0 }: { value: number | null; target: number; level: GpLevel; label: string; big?: boolean; delay?: number }) {
   const on = useSlideIn();
-  const good = value != null && value >= target - 1e-9;
-  const w = value == null ? 0 : pos(value) * 100;
+  const w = value == null ? 0 : sliderPos(value, target) * 100;
+  const L = LEVEL[level];
   return (
     <span role="img" aria-label={label} className={cx("relative block w-full rounded-full bg-fill-2", big ? "h-3" : "h-2")}>
       <span
-        className={cx("absolute inset-y-0 left-0 rounded-full transition-[width] duration-[900ms] ease-out motion-reduce:transition-none", good ? "bg-good" : "bg-danger")}
-        style={{ width: on ? `${w}%` : "0%", transitionDelay: `${delay}ms`, boxShadow: value == null ? undefined : good ? "0 0 14px var(--good-soft)" : "0 0 14px var(--danger-soft)" }}
+        className={cx("absolute inset-y-0 left-0 rounded-full transition-[width] duration-[900ms] ease-out motion-reduce:transition-none", L.fill)}
+        style={{ width: on ? `${w}%` : "0%", transitionDelay: `${delay}ms`, boxShadow: value == null ? undefined : `0 0 14px ${L.glow}` }}
       />
       {value == null ? null : (
         <span
           aria-hidden
-          className={cx("absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--surface)] transition-[left] duration-[900ms] ease-out motion-reduce:transition-none", big ? "h-5 w-5" : "h-3.5 w-3.5", good ? "bg-good" : "bg-danger")}
+          className={cx("absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[color:var(--surface)] transition-[left] duration-[900ms] ease-out motion-reduce:transition-none", big ? "h-5 w-5" : "h-3.5 w-3.5", L.fill)}
           style={{ left: on ? `${w}%` : "0%", transitionDelay: `${delay}ms` }}
         />
       )}
-      <span aria-hidden className={cx("absolute w-[2px] rounded-full bg-label", big ? "-inset-y-1.5" : "-inset-y-1")} style={{ left: `calc(${pos(target) * 100}% - 1px)` }} />
+      <span aria-hidden className={cx("absolute left-1/2 w-[2px] -translate-x-1/2 rounded-full bg-label", big ? "-inset-y-1.5" : "-inset-y-1")} />
     </span>
   );
 }
@@ -119,7 +130,8 @@ export function Dashboard() {
   const venueRows = useMemo(() => venueGpRows(store.itemCosts.values(), store.venues, open.under), [store.itemCosts, store.venues, open.under]);
   const ignoredCount = store.ignoredAlerts.length;
   const shownAvg = useCountUp(headline.avg);
-  const good = !empty && (headline.avg ?? 0) >= target - 1e-9;
+  const status = gpStatus(headline.avg, empty ? null : target);
+  const L = LEVEL[status.level];
   // the venue that is under target but closest to it: a goal to point at
   const closest = useMemo(() => {
     const under = venueRows.filter((r) => r.avg != null && r.avg < r.target - 1e-9).sort((a, b) => b.avg! - b.target - (a.avg! - a.target));
@@ -148,7 +160,7 @@ export function Dashboard() {
           style={{
             background: empty
               ? "var(--surface)"
-              : `radial-gradient(120% 100% at 0% 0%, ${good ? "var(--good-soft)" : "var(--danger-soft)"}, transparent 62%), linear-gradient(180deg, var(--surface-2), var(--surface))`,
+              : `radial-gradient(120% 100% at 0% 0%, ${L.glow}, transparent 62%), linear-gradient(180deg, var(--surface-2), var(--surface))`,
           }}
           aria-label="Average GP"
         >
@@ -159,23 +171,23 @@ export function Dashboard() {
           ) : (
             <>
               <p
-                className={cx("display text-[96px] leading-none tnum lg:text-[120px]", good ? "text-good" : "text-danger")}
-                style={{ textShadow: good ? "0 0 36px var(--good-soft)" : "0 0 36px var(--danger-soft)" }}
+                className={cx("display text-[96px] leading-none tnum lg:text-[120px]", L.text)}
+                style={{ textShadow: `0 0 36px ${L.glow}` }}
                 aria-label={gp(headline.avg, 1, target)}
               >
                 {gp(shownAvg, 0, target)}
               </p>
-              <p className={cx("mt-2 flex items-center gap-1.5 whitespace-nowrap text-[19px] font-semibold sm:text-[16px]", good ? "text-good" : "text-danger")}>
-                {good ? <Check aria-hidden className="h-[18px] w-[18px]" strokeWidth={3} /> : <TrendingDown aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.75} />}
-                {good ? "On Target" : "Below Target"}
+              <p className={cx("mt-2 flex items-center gap-1.5 whitespace-nowrap text-[19px] font-semibold sm:text-[16px]", L.text)}>
+                <LevelIcon level={status.level} className="h-[18px] w-[18px]" />
+                {status.word}
               </p>
               <p className="mt-0.5 text-[17px] text-label-2 sm:text-[15px]">{gapLine(headline.avg ?? 0, target)}</p>
               <div className="mt-6">
-                <Slider value={headline.avg} target={target} big label={`Average GP ${gp(headline.avg, 0, target)} against a ${gp(target, 0)} target`} />
-                <p className="mt-2 flex justify-between text-[13px] text-label-2 tnum">
-                  <span>{gp(SCALE_MIN, 0)}</span>
-                  <span>Target {gp(target, 0)}</span>
-                  <span>{gp(SCALE_MAX, 0)}</span>
+                <Slider value={headline.avg} target={target} level={status.level} big label={`Average GP ${gp(headline.avg, 0, target)} against a ${gp(target, 0)} target, ${status.word}`} />
+                <p className="mt-2 flex justify-between text-[13px] text-label-2">
+                  <span>Under</span>
+                  <span className="tnum">Target {gp(target, 0)}</span>
+                  <span>Over</span>
                 </p>
               </div>
               {allOver ? (
@@ -196,13 +208,14 @@ export function Dashboard() {
           </h2>
           <div className={cx("group-list anim-stagger", CARD_DEPTH)}>
             {venueRows.map((r, i) => {
-              const ok = r.avg != null && r.avg >= r.target - 1e-9;
+              const lv = r.status.level;
+              const VL = LEVEL[lv];
               const name = VENUE_SHORT[r.venue.slug] ?? r.venue.name;
               return (
                 <Link
                   key={r.venue.id}
                   href={`/menu?venue=${r.venue.slug}`}
-                  aria-label={r.avg == null ? `${name}: no GP yet. Open the menu` : `${name}: average GP ${gp(r.avg, 0, r.target)}, ${ok ? "on target" : "below target"}${r.under ? `, ${r.under} below target` : ""}. Open the menu`}
+                  aria-label={r.avg == null ? `${name}: no GP yet. Open the menu` : `${name}: average GP ${gp(r.avg, 0, r.target)}, ${r.status.word.toLowerCase()}${r.under ? `, ${r.under} below target` : ""}. Open the menu`}
                   className="block min-h-[64px] px-4 py-3 transition-colors hover:bg-fill active:bg-fill focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--label)]"
                 >
                   <span className="flex items-center justify-between gap-3">
@@ -211,19 +224,19 @@ export function Dashboard() {
                       <span className="block text-[15px] leading-snug text-label-2 sm:text-[13px]">{r.avg == null ? "No GP yet" : r.under ? `${r.under} below target` : "All on target"}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
-                      {r.avg == null ? null : ok ? <Check aria-hidden className="h-4 w-4 text-good" strokeWidth={3} /> : <TrendingDown aria-hidden className="h-4 w-4 text-danger" strokeWidth={2.75} />}
-                      <span className={cx("display text-[30px] leading-none tnum sm:text-[26px]", r.avg == null ? "text-label-3" : ok ? "text-good" : "text-danger")}>{r.avg == null ? "–" : gp(r.avg, 0, r.target)}</span>
+                      <LevelIcon level={lv} className={cx("h-4 w-4", VL.text)} />
+                      <span className={cx("display text-[30px] leading-none tnum sm:text-[26px]", VL.text)}>{r.avg == null ? "–" : gp(r.avg, 0, r.target)}</span>
                       <ChevronRight aria-hidden className="-mr-1 h-[18px] w-[18px] text-label-3" strokeWidth={2.5} />
                     </span>
                   </span>
                   <span className="mt-3 block">
-                    <Slider value={r.avg} target={r.target} delay={150 + i * 90} label={r.avg == null ? "No GP yet" : `Average GP ${gp(r.avg, 0, r.target)} against a ${gp(r.target, 0)} target`} />
+                    <Slider value={r.avg} target={r.target} level={lv} delay={150 + i * 90} label={r.avg == null ? "No GP yet" : `Average GP ${gp(r.avg, 0, r.target)} against a ${gp(r.target, 0)} target, ${r.status.word}`} />
                   </span>
                 </Link>
               );
             })}
           </div>
-          <p className="px-4 pt-1.5 text-[13px] text-label-2">The line on each slider is the target.</p>
+          <p className="px-4 pt-1.5 text-[13px] text-label-2">The line in the middle of each slider is the target.</p>
         </section>
       </div>
 

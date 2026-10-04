@@ -102,12 +102,23 @@ export function formatPts(gap: number): string {
   return `${pts < 0 ? "-" : "+"}${n} pts`;
 }
 
-/** Average GP against its target: at or over is On Target, within 5 points under is Just Under, further is Below Target. */
+/** How close under the target still counts as "Nearly There" (3 points: 69% to 71.9% on a 72% target). Troy's call, 5 Oct 2026. */
+export const NEARLY_PTS = 0.03;
+
+/** Half the width of the slider scale: the target sits in the middle and the bar runs 25 points either side of it. */
+export const SLIDER_HALF = 0.25;
+
+/** Where a GP sits on a slider whose middle is the target: 0 to 1 (0.5 is exactly on target). */
+export function sliderPos(value: number, target: number): number {
+  return Math.max(0, Math.min(1, 0.5 + (value - target) / (2 * SLIDER_HALF)));
+}
+
+/** Average GP against its target: at or over is On Target, within 3 points under is Nearly There, further is Below Target. */
 export function gpStatus(avg: number | null, target: number | null): GpStatus {
   if (avg == null || target == null) return { level: "none", word: "No GP Yet", gap: null, gapText: null };
   const gap = avg - target;
   if (gap >= -1e-9) return { level: "good", word: "On Target", gap, gapText: gap >= 0.005 ? formatPts(gap) : null };
-  if (gap > -0.05) return { level: "warn", word: "Just Under", gap, gapText: formatPts(gap) };
+  if (gap > -(NEARLY_PTS + 1e-9)) return { level: "warn", word: "Nearly There", gap, gapText: formatPts(gap) };
   return { level: "bad", word: "Below Target", gap, gapText: formatPts(gap) };
 }
 

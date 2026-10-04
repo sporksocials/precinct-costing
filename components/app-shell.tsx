@@ -7,6 +7,7 @@ import { BookOpen, Carrot, Ellipsis, HeartPulse, History, House, Lightbulb, LogO
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
+import { UnsavedGuardProvider } from "./unsaved-guard";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
@@ -200,15 +201,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <StoreProvider>
       <ToastProvider>
-        <NewRecipeProvider>
-          <DealRolloverToast />
-          <Sidebar />
-          <Suspense fallback={null}>
-            <Frame>{children}</Frame>
-          </Suspense>
-          <TabBar />
-          <CommandPalette />
-        </NewRecipeProvider>
+        <UnsavedGuardProvider>
+          <NewRecipeProvider>
+            <DealRolloverToast />
+            <Sidebar />
+            <Suspense fallback={null}>
+              <Frame>{children}</Frame>
+            </Suspense>
+            <TabBar />
+            <CommandPalette />
+          </NewRecipeProvider>
+        </UnsavedGuardProvider>
       </ToastProvider>
     </StoreProvider>
   );

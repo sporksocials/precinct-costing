@@ -241,7 +241,7 @@ export function PhotoRow({
     try {
       const path = await uploadBarPhoto(getSupabaseBrowser(), itemId, file);
       onChange(path);
-      toast.show({ message: `Photo uploaded. The ${stationName} shows it within 5 minutes.` });
+      toast.show({ message: `Photo uploaded. Save the page and the ${stationName} shows it within 5 minutes.` });
     } catch (e) {
       toast.show({ message: e instanceof Error && e.message ? e.message : "Couldn't upload the photo. Try again." });
     } finally {

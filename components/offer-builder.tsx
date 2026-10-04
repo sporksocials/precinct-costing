@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ChevronLeft, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -9,6 +8,7 @@ import { costOffer, dayName, OFFER_KINDS, OFFER_STATUSES, offerLineCostId } from
 import { gp, money } from "@/lib/format";
 import { parseGpInput, parsePriceInput } from "@/lib/solver";
 import type { Offer, OfferAssumptions, OfferKind, OfferLine, OfferStatus } from "@/lib/types";
+import { useGuardedRouter, useUnsavedGuard } from "./unsaved-guard";
 import { VenueAccent, VENUE_SHORT } from "./venue";
 import { OfferSimulator, priceBreakEvenLabel, simInputFrom } from "./offer-simulator";
 import { ComponentPicker, StatusPill, type NewOfferLine } from "./offers-parts";
@@ -61,7 +61,7 @@ const same = (a: NewOfferLine, b: NewOfferLine) => a.component_kind === b.compon
 /** The offer builder: everything is local until Save, so the numbers are always "before saving". */
 export function OfferBuilder({ offerId, initial }: { offerId: string | null; initial: Draft }) {
   const store = useStore();
-  const router = useRouter();
+  const router = useGuardedRouter();
   const toast = useToast();
   const [d, setD] = useState<Draft>(initial);
   const [base, setBase] = useState(() => JSON.stringify(initial));
@@ -72,6 +72,10 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const setAssumptions = (p: Partial<OfferAssumptions>) => setD((x) => ({ ...x, assumptions: { ...x.assumptions, ...p } }));
   const dirty = JSON.stringify(d) !== base;
+  const { release } = useUnsavedGuard(dirty, {
+    save: () => save(),
+    getError: () => (!d.name.trim() ? "Add a name first" : d.venueId == null ? "Pick a venue first" : d.lines.length === 0 ? "Add at least one component first" : error),
+  });
   const venue = d.venueId != null ? store.venueById.get(d.venueId) : undefined;
   const saved = offerId ? store.offers.find((o) => o.id === offerId) : undefined;
 
@@ -96,8 +100,9 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
     });
   }
 
-  async function save() {
-    if (!canSave || d.venueId == null) return;
+  /** Resolves true only when the offer is saved (the leave guard waits on it). */
+  async function save(): Promise<boolean> {
+    if (!canSave || d.venueId == null) return false;
     setBusy(true);
     setError(null);
     const row = {
@@ -123,10 +128,13 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
         toast.show({ message: "Saved" });
       } else {
         const id = await store.createOffer(row, d.lines);
+        await release();
         router.replace(`/specials/${id}`);
       }
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -341,7 +349,10 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
                       onClick={() =>
                         store
                           .deleteOffer(offerId)
-                          .then(() => router.push("/specials"))
+                          .then(async () => {
+                            await release();
+                            router.push("/specials");
+                          })
                           .catch((e) => setError(e instanceof Error ? e.message : String(e)))
                       }
                     >

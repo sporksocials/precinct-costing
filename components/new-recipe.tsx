@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/components/unsaved-guard";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
@@ -36,7 +36,7 @@ export function NewRecipeProvider({ children }: { children: React.ReactNode }) {
 
 function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void }) {
   const store = useStore();
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [name, setName] = useState("");
   const [venueId, setVenueId] = useState<number | null>(args.venueId ?? null);
   const type: RecipeType = args.type ?? "item";

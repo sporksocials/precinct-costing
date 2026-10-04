@@ -155,6 +155,16 @@ describe("loadSnapshot", () => {
     expect(snap.rows.cost_offers).toEqual([]);
   });
 
+  it("loads without the ignored alerts table (before its migration is applied): nothing is ignored, no banner", async () => {
+    const t = baseTables();
+    delete t.cost_ignored_alerts;
+    const { client } = fake({ tables: t });
+    const snap = await loadSnapshot(client, "2026-06-01T00:00:00Z");
+    expect(snap.mismatches).toEqual([]);
+    expect(snap.healed).toEqual([]);
+    expect(snap.rows.cost_ignored_alerts).toEqual([]);
+  });
+
   it("fails the load when a required table errors", async () => {
     const { client } = fake({ tables: baseTables(), errors: { cost_ingredients: { message: "boom" } } });
     await expect(loadSnapshot(client, "2026-06-01T00:00:00Z")).rejects.toThrow(/cost_ingredients/);

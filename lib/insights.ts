@@ -32,7 +32,11 @@ function mean(xs: number[]): number | null {
   return xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
 }
 
-export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null): GpSummary {
+/**
+ * `skipExcluded` lists item ids whose "needs checking" alert is ignored: they are still left out of the averages (their
+ * cost is still untrustworthy) but are not counted in `excluded`, which is the number the Home pill shows as needing a look.
+ */
+export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null, skipExcluded?: ReadonlySet<string>): GpSummary {
   const all: number[] = [];
   const food: number[] = [];
   const drinks: number[] = [];
@@ -43,7 +47,7 @@ export function gpSummary(costs: Iterable<ItemCost>, venueId?: number | null): G
     // DECISION: items with cost warnings (zero-cost line, no lines, GP > 92%...) are excluded from
     // headline averages rather than counted at a fake ~100% GP; they are counted in `excluded`.
     if (c.needsCheck) {
-      excluded += 1;
+      if (!skipExcluded?.has(c.item.id)) excluded += 1;
       continue;
     }
     all.push(c.gpPct);
@@ -90,6 +94,8 @@ export interface CheckCostGroup {
   warnings: string[];
   /** computed items folded into this row (1 for a normal item) */
   count: number;
+  /** ids of every item folded into this row */
+  itemIds: string[];
   venueId: number;
 }
 
@@ -106,18 +112,19 @@ export function checkCostGroups(rows: CheckCostRow[]): CheckCostGroup[] {
     const b = parseBeerItemId(it.id);
     const g = parseVirtualItemId(it.id);
     if (!b && !g) {
-      out.push({ id: it.id, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, venueId: it.venue_id });
+      out.push({ id: it.id, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, itemIds: [it.id], venueId: it.venue_id });
       continue;
     }
     const key = b ? `beer:${b.beerId}` : `gelato:${r.warnings.join("|")}`;
     const cur = byKey.get(key);
     if (cur) {
       cur.count += 1;
+      cur.itemIds.push(it.id);
       continue;
     }
     const grp: CheckCostGroup = b
-      ? { id: key, name: it.name.split(" - ")[0], href: `/beers/${b.beerId}`, warnings: r.warnings, count: 1, venueId: it.venue_id }
-      : { id: key, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, venueId: it.venue_id };
+      ? { id: key, name: it.name.split(" - ")[0], href: `/beers/${b.beerId}`, warnings: r.warnings, count: 1, itemIds: [it.id], venueId: it.venue_id }
+      : { id: key, name: it.name, href: `/items/${it.id}`, warnings: r.warnings, count: 1, itemIds: [it.id], venueId: it.venue_id };
     byKey.set(key, grp);
     out.push(grp);
   }

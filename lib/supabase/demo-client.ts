@@ -33,6 +33,7 @@ const TABLE_KEYS: Record<string, string> = {
   cost_ingredient_deals: "deals", // not in older demo data: empty
   cost_research_notes: "researchNotes", // not in older demo data: empty
   cost_bar_options: "barOptions", // not in older demo data: empty
+  cost_ignored_alerts: "ignoredAlerts", // not in older demo data: empty
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
 };

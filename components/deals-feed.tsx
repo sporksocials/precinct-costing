@@ -4,7 +4,9 @@ import { CalendarClock, CalendarX } from "lucide-react";
 import { dealSummary } from "@/lib/deals";
 import type { DealFeedRow } from "@/lib/insights";
 import { money } from "@/lib/format";
-import { Group, Row } from "@/components/ui";
+import { dealEntry } from "@/lib/ignored-alerts";
+import { AlertRow } from "@/components/alert-parts";
+import { Group } from "@/components/ui";
 
 /** Home Today rows for supplier deals: "Deals Ending" (still costing) and "Deal Expired" (already back on the base price). */
 export function DealsFeed({ rows }: { rows: DealFeedRow[] }) {
@@ -16,8 +18,9 @@ export function DealsFeed({ rows }: { rows: DealFeedRow[] }) {
       {expired.length ? (
         <Group title={`Deal Expired · ${expired.length}`} className="mt-6" inset="3.75rem" footer="Costing is back on the base price. Update the price if the supplier has a new deal or price.">
           {expired.map((r) => (
-            <Row
+            <AlertRow
               key={r.deal.id}
+              entry={dealEntry(r)}
               href={`/ingredients/${r.ingredient.id}`}
               leading={
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-danger-soft text-danger">
@@ -35,8 +38,9 @@ export function DealsFeed({ rows }: { rows: DealFeedRow[] }) {
       {ending.length ? (
         <Group title={`Deals Ending · ${ending.length}`} className="mt-6" inset="3.75rem" footer="These stop costing on their end date and the base price comes back.">
           {ending.map((r) => (
-            <Row
+            <AlertRow
               key={r.deal.id}
+              entry={dealEntry(r)}
               href={`/ingredients/${r.ingredient.id}`}
               leading={
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">

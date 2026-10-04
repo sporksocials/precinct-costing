@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/components/unsaved-guard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Clock } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -111,7 +111,7 @@ interface ResultRow {
 
 /** Search box + grouped, keyboard-navigable results. Used by the Search tab and the ⌘K palette. */
 export function SearchPanel({ autoFocus, onDone, compact }: { autoFocus?: boolean; onDone?: () => void; compact?: boolean }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const store = useStore();
   const recents = useRecents();
   const { core, portal } = useSearchDocs();

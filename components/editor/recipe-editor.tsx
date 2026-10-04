@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
@@ -30,10 +30,13 @@ import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
+import { describeChanges, patchOf } from "@/lib/draft-changes";
+import { useGuardedRouter, useUnsavedGuard } from "../unsaved-guard";
+import { DiscardSheet, SaveBar, type SaveState } from "../save-bar";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
-type SaveStatus = "saved" | "pending" | "saving" | "error";
+type SaveStatus = "idle" | "saving" | "error";
 
 function useIsDesktop() {
   const [d, setD] = useState(false);
@@ -45,19 +48,6 @@ function useIsDesktop() {
     return () => mq.removeEventListener("change", on);
   }, []);
   return d;
-}
-
-/** Stable signature of lines for change detection (ignores parent/sort normalisation). */
-function linesSig(ls: RecipeLine[]) {
-  return JSON.stringify(ls.map((l) => [l.id, l.component_type, l.component_id, Number(l.qty) || 0, l.unit, l.note ?? null]));
-}
-
-function diff<T extends object>(a: T, b: T): Partial<T> {
-  const out: Partial<T> = {};
-  (Object.keys(b) as (keyof T)[]).forEach((k) => {
-    if (a[k] !== b[k]) out[k] = b[k];
-  });
-  return out;
 }
 
 function friendlyWarning(lc: LineCost | undefined, adjusted: boolean): string | null {
@@ -100,7 +90,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const store = useStore();
   const storeRef = useRef(store);
   storeRef.current = store;
-  const router = useRouter();
+  const router = useGuardedRouter();
   const params = useSearchParams();
   const toast = useToast();
   const desktop = useIsDesktop();
@@ -111,83 +101,101 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   const [draft, setDraftState] = useState<Rec>(saved);
   const [lines, setLinesState] = useState<RecipeLine[]>(savedLines);
-  const [status, setStatus] = useState<SaveStatus>("saved");
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [status, setStatus] = useState<SaveStatus>("idle");
+  const [saveErrorText, setSaveErrorText] = useState<string | null>(null);
   const [openLine, setOpenLine] = useState<string | null>(null);
   const [focusQtyFor, setFocusQtyFor] = useState<string | null>(null);
   const [adjusted, setAdjusted] = useState<Set<string>>(new Set());
   const [addFocused, setAddFocused] = useState(false);
-  const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin" | "whatif">(null);
+  const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin" | "whatif" | "discard">(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [focusServes, setFocusServes] = useState(false);
 
-  // ---------- autosave (debounced; refs hold the latest values) ----------
+  // ---------- manual save (refs hold the latest values; Save writes only what changed since the last save) ----------
   const draftRef = useRef(draft);
   const linesRef = useRef(lines);
-  const baseRef = useRef<{ draft: Rec; sig: string }>({ draft: saved, sig: linesSig(savedLines) });
-  const version = useRef(0);
-  const savedVersion = useRef(0);
+  const [base, setBaseState] = useState<{ draft: Rec; lines: RecipeLine[] }>({ draft: saved, lines: savedLines });
+  const baseRef = useRef(base);
+  const setBase = (b: { draft: Rec; lines: RecipeLine[] }) => {
+    baseRef.current = b;
+    setBaseState(b);
+  };
   const saving = useRef(false);
-  const again = useRef(false);
-  const timer = useRef<number>();
-  const failed = useRef(false);
+  const saveError = useRef<string | null>(null);
+  const queue = useRef<Promise<boolean>>(Promise.resolve(true));
 
-  const flush = useCallback(async () => {
-    window.clearTimeout(timer.current);
-    if (saving.current) {
-      again.current = true;
-      return;
-    }
-    if (version.current === savedVersion.current) return;
+  const changes = useMemo(() => describeChanges(base.draft, draft, base.lines, lines), [base, draft, lines]);
+  const dirty = changes.dirty;
+
+  const runSave = useCallback(async (): Promise<boolean> => {
     saving.current = true;
-    setStatus("saving");
-    const v = version.current;
-    const d = draftRef.current;
-    const ls = linesRef.current.filter((l) => l.component_id);
-    const s = storeRef.current;
     try {
-      const patch = diff(baseRef.current.draft, d);
+      const b = baseRef.current;
+      let d = draftRef.current;
+      if (!d.name.trim()) d = { ...d, name: b.draft.name || "Untitled" };
+      const ls = linesRef.current.filter((l) => l.component_id);
+      const c = describeChanges(b.draft, d, b.lines, ls);
+      if (!c.dirty) {
+        setStatus("idle");
+        return true;
+      }
+      setStatus("saving");
+      const s = storeRef.current;
+      const patch = patchOf(b.draft, d);
       if (Object.keys(patch).length) {
         if (kind === "item") await s.updateItem(id, patch as Partial<MenuItem>);
         else await s.updatePrep(id, patch as Partial<Prep>);
       }
-      const sig = linesSig(ls);
-      if (sig !== baseRef.current.sig) await s.saveLines(kind, id, ls);
-      baseRef.current = { draft: d, sig };
-      savedVersion.current = v;
-      setSaveError(null);
-      failed.current = false;
-      setStatus(version.current === v ? "saved" : "pending");
+      const l = c.lines;
+      if (l.added || l.removed || l.edited || l.reordered) await s.saveLines(kind, id, ls);
+      setBase({ draft: d, lines: ls });
+      if (d !== draftRef.current) {
+        draftRef.current = d;
+        setDraftState(d);
+      }
+      saveError.current = null;
+      setSaveErrorText(null);
+      setStatus("idle");
+      return true;
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e));
-      failed.current = true;
+      const msg = e instanceof Error ? e.message : String(e);
+      saveError.current = msg;
+      setSaveErrorText(msg);
       setStatus("error");
+      return false;
     } finally {
       saving.current = false;
-      if (again.current || version.current !== savedVersion.current) {
-        again.current = false;
-        if (version.current !== savedVersion.current && !failed.current) timer.current = window.setTimeout(() => void flush(), 700);
-      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id]);
 
-  const schedule = useCallback(() => {
-    version.current += 1;
-    setStatus("pending");
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => void flush(), 700);
-  }, [flush]);
+  /** Saves everything pending. Saves queue up, so a second request waits for the first. Resolves true only when saved. */
+  const save = useCallback((): Promise<boolean> => {
+    const next = queue.current.then(runSave, runSave);
+    queue.current = next;
+    return next;
+  }, [runSave]);
 
-  const setDraft = useCallback(
-    (fn: (d: Rec) => Rec) => {
-      const n = fn(draftRef.current);
-      draftRef.current = n;
-      setDraftState(n);
-      schedule();
-    },
-    [schedule],
-  );
+  /** Puts the draft back to the last saved version. */
+  const discard = () => {
+    const b = baseRef.current;
+    draftRef.current = b.draft;
+    linesRef.current = b.lines;
+    setDraftState(b.draft);
+    setLinesState(b.lines);
+    setAdjusted(new Set());
+    setOpenLine(null);
+    saveError.current = null;
+    setSaveErrorText(null);
+    setStatus("idle");
+    setSheet(null);
+    toast.show({ message: "Changes discarded" });
+  };
+
+  const setDraft = useCallback((fn: (d: Rec) => Rec) => {
+    const n = fn(draftRef.current);
+    draftRef.current = n;
+    setDraftState(n);
+  }, []);
   // gelato flavour mixes: the batch yield is always the mix's total weight
   const gelatoVenueId = store.gelato.venue?.id;
   const isFlavour = kind === "prep" && isGelatoFlavour(draft as Prep, gelatoVenueId);
@@ -207,12 +215,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           setDraftState(nd);
         }
       }
-      schedule();
     },
-    [schedule],
+    [],
   );
 
-  // Research notes: Approve writes through this draft (the autosave persists it) and resolves once it is saved
+  // Research notes: Approve writes through this draft, then saves everything pending (an explicit confirmation) and resolves once it is saved
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -220,15 +227,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       mounted.current = false;
     };
   }, []);
-  const commitNow = useCallback(async () => {
-    for (let i = 0; i < 40; i++) {
-      await flush();
-      if (failed.current) return false;
-      if (!saving.current && version.current === savedVersion.current) return true;
-      await new Promise((r) => window.setTimeout(r, 150));
-    }
-    return false;
-  }, [flush]);
+  const commitNow = save;
   const noteTarget = useMemo<RecipeTarget | undefined>(
     () =>
       kind === "item"
@@ -254,28 +253,18 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   // adopt store changes (background refresh) when there are no local edits
   useEffect(() => {
-    if (version.current !== savedVersion.current || saving.current) return;
+    if (saving.current) return;
+    const b = baseRef.current;
+    if (describeChanges(b.draft, draftRef.current, b.lines, linesRef.current).dirty) return;
     draftRef.current = saved;
     linesRef.current = savedLines;
-    baseRef.current = { draft: saved, sig: linesSig(savedLines) };
+    setBase({ draft: saved, lines: savedLines });
     setDraftState(saved);
     setLinesState(savedLines);
   }, [saved, savedLines]);
 
-  // flush on leave; warn on tab close with unsaved edits
-  useEffect(() => {
-    const onUnload = (e: BeforeUnloadEvent) => {
-      if (version.current !== savedVersion.current) {
-        void flush();
-        e.preventDefault();
-      }
-    };
-    window.addEventListener("beforeunload", onUnload);
-    return () => {
-      window.removeEventListener("beforeunload", onUnload);
-      if (version.current !== savedVersion.current) void flush();
-    };
-  }, [flush]);
+  // leave guard: link clicks, Back, tab close and reload ask first while there are unsaved edits
+  const { release } = useUnsavedGuard(dirty, { save, getError: () => saveError.current });
 
   // recents
   useEffect(() => {
@@ -374,9 +363,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     el.style.height = `${el.scrollHeight}px`;
   }, [draft.name, desktop]);
 
-  const statusText = status === "saving" ? "Saving…" : status === "pending" ? "Edited" : status === "error" ? "Not saved" : "Saved";
+  const saveState: SaveState = status === "saving" ? "saving" : status === "error" && dirty ? "error" : dirty ? "dirty" : "saved";
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
   const backHref = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
+
+  const phoneSaveBar = <SaveBar state={saveState} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="px-4 pb-1 pt-2" />;
 
   const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
@@ -398,22 +389,19 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {isFlavour || kind === "item" ? "Menu" : "Ingredients · Preps"}
         </Link>
         <div className="flex items-center gap-1">
-          <span className={cx("text-[13px]", status === "error" ? "text-danger" : "text-label-2")} aria-live="polite">
-            {statusText}
-          </span>
           <Menu label="More Actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
         </div>
       </div>
 
-      {status === "error" ? (
+      {saveState === "error" ? (
         <Banner
           action={
-            <button className="shrink-0 font-semibold" onClick={() => void flush()}>
+            <button className="shrink-0 font-semibold" onClick={() => void save()}>
               Retry
             </button>
           }
         >
-          Couldn’t save your changes{saveError ? ` — ${saveError}` : ""}.
+          Couldn’t save your changes{saveErrorText ? ` — ${saveErrorText}` : ""}. Your edits are still here.
         </Banner>
       ) : null}
 
@@ -651,11 +639,15 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         </aside>
       </div>
 
+      {/* save bar: sticky at the bottom on desktop; on phones it sits at the top of the fixed summary bar */}
+      <SaveBar state={saveState} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="sticky bottom-0 z-30 mt-8 hidden rounded-t-2xl bg-surface px-4 py-3 shadow-float ring-1 ring-[color:var(--separator)] lg:flex" />
+      <div className="h-14 lg:hidden" aria-hidden />
+
       {/* summary: phone bar */}
       {itemCost && item ? (
-        <ItemSummaryBar cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} />
+        <ItemSummaryBar top={phoneSaveBar} cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} />
       ) : prep ? (
-        <PrepSummary variant="bar" batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} />
+        <PrepSummary variant="bar" top={phoneSaveBar} batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} />
       ) : null}
 
       {/* line sheet (phones) */}
@@ -737,8 +729,9 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           }}
         />
       ) : null}
+      <DiscardSheet open={sheet === "discard"} count={changes.count} labels={changes.labels} onConfirm={discard} onClose={() => setSheet(null)} />
       {sheet === "duplicate" ? <DuplicateSheet kind={kind} draft={draft} lines={lines} onClose={() => setSheet(null)} /> : null}
-      {sheet === "delete" ? <DeleteSheet kind={kind} rec={draft} inUse={usedIn.items.length + usedIn.preps.length} onClose={() => setSheet(null)} onDeleted={() => router.push(backHref)} beforeDelete={() => { window.clearTimeout(timer.current); savedVersion.current = version.current; }} /> : null}
+      {sheet === "delete" ? <DeleteSheet kind={kind} rec={draft} inUse={usedIn.items.length + usedIn.preps.length} onClose={() => setSheet(null)} onDeleted={() => router.push(backHref)} beforeDelete={release} /> : null}
       <Sheet open={sheet === "usedin"} onClose={() => setSheet(null)} title="Used In" cancelLabel={null} action={{ label: "Done", onClick: () => setSheet(null) }}>
         {usedIn.items.length + usedIn.preps.length === 0 ? (
           <p className="py-8 text-center text-[15px] text-label-2">Not used in any recipe yet.</p>
@@ -779,7 +772,7 @@ function MobileAutofocus() {
 
 function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Rec; lines: RecipeLine[]; onClose: () => void }) {
   const store = useStore();
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [venueId, setVenueId] = useState<number | null>((draft as MenuItem).venue_id ?? null);
   const [name, setName] = useState(draft.name);
   const [busy, setBusy] = useState(false);
@@ -839,7 +832,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
   );
 }
 
-function DeleteSheet({ kind, rec, inUse, onClose, onDeleted, beforeDelete }: { kind: Kind; rec: Rec; inUse: number; onClose: () => void; onDeleted: () => void; beforeDelete: () => void }) {
+function DeleteSheet({ kind, rec, inUse, onClose, onDeleted, beforeDelete }: { kind: Kind; rec: Rec; inUse: number; onClose: () => void; onDeleted: () => void; beforeDelete: () => Promise<void> | void }) {
   const store = useStore();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -847,7 +840,7 @@ function DeleteSheet({ kind, rec, inUse, onClose, onDeleted, beforeDelete }: { k
   async function del() {
     setBusy(true);
     try {
-      beforeDelete();
+      await beforeDelete();
       if (kind === "item") await store.deleteItem(rec.id);
       else await store.deletePrep(rec.id);
       onClose();

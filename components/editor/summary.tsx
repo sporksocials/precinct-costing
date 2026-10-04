@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { gp, money, unitShort } from "@/lib/format";
 import { gpForPrice, parseGpInput, parsePriceInput, priceForGp } from "@/lib/solver";
@@ -179,10 +179,11 @@ export function ItemSummaryCard(m: PriceModel) {
 }
 
 /** Fixed bottom bar (phones). */
-export function ItemSummaryBar(m: PriceModel) {
+export function ItemSummaryBar({ top, ...m }: PriceModel & { top?: React.ReactNode }) {
   const l = useLinked(m);
   return (
     <div className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden">
+      {top}
       {l.under ? (
         <div className="flex justify-center px-4 pt-2">
           <TargetChip price={l.targetPrice} target={l.target} onUse={() => l.targetPrice != null && m.setPrice(l.targetPrice)} />
@@ -218,10 +219,11 @@ export function ItemSummaryBar(m: PriceModel) {
   );
 }
 
-export function PrepSummary({ batchCost, costPerUnit, unit, variant }: { batchCost: number; costPerUnit: number; unit: PackUnit; variant: "card" | "bar" }) {
+export function PrepSummary({ batchCost, costPerUnit, unit, variant, top }: { batchCost: number; costPerUnit: number; unit: PackUnit; variant: "card" | "bar"; top?: React.ReactNode }) {
   if (variant === "bar")
     return (
       <div className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden">
+        {top}
         <div className="grid grid-cols-2 gap-2 px-4 py-2.5">
           <div>
             <p className="text-[12px] text-label-2">Batch Cost</p>

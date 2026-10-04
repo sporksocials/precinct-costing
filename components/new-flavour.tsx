@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/components/unsaved-guard";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { FLAVOUR_PREP_TYPE, flavourName } from "@/lib/gelato";
@@ -9,7 +9,7 @@ import { Banner, Sheet } from "@/components/ui";
 /** New gelato flavour: a name, then straight into its mix. Used from the Menu and the Price Grid. */
 export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose: () => void }) {
   const store = useStore();
-  const router = useRouter();
+  const router = useGuardedRouter();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

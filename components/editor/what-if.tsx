@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/components/unsaved-guard";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import type { ItemCost } from "@/lib/costing";
@@ -32,7 +32,7 @@ export function WhatIfSheet({
   onApply: (price: number | null, scale: number) => void;
 }) {
   const store = useStore();
-  const router = useRouter();
+  const router = useGuardedRouter();
   const gst = store.settings.gst_rate;
   const [priceText, setPriceText] = useState(cost.sellInc != null ? Number(cost.sellInc).toFixed(2) : "");
   const [scale, setScale] = useState<(typeof SCALES)[number]>("1");

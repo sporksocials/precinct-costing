@@ -81,7 +81,9 @@ export function useUnsavedGuard(dirty: boolean, opts: { save: () => Promise<bool
     guard?.setDirty(dirty);
   }, [guard, dirty]);
   const release = useCallback(() => (guard ? guard.release() : Promise.resolve()), [guard]);
-  return { release };
+  /** closes the "Unsaved Changes" prompt (and keeps the person on the page), e.g. once a clash found by Save And Leave is settled */
+  const dismissPrompt = useCallback(() => guard?.keepEditing(), [guard]);
+  return { release, dismissPrompt };
 }
 
 /** `useRouter` for code that navigates away from a page that may hold unsaved edits: push asks first when it does. */

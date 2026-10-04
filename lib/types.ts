@@ -97,6 +97,9 @@ export interface Prep {
   kitchen_method?: string[] | null;
   kitchen_storage?: string | null;
   kitchen_ready?: boolean;
+  /** who last changed it (the signed-in email) and when; filled by the database, absent until the edit stamps migration is applied */
+  updated_at?: string | null;
+  updated_by?: string | null;
 }
 
 export type ResearchOffer = "offered" | "done" | "skipped";
@@ -136,6 +139,9 @@ export interface MenuItem {
   kitchen_ready?: boolean;
   /** Research This Drink (cocktails and mocktails only): null/absent = never offered, offered = new drink awaiting a choice, done = researched, skipped = skipped */
   research_status?: ResearchOffer | null;
+  /** who last changed it (the signed-in email) and when; filled by the database, absent until the edit stamps migration is applied */
+  updated_at?: string | null;
+  updated_by?: string | null;
   /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
   off_menu?: boolean;
 }

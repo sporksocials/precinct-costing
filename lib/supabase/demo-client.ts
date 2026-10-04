@@ -69,6 +69,23 @@ function djb2(str: string): string {
   return (h >>> 0).toString(16);
 }
 
+const DEMO_USER = "demo@precinct.local";
+/** demo QA only: make reads of the edited record fail, like a dropped connection (see window.__demoOutside.failReads) */
+let failReads = false;
+
+/** Mimics the edit stamp triggers (migration 20261004230000): a change to a dish or prep, or to its recipe lines, stamps the dish or prep. */
+function stampParents(tables: Tables, table: string, changed: Row[], by: string) {
+  const at = new Date().toISOString();
+  const touch = (t: string, ids: Set<unknown>) => {
+    for (const r of tables[t] ?? []) if (ids.has(r.id)) Object.assign(r, { updated_at: at, updated_by: by });
+  };
+  if (table === "cost_menu_items" || table === "cost_preps") touch(table, new Set(changed.map((r) => r.id)));
+  if (table === "cost_recipe_lines") {
+    touch("cost_menu_items", new Set(changed.filter((r) => r.parent_type === "item").map((r) => r.parent_id)));
+    touch("cost_preps", new Set(changed.filter((r) => r.parent_type === "prep").map((r) => r.parent_id)));
+  }
+}
+
 type Filter = (r: Row) => boolean;
 type Op = "select" | "insert" | "update" | "delete" | "upsert";
 
@@ -142,6 +159,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
   private async run(): Promise<{ data: Row[] | null; error: { message: string } | null }> {
     const tables = await loadTables();
     const rows = (tables[this.table] ??= []);
+    if (failReads && this.op === "select" && (this.table === "cost_menu_items" || this.table === "cost_preps") && this.filters.length) throw new Error("Failed to fetch");
     const match = (r: Row) => this.filters.every((f) => f(r));
     const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
     switch (this.op) {
@@ -180,6 +198,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           return row;
         });
         rows.push(...added);
+        stampParents(tables, this.table, added, DEMO_USER);
         return { data: clone(added), error: null };
       }
       case "upsert": {
@@ -188,6 +207,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           if (i >= 0) rows[i] = { ...rows[i], ...r };
           else rows.push({ ...r });
         }
+        stampParents(tables, this.table, this.payload, DEMO_USER);
         return { data: clone(this.payload), error: null };
       }
       case "update": {
@@ -215,12 +235,14 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           rows[i] = next;
           out.push(next);
         }
+        stampParents(tables, this.table, out, DEMO_USER);
         return { data: clone(out), error: null };
       }
       case "delete": {
         const keep = rows.filter((r) => !match(r));
         const gone = rows.filter(match);
         tables[this.table] = keep;
+        stampParents(tables, this.table, gone, DEMO_USER);
         return { data: clone(gone), error: null };
       }
     }
@@ -257,6 +279,51 @@ export function createDemoClient(): SupabaseClient {
       signInWithOtp: async () => ({ data: {}, error: null }),
     },
   };
+  // DEMO ONLY, for checking the editor's three-way save check: change the demo database "as someone else" behind the page's back
+  if (typeof window !== "undefined") {
+    const w = window as unknown as { __demoOutside?: Record<string, unknown> };
+    const OTHER = "brendan@precinct.local";
+    w.__demoOutside = {
+      /** a field change on a dish or prep, stamped as Brendan */
+      editRow: async (table: string, id: string, patch: Row) => {
+        const t = await loadTables();
+        const r = (t[table] ?? []).find((x) => x.id === id);
+        if (!r) throw new Error("no such row");
+        Object.assign(r, patch, { updated_at: new Date().toISOString(), updated_by: OTHER });
+      },
+      addLine: async (line: Row) => {
+        const t = await loadTables();
+        (t.cost_recipe_lines ??= []).push(line);
+        stampParents(t, "cost_recipe_lines", [line], OTHER);
+      },
+      editLine: async (lineId: string, patch: Row) => {
+        const t = await loadTables();
+        const r = (t.cost_recipe_lines ?? []).find((x) => x.id === lineId);
+        if (!r) throw new Error("no such line");
+        Object.assign(r, patch);
+        stampParents(t, "cost_recipe_lines", [r], OTHER);
+      },
+      removeLine: async (lineId: string) => {
+        const t = await loadTables();
+        const r = (t.cost_recipe_lines ?? []).find((x) => x.id === lineId);
+        if (!r) throw new Error("no such line");
+        t.cost_recipe_lines = t.cost_recipe_lines.filter((x) => x.id !== lineId);
+        stampParents(t, "cost_recipe_lines", [r], OTHER);
+      },
+      failReads: (on: boolean) => {
+        failReads = on;
+      },
+      /** what the database holds for one row (for assertions) */
+      peek: async (table: string, id: string) => {
+        const t = await loadTables();
+        return JSON.parse(JSON.stringify((t[table] ?? []).find((x) => x.id === id) ?? null));
+      },
+      peekLines: async (parentId: string) => {
+        const t = await loadTables();
+        return JSON.parse(JSON.stringify((t.cost_recipe_lines ?? []).filter((x) => x.parent_id === parentId)));
+      },
+    };
+  }
   // make the demo user an allowed user (browser only — nothing to load during server prerender)
   if (typeof window !== "undefined")
     void loadTables().then((t) => {

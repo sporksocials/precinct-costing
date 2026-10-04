@@ -36,6 +36,11 @@ const FIELD_LABELS: Record<string, string> = {
   kitchen_ready: "Ready For Kitchen",
 };
 
+/** The label a field goes by in change lists ("Price", "Method"). Several fields can share one label. */
+export function fieldLabel(key: string): string {
+  return FIELD_LABELS[key] ?? humanise(key);
+}
+
 function humanise(key: string): string {
   const words = key.replace(/_/g, " ").trim();
   return words.replace(/\b\w/g, (c) => c.toUpperCase());
@@ -82,7 +87,8 @@ export interface LineChanges {
   reordered: boolean;
 }
 
-function lineSig(l: RecipeLine) {
+/** What makes two ingredient lines "the same": component, amount, unit and note (not the id or order). */
+export function lineSig(l: RecipeLine) {
   return JSON.stringify([l.component_type, l.component_id, Number(l.qty) || 0, l.unit, l.note ?? null]);
 }
 
@@ -122,7 +128,7 @@ export function describeChanges<T extends object>(base: T, draft: T, baseLines: 
   const keys = changedKeys(base, draft) as string[];
   const fieldLabels: string[] = [];
   for (const k of keys) {
-    const label = FIELD_LABELS[k] ?? humanise(k);
+    const label = fieldLabel(k);
     if (!fieldLabels.includes(label)) fieldLabels.push(label);
   }
   const lc = lineChanges(baseLines, lines);

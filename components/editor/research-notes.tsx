@@ -27,6 +27,7 @@ import {
 } from "@/lib/research-notes";
 import type { AppliedRecord, MenuItem, RecipeLine, ResearchNote, ResearchStatus } from "@/lib/types";
 import { cx, Group, useToast } from "../ui";
+import { SaveConflictError, theirChangesOf } from "@/lib/edit-conflict";
 
 /** The cost and GP effect of each note, worked out against the live recipe and prices. */
 export function useNoteEffects(notes: readonly ResearchNote[]): Map<string, NoteEffect> {
@@ -81,7 +82,15 @@ function makeStoreTarget(get: () => ReturnType<typeof useStore>, itemId: string)
       const s = get();
       const item = s.getItemRecipe(itemId).item;
       if (!item) throw new Error("Recipe not found");
-      if (lines) await s.saveLines("item", itemId, lines);
+      // this page holds no draft of its own, so the copy it planned from is the base: if the database has moved on since,
+      // nothing is written (a line someone else added would otherwise be deleted by the whole-list save below)
+      const fresh = await s.fetchFresh("item", itemId);
+      if (!fresh.row) throw new Error("Recipe not found");
+      const local = s.getItemRecipe(itemId);
+      if (theirChangesOf(local.item as MenuItem, local.lines, fresh.row as MenuItem, fresh.lines).changed) {
+        throw new SaveConflictError("Someone else changed this recipe a moment ago. Refresh the page, check it, then try again.");
+      }
+      if (lines) await s.saveLines("item", itemId, lines, { existing: fresh.lines });
       if (method) await s.updateItem(itemId, { [methodField(item)]: method } as Partial<MenuItem>);
     },
   };
@@ -174,8 +183,8 @@ function useNoteController(note: ResearchNote, editor: RecipeTarget | undefined)
           }
           await s.undoResearchNote(note.id, next);
           toastRef.current.show({ message: skipped.length ? `${label}. Some parts had already changed.` : `${label}: ${note.title}` });
-        } catch {
-          toastRef.current.show({ message: "Couldn’t undo that. Nothing was changed." });
+        } catch (e) {
+          toastRef.current.show({ message: e instanceof SaveConflictError ? e.message : "Couldn’t undo that. Nothing was changed." });
         }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,8 +276,8 @@ function useNoteController(note: ResearchNote, editor: RecipeTarget | undefined)
       }
       try {
         await target.write({ lines: plan.linesChanged ? plan.lines : undefined, method: plan.methodChanged ? plan.method : undefined });
-      } catch {
-        toastRef.current.show({ message: "Couldn’t save the change. Try again." });
+      } catch (e) {
+        toastRef.current.show({ message: e instanceof SaveConflictError ? e.message : "Couldn’t save the change. Try again." }, e instanceof SaveConflictError ? 8000 : undefined);
         return;
       }
       try {

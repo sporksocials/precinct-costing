@@ -33,12 +33,25 @@ import { ResearchDrinkCard } from "./research-drink";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
 import { describeChanges, patchOf } from "@/lib/draft-changes";
+import { checkedSave, SaveConflictError, theirChangesOf, type Choice, type Conflict, type Fresh, type TheirChanges, type ThreeWayResult } from "@/lib/edit-conflict";
+import { buildConflictView, choiceImpact, conflictIntro, keptChangeList, mergedToast, staleNotice, whoLabel } from "@/lib/conflict-view";
 import { useGuardedRouter, useUnsavedGuard } from "../unsaved-guard";
 import { DiscardSheet, SaveBar, type SaveState } from "../save-bar";
+import { usePersonName } from "../use-person-name";
+import { ConflictSheet } from "./conflict-sheet";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
 type SaveStatus = "idle" | "saving" | "error";
+
+/** Someone else changed the same thing and the two edits clash: nothing was written, the person decides. */
+interface PendingConflict {
+  result: ThreeWayResult<Rec>;
+  theirs: TheirChanges;
+  conflicts: Conflict[];
+}
+type RunResult = { status: "saved" | "idle" | "failed" } | { status: "conflict"; pending: PendingConflict; fresh: Fresh<Rec> };
+const CONFLICT_TEXT = "Someone else changed this while you were editing. Review their changes, then save again";
 
 function useIsDesktop() {
   const [d, setD] = useState(false);
@@ -112,6 +125,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin" | "whatif" | "discard">(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [focusServes, setFocusServes] = useState(false);
+  const [pending, setPending] = useState<PendingConflict | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  // the latest copy the database was seen holding at Save time (a clash we did not write over), for the quiet notice
+  const [seen, setSeen] = useState<{ row: Rec; lines: RecipeLine[] } | null>(null);
+  const personName = usePersonName();
 
   // ---------- manual save (refs hold the latest values; Save writes only what changed since the last save) ----------
   const draftRef = useRef(draft);
@@ -121,6 +140,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const setBase = (b: { draft: Rec; lines: RecipeLine[] }) => {
     baseRef.current = b;
     setBaseState(b);
+    setSeen(null);
   };
   const saving = useRef(false);
   const saveError = useRef<string | null>(null);
@@ -129,53 +149,103 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const changes = useMemo(() => describeChanges(base.draft, draft, base.lines, lines), [base, draft, lines]);
   const dirty = changes.dirty;
 
-  const runSave = useCallback(async (): Promise<boolean> => {
-    saving.current = true;
-    try {
-      const b = baseRef.current;
-      let d = draftRef.current;
-      if (!d.name.trim()) d = { ...d, name: b.draft.name || "Untitled" };
-      const ls = linesRef.current.filter((l) => l.component_id);
-      const c = describeChanges(b.draft, d, b.lines, ls);
-      if (!c.dirty) {
-        setStatus("idle");
-        return true;
-      }
-      setStatus("saving");
-      const s = storeRef.current;
-      const patch = patchOf(b.draft, d);
-      if (Object.keys(patch).length) {
-        if (kind === "item") await s.updateItem(id, patch as Partial<MenuItem>);
-        else await s.updatePrep(id, patch as Partial<Prep>);
-      }
-      const l = c.lines;
-      if (l.added || l.removed || l.edited || l.reordered) await s.saveLines(kind, id, ls);
-      setBase({ draft: d, lines: ls });
-      if (d !== draftRef.current) {
-        draftRef.current = d;
-        setDraftState(d);
-      }
-      saveError.current = null;
-      setSaveErrorText(null);
-      setStatus("idle");
-      return true;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      saveError.current = msg;
-      setSaveErrorText(msg);
-      setStatus("error");
-      return false;
-    } finally {
-      saving.current = false;
-    }
-  }, [kind, id]);
+  /** The name for a stamp: "Brendan", "You in another window" for this login, "Someone" when there is none. */
+  const whoOf = useCallback(
+    (t: Pick<TheirChanges, "updatedBy">) => whoLabel(personName(t.updatedBy), { isMe: !!t.updatedBy && !!storeRef.current.userEmail && t.updatedBy.toLowerCase() === storeRef.current.userEmail.toLowerCase() }),
+    [personName],
+  );
 
-  /** Saves everything pending. Saves queue up, so a second request waits for the first. Resolves true only when saved. */
-  const save = useCallback((): Promise<boolean> => {
-    const next = queue.current.then(runSave, runSave);
-    queue.current = next;
-    return next;
-  }, [runSave]);
+  /**
+   * One save. It first reads the record and its lines fresh from the database and compares them with what this page last
+   * loaded or saved (lib/edit-conflict.ts): nothing changed underneath saves exactly as before; changes that do not clash
+   * are merged (their added lines survive); a clash writes nothing and returns it. A failed read is a failed save: never write blind.
+   * `settle` is the person's choice for the clashes the sheet showed. `quiet` = do not open the sheet (the caller explains).
+   */
+  const runSave = useCallback(
+    async (opts: { settle?: { choice: Choice; ids: string[] }; quiet?: boolean } = {}): Promise<RunResult> => {
+      saving.current = true;
+      try {
+        const b = baseRef.current;
+        const startDraft = draftRef.current;
+        const startLines = linesRef.current;
+        let d = startDraft;
+        if (!d.name.trim()) d = { ...d, name: b.draft.name || "Untitled" };
+        const ls = startLines.filter((l) => l.component_id);
+        const c = describeChanges(b.draft, d, b.lines, ls);
+        if (!c.dirty) {
+          setStatus("idle");
+          return { status: "idle" };
+        }
+        setStatus("saving");
+        const s = storeRef.current;
+        const outcome = await checkedSave<Rec>(
+          { fetchFresh: () => s.fetchFresh(kind, id) as Promise<Fresh<Rec>>, commit: (a) => s.commitRecord(kind, id, a) },
+          { base: b.draft, baseLines: b.lines, mine: d, mineLines: ls, settle: opts.settle },
+        );
+        if (outcome.status === "gone") throw new Error("This was deleted by someone else, so it can’t be saved");
+        if (outcome.status === "conflict") {
+          const p: PendingConflict = { result: outcome.result, theirs: outcome.theirs, conflicts: outcome.conflicts };
+          saveError.current = CONFLICT_TEXT;
+          setSaveErrorText(null);
+          setStatus("idle");
+          setSeen({ row: outcome.fresh.row as Rec, lines: outcome.fresh.lines });
+          if (!opts.quiet) {
+            setResolveError(null);
+            setPending(p);
+          }
+          return { status: "conflict", pending: p, fresh: outcome.fresh };
+        }
+        // saved: the page now shows what the database holds (their changes included), and keeps any edit made while saving
+        const edited = draftRef.current !== startDraft;
+        const nextDraft = edited ? ({ ...outcome.record, ...patchOf(startDraft, draftRef.current) } as Rec) : outcome.record;
+        const nextLines = linesRef.current !== startLines ? linesRef.current : outcome.lines;
+        setBase({ draft: outcome.record, lines: outcome.lines });
+        draftRef.current = nextDraft;
+        linesRef.current = nextLines;
+        setDraftState(nextDraft);
+        setLinesState(nextLines);
+        setPending(null);
+        saveError.current = null;
+        setSaveErrorText(null);
+        setStatus("idle");
+        if (opts.settle) toast.show({ message: opts.settle.choice === "mine" ? "Saved with your version" : `Saved with ${whoOf(outcome.theirs)}’s version` });
+        else if (outcome.theirs.changed) toast.show({ message: mergedToast(whoOf(outcome.theirs), outcome.theirs.updatedAt) }, 7000);
+        return { status: "saved" };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        saveError.current = msg;
+        setSaveErrorText(msg);
+        setStatus("error");
+        return { status: "failed" };
+      } finally {
+        saving.current = false;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, id, whoOf],
+  );
+
+  /** Saves queue up, so a second request waits for the first. */
+  const saveRaw = useCallback(
+    (opts?: { settle?: { choice: Choice; ids: string[] }; quiet?: boolean }): Promise<RunResult> => {
+      const next = queue.current.then(
+        () => runSave(opts),
+        () => runSave(opts),
+      );
+      queue.current = next.then(
+        (r) => r.status === "saved" || r.status === "idle",
+        () => false,
+      );
+      return next;
+    },
+    [runSave],
+  );
+
+  /** Saves everything pending. Resolves true only when saved (a clash opens the sheet and resolves false). */
+  const save = useCallback(async (): Promise<boolean> => {
+    const r = await saveRaw();
+    return r.status === "saved" || r.status === "idle";
+  }, [saveRaw]);
 
   /** Puts the draft back to the last saved version. */
   const discard = () => {
@@ -190,6 +260,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     setSaveErrorText(null);
     setStatus("idle");
     setSheet(null);
+    setSeen(null);
     toast.show({ message: "Changes discarded" });
   };
 
@@ -229,7 +300,13 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       mounted.current = false;
     };
   }, []);
-  const commitNow = save;
+  /** the page as it was before a Research Notes write, so a refused save leaves nothing half applied */
+  const putBack = (draftBefore: Rec, linesBefore: RecipeLine[]) => {
+    draftRef.current = draftBefore;
+    linesRef.current = linesBefore;
+    setDraftState(draftBefore);
+    setLinesState(linesBefore);
+  };
   const noteTarget = useMemo<RecipeTarget | undefined>(
     () =>
       kind === "item"
@@ -240,17 +317,33 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               return Array.isArray(m) ? m.map(String) : [];
             },
             write: async ({ lines, method }) => {
+              const b = baseRef.current;
+              const before = { draft: draftRef.current, lines: linesRef.current };
+              const wasDirty = describeChanges(b.draft, before.draft, b.lines, before.lines).dirty;
               if (lines) setLines(() => lines);
               if (method) {
                 const field = methodField(draftRef.current as MenuItem);
                 setDraft((d) => ({ ...d, [field]: method }) as Rec);
               }
-              if (!(await commitNow())) throw new Error("Not saved");
+              const r = await saveRaw({ quiet: true });
+              if (r.status === "saved" || r.status === "idle") return;
+              if (r.status === "conflict") {
+                // someone else changed this: nothing is applied. A page with no edits of its own shows their version straight away.
+                if (wasDirty) putBack(before.draft, before.lines);
+                else {
+                  const row = r.fresh.row as Rec;
+                  setBase({ draft: row, lines: r.fresh.lines });
+                  putBack(row, r.fresh.lines);
+                }
+                throw new SaveConflictError();
+              }
+              throw new Error("Not saved");
             },
             alive: () => mounted.current,
           }
         : undefined,
-    [kind, setLines, setDraft, commitNow],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [kind, setLines, setDraft, saveRaw],
   );
 
   // adopt store changes (background refresh) when there are no local edits
@@ -266,7 +359,49 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   }, [saved, savedLines]);
 
   // leave guard: link clicks, Back, tab close and reload ask first while there are unsaved edits
-  const { release } = useUnsavedGuard(dirty, { save, getError: () => saveError.current });
+  const { release, dismissPrompt } = useUnsavedGuard(dirty, { save, getError: () => saveError.current });
+
+  // ---------- someone else changed this while it was open ----------
+  // quiet notice: the background refresh (or a Save that found a clash) saw a newer copy while there are unsaved edits here
+  const external = useMemo(() => {
+    if (!dirty) return null;
+    const theirs = seen ?? { row: saved, lines: savedLines };
+    return theirChangesOf(base.draft, base.lines, theirs.row, theirs.lines);
+  }, [dirty, seen, saved, savedLines, base]);
+  const notice = external?.changed ? staleNotice(whoOf(external), external.updatedAt) : null;
+
+  const conflictCtx = useMemo(
+    () => ({
+      componentName: (l: RecipeLine) => (l.component_type === "ingredient" ? store.index.ingredients.get(l.component_id)?.name : store.index.preps.get(l.component_id)?.name) ?? "Ingredient",
+      venueName: (vid: number | null | undefined) => store.venueById.get(vid ?? -1)?.name ?? "Shared",
+    }),
+    [store.index, store.venueById],
+  );
+
+  /** What saving would leave behind for each choice, so the person sees the effect before choosing. */
+  const impactFor = (choice: Choice): string => {
+    if (!pending) return "";
+    const res = pending.result.resolutions[choice];
+    if (kind === "item") {
+      const ic = costItem(res.record as MenuItem, store.index, store.settings, store.targets, new Map<string, PrepCost>(), res.lines);
+      return `Result: ${money(ic.costPerPortion)} a serve, GP ${gp(ic.gpPct)}`;
+    }
+    const rc = costLines(res.lines, store.index, store.settings.gst_rate, [id]);
+    const p = res.record as Prep;
+    const y = Number(p.yield_qty) || 0;
+    return `Result: ${money(rc.total)} a batch${y > 0 ? `, ${money(rc.total / y)} per ${unitShort(p.yield_unit)}` : ""}`;
+  };
+
+  /** The sheet's Keep Mine / Use Theirs: save with that choice for exactly the clashes shown (a newer clash asks again). */
+  const resolve = async (choice: Choice) => {
+    if (!pending || resolving) return;
+    setResolving(true);
+    setResolveError(null);
+    const r = await saveRaw({ settle: { choice, ids: pending.conflicts.map((c) => c.id) } });
+    setResolving(false);
+    if (r.status === "saved") dismissPrompt();
+    else if (r.status === "failed") setResolveError(`Couldn’t save${saveError.current ? `: ${saveError.current}` : ""}. Nothing was changed.`);
+  };
 
   // recents
   useEffect(() => {
@@ -369,7 +504,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
   const backHref = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
 
-  const phoneSaveBar = <SaveBar state={saveState} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="px-4 pb-1 pt-2" />;
+  const phoneSaveBar = <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="px-4 pb-1 pt-2" />;
 
   const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
@@ -643,8 +778,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       </div>
 
       {/* save bar: sticky at the bottom on desktop; on phones it sits at the top of the fixed summary bar */}
-      <SaveBar state={saveState} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="sticky bottom-0 z-30 mt-8 hidden rounded-t-2xl bg-surface px-4 py-3 shadow-float ring-1 ring-[color:var(--separator)] lg:flex" />
-      <div className="h-14 lg:hidden" aria-hidden />
+      <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="sticky bottom-0 z-30 mt-8 hidden rounded-t-2xl bg-surface px-4 py-3 shadow-float ring-1 ring-[color:var(--separator)] lg:flex" />
+      <div className={cx("lg:hidden", notice ? "h-28" : "h-14")} aria-hidden />
 
       {/* summary: phone bar */}
       {itemCost && item ? (
@@ -732,6 +867,21 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           }}
         />
       ) : null}
+      <ConflictSheet
+        open={!!pending}
+        intro={pending ? conflictIntro(whoOf(pending.theirs), pending.theirs.updatedAt) : ""}
+        alsoChanged={pending ? keptChangeList(pending.theirs.labels, pending.conflicts) : ""}
+        items={pending ? buildConflictView(pending.conflicts, conflictCtx) : []}
+        impact={{ mine: impactFor("mine"), theirs: impactFor("theirs") }}
+        consequences={choiceImpact(pending?.conflicts.length ?? 0, pending?.theirs ?? { count: 0 })}
+        busy={resolving}
+        error={resolveError}
+        onChoose={(c) => void resolve(c)}
+        onCancel={() => {
+          setPending(null);
+          setResolveError(null);
+        }}
+      />
       <DiscardSheet open={sheet === "discard"} count={changes.count} labels={changes.labels} onConfirm={discard} onClose={() => setSheet(null)} />
       {sheet === "duplicate" ? <DuplicateSheet kind={kind} draft={draft} lines={lines} onClose={() => setSheet(null)} /> : null}
       {sheet === "delete" ? <DeleteSheet kind={kind} rec={draft} inUse={usedIn.items.length + usedIn.preps.length} onClose={() => setSheet(null)} onDeleted={() => router.push(backHref)} beforeDelete={release} /> : null}

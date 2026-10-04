@@ -221,6 +221,6 @@ describe("reconcile", () => {
 describe("table registry", () => {
   it("covers every table once", () => {
     expect(new Set(TABLES.map((t) => t.table)).size).toBe(TABLES.length);
-    expect(TABLES).toHaveLength(21);
+    expect(TABLES).toHaveLength(22);
   });
 });

@@ -6,7 +6,9 @@ import { gp, money } from "@/lib/format";
 import { offerKindLabel, type OfferCost } from "@/lib/offers";
 import type { Offer } from "@/lib/types";
 import { VENUE_SHORT } from "./venue";
-import { Group, Row } from "./ui";
+import { offerBelowTargetEntry, offerCheckEntry } from "@/lib/ignored-alerts";
+import { AlertRow } from "./alert-parts";
+import { Group } from "./ui";
 
 type OfferRow = { offer: Offer; cost: OfferCost };
 
@@ -23,8 +25,9 @@ export function OffersFeed({ rows, checkRows = [], showVenue }: { rows: OfferRow
       {rows.length ? (
         <Group title={`Offers Below Target · ${rows.length}`} className="mt-4" inset="3.75rem" footer="Live specials and combos whose GP fell under target after a cost change.">
           {rows.map(({ offer, cost }) => (
-            <Row
+            <AlertRow
               key={offer.id}
+              entry={offerBelowTargetEntry(offer)}
               href={`/specials/${offer.id}`}
               leading={
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-danger-soft text-danger">
@@ -41,8 +44,9 @@ export function OffersFeed({ rows, checkRows = [], showVenue }: { rows: OfferRow
       {checkRows.length ? (
         <Group title={`Offers To Check · ${checkRows.length}`} className="mt-4" inset="3.75rem" footer="A component is missing or its cost looks wrong, so these are left out of the GP checks until it is fixed.">
           {checkRows.map(({ offer, cost }) => (
-            <Row
+            <AlertRow
               key={offer.id}
+              entry={offerCheckEntry(offer)}
               href={`/specials/${offer.id}`}
               leading={
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">

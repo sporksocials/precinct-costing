@@ -430,3 +430,17 @@ export interface BarOption {
   sort: number;
   created_at?: string | null;
 }
+
+/**
+ * One ignored alert on the Today feed (cost_ignored_alerts, shared by everyone who can sign in). `alert_key` names the
+ * alert and the state it was ignored in (lib/ignored-alerts.ts); `ref` is the app path it opens; deleting the row restores it.
+ */
+export interface IgnoredAlert {
+  id: string;
+  alert_key: string;
+  kind: string;
+  ref: string | null;
+  title: string | null;
+  ignored_by: string | null;
+  ignored_at: string;
+}

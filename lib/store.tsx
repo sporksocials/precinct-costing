@@ -34,6 +34,7 @@ import {
   type ResearchNote,
   type BarOption,
   type BarOptionKind,
+  type IgnoredAlert,
   type ResearchStatus,
   type SellPriceLog,
   type RecipeLine,
@@ -50,6 +51,7 @@ import { cleanOptionName, findOption, nextSort } from "./glass-rim";
 import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
 import { DEMO } from "./supabase/client";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
+import { buildIgnoredRow, IGNORE_UNAVAILABLE, withIgnored, withoutIgnored, type AlertEntry } from "./ignored-alerts";
 import {
   FetchError,
   MSG_BLOCKED,
@@ -205,6 +207,8 @@ export interface StoreData {
   researchNotes: ResearchNote[];
   /** glass types and rims for the Bar Display pickers (cost_bar_options); [] until the bar options migration is applied */
   barOptions: BarOption[];
+  /** alerts someone chose to ignore on Today (cost_ignored_alerts); [] until the ignored alerts migration is applied */
+  ignoredAlerts: IgnoredAlert[];
 }
 
 export interface UsedIn {
@@ -305,6 +309,15 @@ export interface StoreValue extends StoreData {
    * (any case) is not added twice: the existing option comes back. The local list changes only once the database confirms.
    */
   addBarOption: (kind: BarOptionKind, name: string) => Promise<BarOption>;
+  /**
+   * Ignores a Today alert for everyone (the Undo toast calls restoreAlert). The alert leaves the feed at once; if the
+   * database does not confirm (or the ignored alerts table does not exist yet) it comes back and this throws a plain message.
+   */
+  ignoreAlert: (entry: AlertEntry) => Promise<void>;
+  /** Puts an ignored alert back on the feed (deletes its row). Safe to call twice. */
+  restoreAlert: (alertKey: string) => Promise<void>;
+  /** Re-reads the ignored list, so another person's ignores show up without a reload. Never throws. */
+  refreshIgnoredAlerts: () => Promise<void>;
 }
 
 /** PostgREST / Postgres error text when cost_offers.assumptions has not been added yet. */
@@ -335,6 +348,7 @@ const empty: StoreData = {
   deals: [],
   researchNotes: [],
   barOptions: [],
+  ignoredAlerts: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -564,6 +578,49 @@ export async function insertBarOption(sb: SupabaseClient, existing: readonly Bar
     throw new Error(error.message);
   }
   return { option: ((data as BarOption[] | null)?.[0] ?? row) as BarOption, created: true };
+}
+
+/** True when the error just means the cost_ignored_alerts table is not in the database yet. */
+function ignoredTableMissing(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && isSchemaMissingError(error);
+}
+
+/** The ignored list from the database; [] when the table does not exist yet. Any other failure throws. */
+export async function fetchIgnoredAlerts(sb: SupabaseClient): Promise<IgnoredAlert[]> {
+  try {
+    return await fetchAll<IgnoredAlert>(sb, "cost_ignored_alerts", "ignored_at");
+  } catch (e) {
+    if (isSchemaMissingError(e)) return [];
+    throw e;
+  }
+}
+
+/**
+ * Saves one ignored alert (through insertRow, like every insert). If the alert is already ignored (someone did it a
+ * moment ago, the key is unique) the existing row comes back and nothing new is written. A database without the table
+ * throws IGNORE_UNAVAILABLE so the caller can say so plainly.
+ */
+export async function insertIgnoredAlert(sb: SupabaseClient, row: IgnoredAlert): Promise<{ row: IgnoredAlert; created: boolean }> {
+  const { data, error } = await insertRow(sb, "cost_ignored_alerts", row).select("*");
+  if (error) {
+    if (ignoredTableMissing(error)) throw new Error(IGNORE_UNAVAILABLE);
+    if (error.code === "23505") {
+      const { data: found } = await sb.from("cost_ignored_alerts").select("*").eq("alert_key", row.alert_key);
+      const there = (found as IgnoredAlert[] | null)?.[0];
+      if (there) return { row: there, created: false };
+    }
+    throw new Error(error.message);
+  }
+  return { row: ((data as IgnoredAlert[] | null)?.[0] ?? row) as IgnoredAlert, created: true };
+}
+
+/** Restores an ignored alert by deleting its row. Deleting a row that is already gone is fine. */
+export async function deleteIgnoredAlert(sb: SupabaseClient, alertKey: string): Promise<void> {
+  const { error } = await sb.from("cost_ignored_alerts").delete().eq("alert_key", alertKey).select("id");
+  if (error) {
+    if (ignoredTableMissing(error)) throw new Error(IGNORE_UNAVAILABLE);
+    throw new Error(error.message);
+  }
 }
 
 async function updateOne(sb: SupabaseClient, table: string, col: string, val: string | number, patch: object) {
@@ -1470,6 +1527,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  // ---- ignored alerts (Today feed). The alert leaves the feed at once; the local list is put back if the database refuses ----
+  const ignoreBusy = useRef(0);
+  const ignoreAlert = useCallback(
+    async (entry: AlertEntry) => {
+      if (dataRef.current.ignoredAlerts.some((a) => a.alert_key === entry.key)) return;
+      const mine = buildIgnoredRow(entry, userEmail, newId(), new Date().toISOString());
+      ignoreBusy.current += 1;
+      setData((d) => ({ ...d, ignoredAlerts: withIgnored(d.ignoredAlerts, mine) }));
+      try {
+        const { row } = await insertIgnoredAlert(sb, mine);
+        setData((d) => ({ ...d, ignoredAlerts: d.ignoredAlerts.map((a) => (a.alert_key === entry.key ? row : a)) }));
+      } catch (e) {
+        setData((d) => ({ ...d, ignoredAlerts: withoutIgnored(d.ignoredAlerts, entry.key) }));
+        throw e;
+      } finally {
+        ignoreBusy.current -= 1;
+      }
+    },
+    [sb, setData, userEmail],
+  );
+
+  const restoreAlert = useCallback(
+    async (alertKey: string) => {
+      const before = dataRef.current.ignoredAlerts.find((a) => a.alert_key === alertKey);
+      ignoreBusy.current += 1;
+      setData((d) => ({ ...d, ignoredAlerts: withoutIgnored(d.ignoredAlerts, alertKey) }));
+      try {
+        await deleteIgnoredAlert(sb, alertKey);
+      } catch (e) {
+        if (before) setData((d) => ({ ...d, ignoredAlerts: withIgnored(d.ignoredAlerts, before) }));
+        throw e;
+      } finally {
+        ignoreBusy.current -= 1;
+      }
+    },
+    [sb, setData],
+  );
+
+  const refreshIgnoredAlerts = useCallback(async () => {
+    if (ignoreBusy.current > 0) return; // one of our own writes is in flight; its result is the fresher truth
+    try {
+      const rows = await fetchIgnoredAlerts(sb);
+      if (ignoreBusy.current === 0) setDataRaw((d) => ({ ...d, ignoredAlerts: rows }));
+    } catch {
+      /* keep what is already shown */
+    }
+  }, [sb]);
+
   // ---- research notes (manager-only; only the status is ever changed from the app, notes are written by SPORK) ----
   // one update to the note row; the local copy changes only after the database confirms
   const writeResearchNote = useCallback(
@@ -1556,6 +1661,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     applyResearchNote,
     undoResearchNote,
     addBarOption,
+    ignoreAlert,
+    restoreAlert,
+    refreshIgnoredAlerts,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

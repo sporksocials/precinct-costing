@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
 import { gp } from "@/lib/format";
 import { gpSummary, underTargetRows } from "@/lib/insights";
+import { belowTargetKey, ignoredKeySet, openRows } from "@/lib/ignored-alerts";
 import { cx } from "./ui";
 
 export const VENUE_SHORT: Record<string, string> = { drift: "Drift", chiobu: "Chiobu", greedy: "Greedy", gelato: "Gelato" };
@@ -65,7 +66,7 @@ export function VenueAccent({ slug }: { slug: string | null | undefined }) {
  */
 export function VenueFilter({ className, stats = true, compact = false }: { className?: string; stats?: boolean; compact?: boolean }) {
   const { slug, setVenue, venues } = useVenue();
-  const { itemCosts } = useStore();
+  const { itemCosts, ignoredAlerts } = useStore();
   useAccent(slug);
   const ref = useRef<HTMLDivElement>(null);
   // keep the chosen venue in view when the row scrolls (phones)
@@ -77,8 +78,10 @@ export function VenueFilter({ className, stats = true, compact = false }: { clas
   const tileStats = useMemo(() => {
     if (!stats) return null;
     const all = Array.from(itemCosts.values());
-    return options.map((o) => ({ avg: gpSummary(all, o.id).avg, under: underTargetRows(all, o.id).length }));
-  }, [stats, options, itemCosts]);
+    const ignored = ignoredKeySet(ignoredAlerts);
+    // an ignored below-target alert does not count as "under"
+    return options.map((o) => ({ avg: gpSummary(all, o.id).avg, under: openRows(underTargetRows(all, o.id), (r) => belowTargetKey(r.cost), ignored).length }));
+  }, [stats, options, itemCosts, ignoredAlerts]);
 
   // roving focus: arrows move the choice like a native radio group
   const onKeyDown = (e: React.KeyboardEvent) => {

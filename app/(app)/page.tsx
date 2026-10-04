@@ -8,13 +8,36 @@ import { costBreakdown, type ItemCost } from "@/lib/costing";
 import { buildReviewChanges, gelatoServeStats } from "@/lib/price-review";
 import { parseVirtualItemId } from "@/lib/gelato";
 import Link from "next/link";
-import { gp, money, movePct } from "@/lib/format";
+import { daysAgo, dateShort, gp, money, movePct } from "@/lib/format";
 import { DataTable } from "@/components/table";
 import { PriceSheet, SetPriceButton } from "@/components/price-actions";
 import { ReviewSheet } from "@/components/price-review";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { cx, Dot, Group, Row } from "@/components/ui";
+import { AlertRow, AlertTabs, IgnoreButton, IgnoredView, useAlertView, useRefreshIgnored } from "@/components/alert-parts";
+import {
+  belowTargetEntry,
+  belowTargetKey,
+  catalogueGapEntry,
+  catalogueGapKey,
+  checkCostEntry,
+  checkCostKey,
+  dealKey,
+  happyHourEntry,
+  happyHourKey,
+  ignoredCheckItemIds,
+  ignoredKeySet,
+  missingPriceEntry,
+  missingPriceKey,
+  offerBelowTargetKey,
+  offerCheckKey,
+  openRows,
+  priceRiseEntry,
+  priceRiseKey,
+  stalePriceEntry,
+  stalePriceKey,
+} from "@/lib/ignored-alerts";
 import { PrecinctMark } from "@/components/brand";
 import { OffersFeed } from "@/components/offers-feed";
 import { DealsFeed } from "@/components/deals-feed";
@@ -59,9 +82,15 @@ export default function HomePage() {
   const newRecipe = useNewRecipe();
 
   const health = useDataHealthSummary();
-  const headline = useMemo(() => gpSummary(store.itemCosts.values(), venue?.id ?? null), [store.itemCosts, venue]);
+  const [alertView, setAlertView] = useAlertView();
+  const ignoredKeys = useMemo(() => ignoredKeySet(store.ignoredAlerts), [store.ignoredAlerts]);
+  // an ignored "check cost" alert still keeps its dish out of the average, but no longer counts as needing a look
+  const headline = useMemo(() => {
+    const skip = ignoredCheckItemIds(checkCostGroups(checkCostRows(store.itemCosts.values(), venue?.id ?? null)), ignoredKeys);
+    return gpSummary(store.itemCosts.values(), venue?.id ?? null, skip);
+  }, [store.itemCosts, venue, ignoredKeys]);
 
-  const missingPrice = useMemo(() => missingPriceGroups(store.itemCosts.values(), venue?.id ?? null).length, [store.itemCosts, venue]);
+  const missingPrice = useMemo(() => openRows(missingPriceGroups(store.itemCosts.values(), venue?.id ?? null), missingPriceKey, ignoredKeys).length, [store.itemCosts, venue, ignoredKeys]);
 
   const shownAvg = useCountUp(headline.avg);
   const isGelato = venue?.slug === "gelato";
@@ -101,7 +130,13 @@ export default function HomePage() {
         {headline.excluded > 0 ? (
           <button
             type="button"
-            onClick={() => document.getElementById("check-cost")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onClick={() => {
+              const go = () => document.getElementById("check-cost")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              if (alertView === "ignored") {
+                setAlertView("open"); // the Check Cost list is on the Open view
+                window.setTimeout(go, 200);
+              } else go();
+            }}
             className="mt-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-warn-soft px-4 text-[15px] font-medium text-warn transition active:scale-[0.97] lg:min-h-[36px] lg:text-[14px]"
           >
             <AlertTriangle className="h-4 w-4" strokeWidth={2.5} />
@@ -121,7 +156,7 @@ export default function HomePage() {
       </section>
 
       {/* 3. today: what needs doing, with the fix one tap away */}
-      {empty && !headline.excluded && !missingPrice ? null : <Today venueId={venue?.id ?? null} />}
+      {empty && !headline.excluded && !missingPrice && !store.ignoredAlerts.length ? null : <Today venueId={venue?.id ?? null} />}
     </div>
   );
 }
@@ -133,32 +168,52 @@ function Today({ venueId }: { venueId: number | null }) {
   const [allCheck, setAllCheck] = useState(false);
   const [allHappy, setAllHappy] = useState(false);
   const [allMissing, setAllMissing] = useState(false);
+  const [allStale, setAllStale] = useState(false);
+  const [allGaps, setAllGaps] = useState(false);
   const [priceFor, setPriceFor] = useState<ItemCost | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [view, setView] = useAlertView();
   useEffect(() => {
     store.loadPortalPrices();
   }, [store]);
+  useRefreshIgnored();
 
-  const under = useMemo(() => underTargetRows(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
+  // every alert is computed as before, then the ignored ones are taken out (they are listed under Ignored instead)
+  const ignoredKeys = useMemo(() => ignoredKeySet(store.ignoredAlerts), [store.ignoredAlerts]);
+  const under = useMemo(() => openRows(underTargetRows(store.itemCosts.values(), venueId), (r) => belowTargetKey(r.cost), ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
   const changes = useMemo(
-    () => buildReviewChanges(underTarget(store.itemCosts.values(), venueId), store.settings.gst_rate, gelatoServeStats(store.itemCosts.values())),
-    [store.itemCosts, venueId, store.settings.gst_rate],
+    () =>
+      buildReviewChanges(
+        underTarget(store.itemCosts.values(), venueId).filter((c) => !ignoredKeys.has(belowTargetKey(c))),
+        store.settings.gst_rate,
+        gelatoServeStats(store.itemCosts.values()),
+      ),
+    [store.itemCosts, venueId, store.settings.gst_rate, ignoredKeys],
   );
-  const check = useMemo(() => checkCostGroups(checkCostRows(store.itemCosts.values(), venueId)), [store.itemCosts, venueId]);
-  const missing = useMemo(() => missingPriceGroups(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
-  const happy = useMemo(() => happyHourRows(store.itemCosts.values(), venueId), [store.itemCosts, venueId]);
+  const check = useMemo(() => openRows(checkCostGroups(checkCostRows(store.itemCosts.values(), venueId)), checkCostKey, ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
+  const missing = useMemo(() => openRows(missingPriceGroups(store.itemCosts.values(), venueId), missingPriceKey, ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
+  const happy = useMemo(() => openRows(happyHourRows(store.itemCosts.values(), venueId), happyHourKey, ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
   const itemById = useMemo(() => new Map(store.items.map((i) => [i.id, i])), [store.items]);
   const rises = useMemo(
-    () => priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, 30, store.itemCosts),
-    [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, store.itemCosts],
+    () => openRows(priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, 30, store.itemCosts), priceRiseKey, ignoredKeys),
+    [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, store.itemCosts, ignoredKeys],
   );
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
-  const stale = useMemo(() => staleIngredients(store.ingredients, inUse), [store.ingredients, inUse]);
-  const gaps = useMemo(() => catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById), [store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById]);
-  const dealRows = useMemo(() => dealFeedRows(store.deals, store.ingredients, inUse, store.today), [store.deals, store.ingredients, inUse, store.today]);
+  const stale = useMemo(
+    () =>
+      openRows(staleIngredients(store.ingredients, inUse), stalePriceKey, ignoredKeys).sort(
+        (a, b) => (a.last_price_update ?? "").localeCompare(b.last_price_update ?? "") || a.name.localeCompare(b.name), // never checked first, then oldest
+      ),
+    [store.ingredients, inUse, ignoredKeys],
+  );
+  const gaps = useMemo(
+    () => openRows(catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById), catalogueGapKey, ignoredKeys),
+    [store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById, ignoredKeys],
+  );
+  const dealRows = useMemo(() => openRows(dealFeedRows(store.deals, store.ingredients, inUse, store.today), dealKey, ignoredKeys), [store.deals, store.ingredients, inUse, store.today, ignoredKeys]);
 
-  const offersBelow = useMemo(() => liveOffersUnderTarget(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
-  const offersCheck = useMemo(() => liveOffersToCheck(store.offers, store.offerCosts, venueId), [store.offers, store.offerCosts, venueId]);
+  const offersBelow = useMemo(() => openRows(liveOffersUnderTarget(store.offers, store.offerCosts, venueId), (r) => offerBelowTargetKey(r.offer), ignoredKeys), [store.offers, store.offerCosts, venueId, ignoredKeys]);
+  const offersCheck = useMemo(() => openRows(liveOffersToCheck(store.offers, store.offerCosts, venueId), (r) => offerCheckKey(r.offer), ignoredKeys), [store.offers, store.offerCosts, venueId, ignoredKeys]);
   // the heading date follows the store's Brisbane `today`, so it moves at midnight in a tab left open
   const today = new Date(`${store.today}T12:00:00Z`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
   const clear = !offersBelow.length && !offersCheck.length && !missing.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
@@ -167,6 +222,9 @@ function Today({ venueId }: { venueId: number | null }) {
   const shownCheck = allCheck ? check : check.slice(0, 4);
   const shownMissing = allMissing ? missing : missing.slice(0, 4);
   const shownHappy = allHappy ? happy : happy.slice(0, 4);
+  const shownStale = allStale ? stale : stale.slice(0, 4);
+  const shownGaps = allGaps ? gaps : gaps.slice(0, 4);
+  const ignoredCount = store.ignoredAlerts.length;
   const reviewButton =
     changes.length >= 2 ? (
       <button type="button" onClick={() => setReviewing(true)} className="-mb-1 min-h-[44px] px-1 text-[15px] font-semibold text-accent lg:min-h-[32px] lg:text-[13px]">
@@ -181,229 +239,280 @@ function Today({ venueId }: { venueId: number | null }) {
         <span className="text-[13px] text-label-2">{today}</span>
       </div>
 
-      {clear ? (
-        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-surface px-4 py-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-good-soft text-good">
-            <Check className="h-5 w-5" strokeWidth={2.5} />
-          </span>
-          <span>
-            <span className="block text-[17px] font-semibold sm:text-[15px]">All Clear</span>
-            <span className="block text-[15px] text-label-2 sm:text-[13px]">Every dish is on target and prices are up to date.</span>
-          </span>
-        </div>
-      ) : null}
+      <AlertTabs view={view} onChange={setView} ignoredCount={ignoredCount} className="mt-3" />
 
-      <OffersFeed rows={offersBelow} checkRows={offersCheck} showVenue={venueId == null} />
-      <DealsFeed rows={dealRows} />
-
-      {/* price rises: the cause, before the symptoms */}
-      {rises.length ? (
-        <Group title={`Price Rises · Last 30 Days`} className="mt-4" inset="3.75rem">
-          {shownRises.map((r) => (
-            <Row
-              key={r.ingredient.id}
-              href={`/ingredients/${r.ingredient.id}`}
-              leading={
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
-                  <TrendingUp className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                </span>
-              }
-              title={
-                <>
-                  {r.ingredient.name} <span className="text-danger">{movePct(r.movePct)}</span>
-                </>
-              }
-              sub={[
-                `${money(r.log.old_price)} → ${money(r.log.new_price)}`,
-                `${r.recipeCount} ${r.recipeCount === 1 ? "recipe" : "recipes"}`,
-                r.underCount ? `${r.underCount} now below target` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              chevron
-            />
-          ))}
-          {rises.length > 3 ? (
-            <Row onClick={() => setAllRises((x) => !x)} title={<span className="text-accent">{allRises ? "Show Fewer" : `Show All ${rises.length}`}</span>} />
-          ) : null}
-        </Group>
-      ) : null}
-
-      {/* costs that look wrong: fix these before trusting any price */}
-      {check.length ? (
-        <div id="check-cost" className="scroll-mt-4">
-          <Group title={`Check Cost · ${check.length}`} className="mt-6" inset="3.75rem" footer="These are left out of the average GP until the cost looks right.">
-            {shownCheck.map((g) => (
-              <Row
-                key={g.id}
-                href={g.href}
-                leading={
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
-                    <AlertTriangle className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                  </span>
-                }
-                title={g.name}
-                wrapSub
-                sub={`${venueName(store, g.venueId)} · ${g.warnings[0] ?? "Check the recipe"}${g.warnings.length > 1 ? ` (+${g.warnings.length - 1} more)` : ""}`}
-                chevron
-              />
-            ))}
-            {check.length > 4 ? <Row onClick={() => setAllCheck((x) => !x)} title={<span className="text-accent">{allCheck ? "Show Fewer" : `Show All ${check.length}`}</span>} /> : null}
-          </Group>
-        </div>
-      ) : null}
-
-      {/* on the menu with no sell price: no GP, so nothing else flags them. Suggestions only, nothing is applied from here */}
-      {missing.length ? (
-        <Group
-          title={`Missing Price · ${missing.length}`}
-          className="mt-6"
-          inset="3.75rem"
-          footer="These are on the menu with no sell price, so they have no GP. Open one to enter a price. The price shown is only a suggestion."
-        >
-          {shownMissing.map((m) => (
-            <Row
-              key={m.id}
-              href={m.href}
-              leading={
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
-                  <CircleDollarSign className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                </span>
-              }
-              title={m.count > 1 ? `${m.name} (${m.count} serves)` : m.name}
-              wrapSub
-              sub={[
-                venueName(store, m.venueId),
-                m.cost > 0 ? `Cost ${money(m.cost)}` : "No cost yet",
-                m.suggestedInc != null ? `${money(m.suggestedInc)} would give ${gp(m.targetGp, 0)}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              trailing={<span className="text-[15px] font-semibold text-accent sm:text-[13px]">Add Price</span>}
-              chevron
-            />
-          ))}
-          {missing.length > 4 ? <Row onClick={() => setAllMissing((x) => !x)} title={<span className="text-accent">{allMissing ? "Show Fewer" : `Show All ${missing.length}`}</span>} /> : null}
-        </Group>
-      ) : null}
-
-      {/* below target, with the fix on the row */}
-      {under.length ? (
+      {view === "ignored" ? (
         <>
-          <Group
-            title={`Below Target · ${under.length}`}
-            className="mt-6 lg:hidden"
-            trailing={reviewButton}
-            footer="Set applies the suggested price (rounded up to the target GP). Change lets you pick another. You can undo either."
-          >
-            {shownUnder.map((r) => (
-              <UnderRowView key={r.cost.item.id} r={r} showVenue={venueId == null} onPrice={() => setPriceFor(r.cost)} />
-            ))}
-            {under.length > 5 ? <Row onClick={() => setAllUnder((x) => !x)} title={<span className="text-accent">{allUnder ? "Show Fewer" : `Show All ${under.length}`}</span>} /> : null}
-          </Group>
-          <div className="mt-6 hidden lg:block">
-            <div className="flex items-end justify-between px-4 pb-1.5">
-              <h2 className="text-[13px] font-medium text-label-2">Below Target · {under.length}</h2>
-              <span className="flex items-center gap-4">
-                {reviewButton}
-                {under.length > 8 ? (
-                  <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setAllUnder((x) => !x)}>
-                    {allUnder ? "Show Fewer" : `Show All ${under.length}`}
-                  </button>
-                ) : null}
+          {venueId != null ? <p className="px-4 pt-2 text-[13px] text-label-2">Ignored alerts are shown for every venue.</p> : null}
+          <IgnoredView />
+        </>
+      ) : (
+        <>
+          {clear ? (
+            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-surface px-4 py-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-good-soft text-good">
+                <Check className="h-5 w-5" strokeWidth={2.5} />
+              </span>
+              <span>
+                <span className="block text-[17px] font-semibold sm:text-[15px]">All Clear</span>
+                <span className="block text-[15px] text-label-2 sm:text-[13px]">
+                  Every dish is on target and prices are up to date.
+                  {ignoredCount ? ` ${ignoredCount} ignored ${ignoredCount === 1 ? "alert is" : "alerts are"} under Ignored.` : ""}
+                </span>
               </span>
             </div>
-            <DataTable
-              rows={allUnder ? under : under.slice(0, 8)}
-              rowKey={(r) => r.cost.item.id}
-              href={(r) => `/items/${r.cost.item.id}`}
-              columns={[
-                { key: "name", label: "Item", render: (r) => <span className="font-medium">{rowName(r)}</span>, sort: (r) => rowName(r) },
-                ...(venueId == null ? [{ key: "venue", label: "Venue", render: (r: UnderRow) => <span className="text-label-2">{venueShort(store, r)}</span>, sort: (r: UnderRow) => venueShort(store, r) }] : []),
-                { key: "gp", label: "GP / Target", align: "right", render: (r) => <span><span className="font-semibold text-danger">{gp(r.cost.gpPct, 1, r.cost.targetGp)}</span> <span className="text-label-2">/ {gp(r.cost.targetGp, 0)}</span></span>, sort: (r) => r.cost.gpPct },
-                { key: "driver", label: "Biggest Cost", render: (r) => <span className="block max-w-[9rem] truncate text-label-2 xl:max-w-[16rem]" title={driverText(r.cost) ?? undefined}>{driverText(r.cost) ?? (parseVirtualItemId(r.cost.item.id) ? "Shared by all flavours" : "—")}</span> },
-                {
-                  key: "now",
-                  label: "Price Now",
-                  align: "right",
-                  render: (r) => (
-                    <button
-                      type="button"
-                      title="Pick a different price"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPriceFor(r.cost);
-                      }}
-                      className="rounded-md px-1.5 py-0.5 tnum text-accent underline decoration-dotted underline-offset-4 hover:bg-fill"
-                    >
-                      {money(r.cost.sellInc)}
-                    </button>
-                  ),
-                  sort: (r) => r.cost.sellInc,
-                },
-                { key: "fix", label: "Fix", align: "right", render: (r) => <SetPriceButton c={r.cost} />, sort: (r) => r.cost.suggestedInc },
-              ]}
-            />
-            <p className="px-4 pt-1.5 text-[13px] text-label-2">Set applies the suggested price (rounded up to the target GP). Tap a price to pick another. You can undo either.</p>
-          </div>
-        </>
-      ) : null}
-
-      {/* happy hour prices under the same target */}
-      {happy.length ? (
-        <Group title={`Happy Hour · ${happy.length}`} className="mt-6" inset="3.75rem" footer="Happy hour prices are held to the same target GP as the normal price.">
-          {shownHappy.map((h) => (
-            <Row
-              key={h.cost.item.id}
-              href={`/items/${h.cost.item.id}`}
-              leading={
-                <span className={cx("flex h-9 w-9 items-center justify-center rounded-full", h.belowCost ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn")}>
-                  <Tag className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                </span>
-              }
-              title={h.cost.item.name}
-              wrapSub
-              sub={`${venueName(store, h.cost.item.venue_id)} · ${money(h.hhPrice)} · ${h.belowCost ? `below cost (${money(h.cost.costPerPortion)})` : `${gp(h.hhGpPct, 0, h.cost.targetGp)} vs ${gp(h.cost.targetGp, 0)} target`}`}
-              trailing={<span className={cx("font-semibold", h.belowCost ? "text-danger" : "text-warn")}>{gp(h.hhGpPct, 0, h.cost.targetGp)}</span>}
-              chevron
-            />
-          ))}
-          {happy.length > 4 ? <Row onClick={() => setAllHappy((x) => !x)} title={<span className="text-accent">{allHappy ? "Show Fewer" : `Show All ${happy.length}`}</span>} /> : null}
-        </Group>
-      ) : null}
-
-      {/* price checks */}
-      {stale.length || gaps.length ? (
-        <Group title="Price Checks" className="mt-6" inset="3.75rem">
-          {gaps.length ? (
-            <Row
-              href="/ingredients?filter=catalogue"
-              leading={
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
-                  <Store className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                </span>
-              }
-              title={`${gaps.length} ${gaps.length === 1 ? "price differs" : "prices differ"} from the supplier catalogue`}
-              sub={`${gaps[0].ingredient.name}: catalogue ${gaps[0].diffPct > 0 ? "+" : ""}${Math.round(gaps[0].diffPct * 100)}%`}
-              chevron
-            />
           ) : null}
+
+          <OffersFeed rows={offersBelow} checkRows={offersCheck} showVenue={venueId == null} />
+          <DealsFeed rows={dealRows} />
+
+          {/* price rises: the cause, before the symptoms */}
+          {rises.length ? (
+            <Group title={`Price Rises · Last 30 Days`} className="mt-4" inset="3.75rem">
+              {shownRises.map((r) => (
+                <AlertRow
+                  key={r.ingredient.id}
+                  entry={priceRiseEntry(r)}
+                  href={`/ingredients/${r.ingredient.id}`}
+                  leading={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                      <TrendingUp className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={
+                    <>
+                      {r.ingredient.name} <span className="text-danger">{movePct(r.movePct)}</span>
+                    </>
+                  }
+                  sub={[
+                    `${money(r.log.old_price)} → ${money(r.log.new_price)}`,
+                    `${r.recipeCount} ${r.recipeCount === 1 ? "recipe" : "recipes"}`,
+                    r.underCount ? `${r.underCount} now below target` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  chevron
+                />
+              ))}
+              {rises.length > 3 ? (
+                <Row onClick={() => setAllRises((x) => !x)} title={<span className="text-accent">{allRises ? "Show Fewer" : `Show All ${rises.length}`}</span>} />
+              ) : null}
+            </Group>
+          ) : null}
+
+          {/* costs that look wrong: fix these before trusting any price */}
+          {check.length ? (
+            <div id="check-cost" className="scroll-mt-4">
+              <Group title={`Check Cost · ${check.length}`} className="mt-6" inset="3.75rem" footer="These are left out of the average GP until the cost looks right.">
+                {shownCheck.map((g) => (
+                  <AlertRow
+                    key={g.id}
+                    entry={checkCostEntry(g)}
+                    href={g.href}
+                    leading={
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                        <AlertTriangle className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                      </span>
+                    }
+                    title={g.name}
+                    wrapSub
+                    sub={`${venueName(store, g.venueId)} · ${g.warnings[0] ?? "Check the recipe"}${g.warnings.length > 1 ? ` (+${g.warnings.length - 1} more)` : ""}`}
+                    chevron
+                  />
+                ))}
+                {check.length > 4 ? <Row onClick={() => setAllCheck((x) => !x)} title={<span className="text-accent">{allCheck ? "Show Fewer" : `Show All ${check.length}`}</span>} /> : null}
+              </Group>
+            </div>
+          ) : null}
+
+          {/* on the menu with no sell price: no GP, so nothing else flags them. Suggestions only, nothing is applied from here */}
+          {missing.length ? (
+            <Group
+              title={`Missing Price · ${missing.length}`}
+              className="mt-6"
+              inset="3.75rem"
+              footer="These are on the menu with no sell price, so they have no GP. Open one to enter a price. The price shown is only a suggestion."
+            >
+              {shownMissing.map((m) => (
+                <AlertRow
+                  key={m.id}
+                  entry={missingPriceEntry(m)}
+                  href={m.href}
+                  leading={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                      <CircleDollarSign className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={m.count > 1 ? `${m.name} (${m.count} serves)` : m.name}
+                  wrapSub
+                  sub={[
+                    venueName(store, m.venueId),
+                    m.cost > 0 ? `Cost ${money(m.cost)}` : "No cost yet",
+                    m.suggestedInc != null ? `${money(m.suggestedInc)} would give ${gp(m.targetGp, 0)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  trailing={<span className="text-[15px] font-semibold text-accent sm:text-[13px]">Add Price</span>}
+                  chevron
+                />
+              ))}
+              {missing.length > 4 ? <Row onClick={() => setAllMissing((x) => !x)} title={<span className="text-accent">{allMissing ? "Show Fewer" : `Show All ${missing.length}`}</span>} /> : null}
+            </Group>
+          ) : null}
+
+          {/* below target, with the fix on the row */}
+          {under.length ? (
+            <>
+              <Group
+                title={`Below Target · ${under.length}`}
+                className="mt-6 lg:hidden"
+                trailing={reviewButton}
+                footer="Set applies the suggested price (rounded up to the target GP). Change lets you pick another. You can undo either."
+              >
+                {shownUnder.map((r) => (
+                  <UnderRowView key={r.cost.item.id} r={r} showVenue={venueId == null} onPrice={() => setPriceFor(r.cost)} />
+                ))}
+                {under.length > 5 ? <Row onClick={() => setAllUnder((x) => !x)} title={<span className="text-accent">{allUnder ? "Show Fewer" : `Show All ${under.length}`}</span>} /> : null}
+              </Group>
+              <div className="mt-6 hidden lg:block">
+                <div className="flex items-end justify-between px-4 pb-1.5">
+                  <h2 className="text-[13px] font-medium text-label-2">Below Target · {under.length}</h2>
+                  <span className="flex items-center gap-4">
+                    {reviewButton}
+                    {under.length > 8 ? (
+                      <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setAllUnder((x) => !x)}>
+                        {allUnder ? "Show Fewer" : `Show All ${under.length}`}
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+                <DataTable
+                  rows={allUnder ? under : under.slice(0, 8)}
+                  rowKey={(r) => r.cost.item.id}
+                  href={(r) => `/items/${r.cost.item.id}`}
+                  columns={[
+                    { key: "name", label: "Item", render: (r) => <span className="font-medium">{rowName(r)}</span>, sort: (r) => rowName(r) },
+                    ...(venueId == null ? [{ key: "venue", label: "Venue", render: (r: UnderRow) => <span className="text-label-2">{venueShort(store, r)}</span>, sort: (r: UnderRow) => venueShort(store, r) }] : []),
+                    { key: "gp", label: "GP / Target", align: "right", render: (r) => <span><span className="font-semibold text-danger">{gp(r.cost.gpPct, 1, r.cost.targetGp)}</span> <span className="text-label-2">/ {gp(r.cost.targetGp, 0)}</span></span>, sort: (r) => r.cost.gpPct },
+                    { key: "driver", label: "Biggest Cost", render: (r) => <span className="block max-w-[9rem] truncate text-label-2 xl:max-w-[16rem]" title={driverText(r.cost) ?? undefined}>{driverText(r.cost) ?? (parseVirtualItemId(r.cost.item.id) ? "Shared by all flavours" : "—")}</span> },
+                    {
+                      key: "now",
+                      label: "Price Now",
+                      align: "right",
+                      render: (r) => (
+                        <button
+                          type="button"
+                          title="Pick a different price"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPriceFor(r.cost);
+                          }}
+                          className="rounded-md px-1.5 py-0.5 tnum text-accent underline decoration-dotted underline-offset-4 hover:bg-fill"
+                        >
+                          {money(r.cost.sellInc)}
+                        </button>
+                      ),
+                      sort: (r) => r.cost.sellInc,
+                    },
+                    { key: "fix", label: "Fix", align: "right", render: (r) => <SetPriceButton c={r.cost} />, sort: (r) => r.cost.suggestedInc },
+                    { key: "ignore", label: "Ignore", align: "right", render: (r) => <IgnoreButton entry={belowTargetEntry(r, rowName(r))} quiet /> },
+                  ]}
+                />
+                <p className="px-4 pt-1.5 text-[13px] text-label-2">Set applies the suggested price (rounded up to the target GP). Tap a price to pick another. You can undo either.</p>
+              </div>
+            </>
+          ) : null}
+
+          {/* happy hour prices under the same target */}
+          {happy.length ? (
+            <Group title={`Happy Hour · ${happy.length}`} className="mt-6" inset="3.75rem" footer="Happy hour prices are held to the same target GP as the normal price.">
+              {shownHappy.map((h) => (
+                <AlertRow
+                  key={h.cost.item.id}
+                  entry={happyHourEntry(h)}
+                  href={`/items/${h.cost.item.id}`}
+                  leading={
+                    <span className={cx("flex h-9 w-9 items-center justify-center rounded-full", h.belowCost ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn")}>
+                      <Tag className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={h.cost.item.name}
+                  wrapSub
+                  sub={`${venueName(store, h.cost.item.venue_id)} · ${money(h.hhPrice)} · ${h.belowCost ? `below cost (${money(h.cost.costPerPortion)})` : `${gp(h.hhGpPct, 0, h.cost.targetGp)} vs ${gp(h.cost.targetGp, 0)} target`}`}
+                  trailing={<span className={cx("font-semibold", h.belowCost ? "text-danger" : "text-warn")}>{gp(h.hhGpPct, 0, h.cost.targetGp)}</span>}
+                  chevron
+                />
+              ))}
+              {happy.length > 4 ? <Row onClick={() => setAllHappy((x) => !x)} title={<span className="text-accent">{allHappy ? "Show Fewer" : `Show All ${happy.length}`}</span>} /> : null}
+            </Group>
+          ) : null}
+
+          {/* ingredient prices not checked in 90 days: one row per ingredient, so each can be ignored on its own */}
           {stale.length ? (
-            <Row
-              href="/ingredients?filter=stale"
-              leading={
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-fill-2 text-label-2">
-                  <Clock className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                </span>
+            <Group
+              title={`Price Not Checked · ${stale.length}`}
+              className="mt-6"
+              inset="3.75rem"
+              trailing={
+                <Link href="/ingredients?filter=stale" className="-mb-1 min-h-[44px] px-1 pt-3 text-[15px] font-semibold text-accent lg:min-h-[32px] lg:pt-1.5 lg:text-[13px]">
+                  See List
+                </Link>
               }
-              title={`${stale.length} ${stale.length === 1 ? "ingredient hasn’t" : "ingredients haven’t"} been checked in 90 days`}
-              sub="Only ones used in recipes. Update from your next invoice."
-              chevron
-            />
+              footer="Only ingredients used in recipes, longest wait first. Update from your next invoice."
+            >
+              {shownStale.map((i) => (
+                <AlertRow
+                  key={i.id}
+                  entry={stalePriceEntry(i)}
+                  href={`/ingredients/${i.id}`}
+                  leading={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-fill-2 text-label-2">
+                      <Clock className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={i.name}
+                  sub={i.last_price_update ? `Last checked ${dateShort(i.last_price_update)} · ${daysAgo(i.last_price_update) ?? "over 90"} days ago` : "Never checked"}
+                  chevron
+                />
+              ))}
+              {stale.length > 4 ? <Row onClick={() => setAllStale((x) => !x)} title={<span className="text-accent">{allStale ? "Show Fewer" : `Show All ${stale.length}`}</span>} /> : null}
+            </Group>
           ) : null}
-        </Group>
-      ) : null}
+
+          {gaps.length ? (
+            <Group
+              title={`Catalogue Differences · ${gaps.length}`}
+              className="mt-6"
+              inset="3.75rem"
+              trailing={
+                <Link href="/ingredients?filter=catalogue" className="-mb-1 min-h-[44px] px-1 pt-3 text-[15px] font-semibold text-accent lg:min-h-[32px] lg:pt-1.5 lg:text-[13px]">
+                  See List
+                </Link>
+              }
+              footer="Same supplier product code, different price per unit. Open one to update it."
+            >
+              {shownGaps.map((g) => (
+                <AlertRow
+                  key={g.ingredient.id}
+                  entry={catalogueGapEntry(g)}
+                  href={`/ingredients/${g.ingredient.id}`}
+                  leading={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-accent">
+                      <Store className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={g.ingredient.name}
+                  wrapSub
+                  sub={`Catalogue ${g.diffPct > 0 ? "+" : ""}${Math.round(g.diffPct * 100)}% · ${money(g.theirs)} vs ${money(g.ours)} per ${g.ingredient.pack_unit}`}
+                  chevron
+                />
+              ))}
+              {gaps.length > 4 ? <Row onClick={() => setAllGaps((x) => !x)} title={<span className="text-accent">{allGaps ? "Show Fewer" : `Show All ${gaps.length}`}</span>} /> : null}
+            </Group>
+          ) : null}
+        </>
+      )}
 
       {priceFor ? <PriceSheet key={priceFor.item.id} c={priceFor} onClose={() => setPriceFor(null)} /> : null}
       {reviewing ? <ReviewSheet changes={changes} onClose={() => setReviewing(false)} /> : null}
@@ -434,7 +543,8 @@ function UnderRowView({ r, showVenue, onPrice }: { r: UnderRow; showVenue: boole
   const shared = parseVirtualItemId(c.item.id);
   return (
     <div className="px-4 py-3">
-      <Link href={`/items/${c.item.id}`} className="block min-w-0 transition-opacity active:opacity-60">
+      <div className="flex items-start gap-2">
+      <Link href={`/items/${c.item.id}`} className="block min-w-0 flex-1 transition-opacity active:opacity-60">
         <span className="block truncate text-[17px] leading-snug sm:text-[15px]">{rowName(r)}</span>
         <span className="mt-0.5 block truncate text-[15px] leading-snug text-label-2 tnum sm:text-[13px]">
           {showVenue ? `${venueShort(store, r)} · ` : ""}
@@ -446,6 +556,8 @@ function UnderRowView({ r, showVenue, onPrice }: { r: UnderRow; showVenue: boole
           <span className="mt-0.5 block truncate text-[13px] leading-snug text-label-2 tnum">Biggest cost: {driver}</span>
         ) : null}
       </Link>
+      <IgnoreButton entry={belowTargetEntry(r, rowName(r))} quiet className="-mr-3 -mt-1.5 shrink-0" />
+      </div>
       <div className="mt-2.5 flex gap-2">
         <button
           type="button"

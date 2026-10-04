@@ -24,6 +24,7 @@ import { PriceHistory } from "./price-history";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
 import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
+import { GelatoDietary } from "./gelato-dietary";
 import { DietOptionsGroup } from "./diet-options";
 import { isDrinkItem } from "@/lib/allergen-badges";
 import { isBarCategory } from "@/lib/bar";
@@ -762,7 +763,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             refreshKey={`${dirty}|${saved.updated_at ?? ""}`}
           />
 
-          <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
+          {isFlavour ? <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} /> : <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />}
           {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}

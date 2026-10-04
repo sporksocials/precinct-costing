@@ -97,6 +97,11 @@ export interface Prep {
   kitchen_method?: string[] | null;
   kitchen_storage?: string | null;
   kitchen_ready?: boolean;
+  /**
+   * Gelato flavours only: the dietary labels set by hand (ids from lib/gelato-labels.ts). null or absent = Automatic,
+   * worked out from the ingredients and never stored. Absent also means the migration is not applied yet.
+   */
+  dietary_labels?: string[] | null;
   /** who last changed it (the signed-in email) and when; filled by the database, absent until the edit stamps migration is applied */
   updated_at?: string | null;
   updated_by?: string | null;

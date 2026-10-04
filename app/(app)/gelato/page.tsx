@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { BackLink } from "@/components/back-link";
-import { ChevronLeft, Plus, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ClipboardList, Plus, SlidersHorizontal } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { ItemCost } from "@/lib/costing";
 import { flavourName, resolveGelatoTarget, virtualItemId } from "@/lib/gelato";
@@ -71,6 +71,9 @@ export default function GelatoPage() {
         subtitle={`${g.flavours.filter((f) => f.active).length} flavours · ${g.serves.length} serves · target ${gp(target, 0)} · ${gp(store.settings.gelato_wastage, 0)} wastage`}
         trailing={
           <>
+            <Link href="/gelato/dietary" className="btn-plain hidden sm:inline-flex">
+              <ClipboardList className="h-4 w-4" strokeWidth={2.25} /> Dietary Sheet
+            </Link>
             <Link href="/gelato/serves" className="btn-plain hidden lg:inline-flex">
               <SlidersHorizontal className="h-4 w-4" strokeWidth={2.25} /> Serves
             </Link>
@@ -81,6 +84,9 @@ export default function GelatoPage() {
       <p className="max-w-2xl px-1 text-[15px] text-label-2">
         Add a flavour’s mix and every serve is priced for you.
       </p>
+      <Link href="/gelato/dietary" className="btn-plain mt-3 w-full sm:hidden">
+        <ClipboardList className="h-4 w-4" strokeWidth={2.25} /> Dietary Sheet
+      </Link>
 
       <div className="mt-4 flex items-center gap-3">
         <Segmented

@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NO_LOOKUPS, buildChangeLog, fmtMoney, fmtPercent, humanise, isMissingTable, type AuditRow, type ChangeEvent, type ChangeKind, type Lookups, type PriceLogRow, type SellPriceRow } from "./change-log";
 import { fieldLabel } from "./draft-changes";
+import { cleanGelatoLabels, gelatoLabelText } from "./gelato-labels";
 import { formatQty } from "./parse-qty";
 import type { LineUnit } from "./types";
 
@@ -165,6 +166,7 @@ export function fmtField(field: string, v: unknown, lk: HistoryLookups = NO_HIST
   if (field === "ml" && numOf(v) != null) return `${numOf(v)} ml`;
   if (field === "grams" && numOf(v) != null) return `${numOf(v)} g`;
   if (field === "days_of_week" && Array.isArray(v)) return v.length ? v.map((d) => DAYS[Number(d)] ?? String(d)).join(", ") : "Every day";
+  if (field === "dietary_labels" && Array.isArray(v)) return v.length ? clip(cleanGelatoLabels(v).map(gelatoLabelText).join(", ")) : "None";
   if (Array.isArray(v)) return v.length ? clip(v.map((x) => (isObj(x) ? JSON.stringify(x) : String(x))).join(", ")) : "None";
   if (isObj(v)) {
     const keys = Object.keys(v);

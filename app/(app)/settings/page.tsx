@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { gp, parseDecimal } from "@/lib/format";
 import { parsePercentInput } from "@/lib/solver";
@@ -10,6 +10,8 @@ import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx }
 import { targetGrid } from "@/lib/targets";
 import { formatVerifiedTime } from "@/lib/health";
 import { useDataHealthSummary } from "@/lib/use-data-health";
+import { cleanName, isOwnerEmail, NAME_MAX } from "@/lib/people";
+import type { AllowedUser } from "@/lib/types";
 
 export default function SettingsPage() {
   const store = useStore();
@@ -17,6 +19,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
+  const owner = isOwnerEmail(store.userEmail);
 
   const grid = useMemo(
     () => targetGrid(store.venues.map((v) => v.id), MENU_CATEGORIES, store.targets, store.items, store.itemCosts),
@@ -101,18 +104,9 @@ export default function SettingsPage() {
         />
       </Group>
 
-      <Group title="Who Can Sign In" footer="Only these emails can sign in and see prices.">
+      <Group title="Who Can Sign In" footer={owner ? "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts instead of the email. Only you can set them." : "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts."}>
         {store.allowedUsers.map((u) => (
-          <Row
-            key={u.email}
-            title={u.email}
-            sub={store.userEmail && u.email.toLowerCase() === store.userEmail.toLowerCase() ? "You" : undefined}
-            trailing={
-              <button type="button" className="text-[15px] text-danger" onClick={() => setRemoving(u.email)}>
-                Remove
-              </button>
-            }
-          />
+          <PersonRow key={u.email} user={u} you={!!store.userEmail && u.email.toLowerCase() === store.userEmail.toLowerCase()} canName={owner} onName={(n) => run(store.setAllowedUserName(u.email, n))} onRemove={() => setRemoving(u.email)} />
         ))}
         <form
           className="flex items-center gap-2 px-4 py-1.5"
@@ -161,6 +155,49 @@ export default function SettingsPage() {
           </div>
         </div>
       </Sheet>
+    </div>
+  );
+}
+
+
+/** One person on the sign-in list: their first name (only the owner can edit it) over their email, and Remove. */
+function PersonRow({ user, you, canName, onName, onRemove }: { user: AllowedUser; you: boolean; canName: boolean; onName: (name: string | null) => void; onRemove: () => void }) {
+  const saved = cleanName(user.display_name) ?? "";
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  const commit = () => {
+    const next = cleanName(text) ?? "";
+    setText(next);
+    if (next !== saved) onName(next || null);
+  };
+  return (
+    <div className="flex items-center gap-3 px-4 py-2">
+      <div className="min-w-0 flex-1">
+        {canName ? (
+          <input
+            className="block h-9 w-full min-w-0 bg-transparent text-[17px] outline-none placeholder:text-label-3 sm:text-[15px]"
+            placeholder="First name"
+            aria-label={`First name for ${user.email}`}
+            value={text}
+            maxLength={NAME_MAX}
+            enterKeyHint="done"
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+          />
+        ) : (
+          <p className="text-[17px] sm:text-[15px]">{saved || user.email}</p>
+        )}
+        <p className="break-all text-[13px] text-label-2">
+          {canName || saved ? user.email : ""}
+          {you ? `${canName || saved ? " · " : ""}You` : ""}
+        </p>
+      </div>
+      <button type="button" className="shrink-0 text-[15px] text-danger" onClick={onRemove}>
+        Remove
+      </button>
     </div>
   );
 }

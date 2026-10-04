@@ -5,7 +5,8 @@ import { fetchSellPriceLog, type SellPriceLogFilter } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { gp, money } from "@/lib/format";
 import { gpForPrice } from "@/lib/solver";
-import { brisbaneDay, changePctLabel, priceChangeRows, whoLabel } from "@/lib/price-history";
+import { brisbaneDay, changePctLabel, priceChangeRows } from "@/lib/price-history";
+import { usePersonName } from "../use-person-name";
 import type { SellPriceLog } from "@/lib/types";
 import { Group } from "../ui";
 
@@ -16,6 +17,7 @@ import { Group } from "../ui";
  */
 export function PriceHistory({ filter, refreshKey, cost, gst, className, serveNames }: { filter: SellPriceLogFilter; refreshKey?: unknown; cost?: number | null; gst?: number; className?: string; serveNames?: Record<string, string> }) {
   const [logs, setLogs] = useState<SellPriceLog[] | null>(null);
+  const nameOf = usePersonName();
   const { kind, itemId, beerId, serveId, limit } = filter;
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export function PriceHistory({ filter, refreshKey, cost, gst, className, serveNa
                   {r.label === "Happy Hour" ? <span className="ml-1.5 text-[13px] text-label-2">Happy Hour</span> : null}
                 </span>
                 <span className="block truncate text-[13px] text-label-2">
-                  {brisbaneDay(r.at)} · {whoLabel(r.by)}
+                  {brisbaneDay(r.at)} · {nameOf(r.by) ?? "Unknown"}
                 </span>
               </span>
               <span className="text-right tnum">

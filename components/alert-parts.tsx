@@ -4,9 +4,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo } from "react";
 import { EyeOff, Undo2 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { alertKindLabel, ignoredByName, ignoredWhen, sortIgnored, type AlertEntry, type AlertKind } from "@/lib/ignored-alerts";
+import { alertKindLabel, ignoredWhen, sortIgnored, type AlertEntry, type AlertKind } from "@/lib/ignored-alerts";
 import type { IgnoredAlert } from "@/lib/types";
 import { cx, Group, Row, Segmented, useToast } from "./ui";
+import { usePersonName } from "./use-person-name";
 
 /* Ignore and Restore on the Today feed. The ignored list is shared by everyone (cost_ignored_alerts). */
 
@@ -158,6 +159,7 @@ export function useRefreshIgnored() {
 /** Everything that has been ignored, newest first: what it was, which kind, who and when, with Restore on each. */
 export function IgnoredView() {
   const { ignoredAlerts } = useStore();
+  const nameOf = usePersonName();
   const restore = useRestoreAlert();
   const rows = useMemo(() => sortIgnored(ignoredAlerts), [ignoredAlerts]);
   if (!rows.length) {
@@ -191,7 +193,7 @@ export function IgnoredView() {
           }
           title={a.title ?? alertKindLabel(a.kind)}
           wrapSub
-          sub={[alertKindLabel(a.kind), `Ignored by ${ignoredByName(a.ignored_by)}`, ignoredWhen(a.ignored_at)].filter(Boolean).join(" · ")}
+          sub={[alertKindLabel(a.kind), `Ignored by ${nameOf(a.ignored_by) ?? "Someone"}`, ignoredWhen(a.ignored_at)].filter(Boolean).join(" · ")}
           chevron={!!a.ref}
           action={
             <button

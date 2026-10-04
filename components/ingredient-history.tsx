@@ -6,10 +6,10 @@ import { dateShort, movePct } from "@/lib/format";
 import { buildTimeline, type AuditRow, type TimelineEntry } from "@/lib/ingredient-history";
 import type { PriceLog } from "@/lib/types";
 import { cx, Group, Row } from "./ui";
+import { usePersonName } from "./use-person-name";
 
 const SHOWN = 12;
 
-const who = (email: string | null) => (email ? email.split("@")[0] : null);
 
 /** Percent move between two "$x.xx" strings, only for price rows. */
 function pct(e: TimelineEntry): number | null {
@@ -44,6 +44,7 @@ export function IngredientHistory({
 }) {
   const [audits, setAudits] = useState<AuditRow[] | null>(null);
   const [all, setAll] = useState(false);
+  const nameOf = usePersonName();
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +90,7 @@ export function IngredientHistory({
               <Row
                 key={e.key}
                 title={<span className="tnum">{values}</span>}
-                sub={[e.title, dateShort(e.at), e.note, who(e.by)].filter(Boolean).join(" · ")}
+                sub={[e.title, dateShort(e.at), e.note, nameOf(e.by)].filter(Boolean).join(" · ")}
                 trailing={m != null ? <span className={cx(m > 0 ? "text-danger" : "text-label-2")}>{movePct(m)}</span> : null}
               />
             );

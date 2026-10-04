@@ -25,6 +25,7 @@ import {
 import { DataTable, type Column } from "@/components/table";
 import { VenueFilter, VENUE_SHORT, useVenue } from "@/components/venue";
 import { Chips, Empty, ListSkeleton, PageHeader, SearchField, cx } from "@/components/ui";
+import { usePersonName } from "@/components/use-person-name";
 
 const LIMIT = 500;
 
@@ -91,6 +92,7 @@ function Change({ e, className }: { e: ChangeEvent; className?: string }) {
 
 export default function ChangeLogPage() {
   const { venues, storedItems, beers, beerServes, gelatoServes, ingredients } = useStore();
+  const nameOf = usePersonName();
   const { venue, slug } = useVenue();
   const [raw, setRaw] = useState<Raw | null>(null);
   const [filter, setFilter] = useState<ChangeFilter>("all");
@@ -120,7 +122,7 @@ export default function ChangeLogPage() {
     };
   }, [venues, storedItems, beers, beerServes, gelatoServes, ingredients]);
 
-  const all = useMemo(() => (raw ? buildChangeLog(raw, lookups) : []), [raw, lookups]);
+  const all = useMemo(() => (raw ? buildChangeLog(raw, lookups).map((e) => ({ ...e, who: nameOf(e.who) })) : []), [raw, lookups, nameOf]);
   const shown = useMemo(
     () => all.filter((e) => matchesFilter(e, filter) && matchesSearch(e, q) && (!venue || e.venueId == null || e.venueId === venue.id)),
     [all, filter, q, venue],

@@ -245,6 +245,8 @@ export interface BeerPrice {
 
 export interface AllowedUser {
   email: string;
+  /** first name, set only by the owner; shown in history instead of the email */
+  display_name?: string | null;
 }
 
 export interface CostingSettings {

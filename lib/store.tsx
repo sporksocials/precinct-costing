@@ -1,6 +1,7 @@
 "use client";
 
 import { rebaselineParent } from "@/lib/integrity";
+import { cleanName } from "@/lib/people";
 import { latestPortalRows } from "@/lib/insights";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -281,6 +282,8 @@ export interface StoreValue extends StoreData {
   upsertTarget: (venueId: number, category: string, targetGp: number) => Promise<void>;
   addAllowedUser: (email: string) => Promise<void>;
   removeAllowedUser: (email: string) => Promise<void>;
+  /** set or clear a person's first name (owner only: the database refuses anyone else) */
+  setAllowedUserName: (email: string, name: string | null) => Promise<void>;
   insertServe: (s: Omit<GelatoServe, "id">) => Promise<string>;
   updateServe: (id: string, patch: Partial<GelatoServe>) => Promise<void>;
   deleteServe: (id: string) => Promise<void>;
@@ -1337,6 +1340,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  const setAllowedUserName = useCallback(
+    async (email: string, name: string | null) => {
+      const display_name = cleanName(name);
+      const { data: rows, error } = await sb.from("cost_allowed_users").update({ display_name }).eq("email", email).select("*");
+      if (error) throw new Error(/owner/i.test(error.message) ? "Only the owner can change names." : error.message);
+      assertSaved(rows);
+      setData((d) => ({ ...d, allowedUsers: d.allowedUsers.map((u) => (u.email === email ? { ...u, display_name } : u)) }));
+    },
+    [sb, setData],
+  );
+
   const removeAllowedUser = useCallback(
     async (email: string) => {
       await deleteOne(sb, "cost_allowed_users", "email", email);
@@ -1723,6 +1737,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     upsertTarget,
     addAllowedUser,
     removeAllowedUser,
+    setAllowedUserName,
     insertServe,
     updateServe,
     deleteServe,

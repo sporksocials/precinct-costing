@@ -91,12 +91,12 @@ function Slider({ value, target, level, label, big, delay = 0 }: { value: number
 }
 
 const CARD_DEPTH = "shadow-[0_14px_34px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.06)]";
-/** "5 points under the 72% target", "On target", "2 points over the 72% target". Words, no colour. */
+/** "5% under the 72% target", "On target", "2% over the 72% target". Words, no colour. */
 function gapLine(avg: number, target: number): string {
   const pts = Math.round((avg - target) * 100);
   if (pts === 0) return `On the ${gp(target, 0)} target`;
   const n = Math.abs(pts);
-  return `${n} ${n === 1 ? "point" : "points"} ${pts < 0 ? "under" : "over"} the ${gp(target, 0)} target`;
+  return `${n}% ${pts < 0 ? "under" : "over"} the ${gp(target, 0)} target`;
 }
 
 /**
@@ -194,7 +194,7 @@ export function Dashboard() {
                 <p className="mt-4 rounded-xl bg-good-soft px-3 py-2 text-[15px] font-semibold text-good sm:text-[13px]">Every venue is on target. Nice work.</p>
               ) : closest ? (
                 <p className="mt-4 text-[15px] text-label-2 sm:text-[13px]">
-                  Closest to target: <span className="font-semibold text-label">{VENUE_SHORT[closest.venue.slug] ?? closest.venue.name}</span>, {Math.max(1, Math.round((closest.target - (closest.avg ?? 0)) * 100))} {Math.round((closest.target - (closest.avg ?? 0)) * 100) <= 1 ? "point" : "points"} to go.
+                  Closest to target: <span className="font-semibold text-label">{VENUE_SHORT[closest.venue.slug] ?? closest.venue.name}</span>, {Math.max(1, Math.round((closest.target - (closest.avg ?? 0)) * 100))}% to go.
                 </p>
               ) : null}
             </>

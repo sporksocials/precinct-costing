@@ -122,7 +122,7 @@ describe("rankAttention", () => {
     expect(ranked.find((r) => r.title === "noprice")?.trailing?.text).toBe("Add Price");
   });
   it("says how far under target a row is, in points", () => {
-    expect(ranked[0].trailing?.text).toBe("-22 pts");
+    expect(ranked[0].trailing?.text).toBe("-22%");
     expect(ranked[0].sub).toContain("vs 72% target");
   });
   it("names the venue only when All is chosen", () => {
@@ -214,18 +214,18 @@ describe("sliderPos", () => {
 
 describe("gpStatus and formatPts", () => {
   it("On Target at or over, Nearly There within 3 points, Below Target beyond", () => {
-    expect(gpStatus(0.74, 0.72)).toMatchObject({ level: "good", word: "On Target", gapText: "+2 pts" });
+    expect(gpStatus(0.74, 0.72)).toMatchObject({ level: "good", word: "On Target", gapText: "+2%" });
     expect(gpStatus(0.72, 0.72)).toMatchObject({ level: "good", word: "On Target", gapText: null });
-    expect(gpStatus(0.69, 0.72)).toMatchObject({ level: "warn", word: "Nearly There", gapText: "-3 pts" });
-    expect(gpStatus(0.68, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-4 pts" });
-    expect(gpStatus(0.6, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-12 pts" });
+    expect(gpStatus(0.69, 0.72)).toMatchObject({ level: "warn", word: "Nearly There", gapText: "-3%" });
+    expect(gpStatus(0.68, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-4%" });
+    expect(gpStatus(0.6, 0.72)).toMatchObject({ level: "bad", word: "Below Target", gapText: "-12%" });
   });
   it("has a word even with no GP", () => expect(gpStatus(null, null)).toMatchObject({ level: "none", word: "No GP Yet", gapText: null }));
   it("formats points", () => {
-    expect(formatPts(-0.02)).toBe("-2 pts");
-    expect(formatPts(0.031)).toBe("+3 pts");
-    expect(formatPts(-0.004)).toBe("-0.4 pts");
-    expect(formatPts(0)).toBe("0 pts");
+    expect(formatPts(-0.02)).toBe("-2%");
+    expect(formatPts(0.031)).toBe("+3%");
+    expect(formatPts(-0.004)).toBe("-0.4%");
+    expect(formatPts(0)).toBe("0%");
   });
 });
 

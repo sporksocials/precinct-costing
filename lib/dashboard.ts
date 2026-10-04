@@ -89,17 +89,17 @@ export interface GpStatus {
   word: string;
   /** average minus target, in whole-GP fractions (-0.02 = 2 points under); null with no GP */
   gap: number | null;
-  /** "+3 pts", "-2 pts" or null */
+  /** "+3%", "-2%" or null */
   gapText: string | null;
 }
 
-/** "-2 pts", "+3 pts", "-0.4 pts". Whole points from 1 up, one decimal below. */
+/** "-2%", "+3%", "-0.4%": the gap in GP percent (Troy prefers % to "pts"). Whole numbers from 1 up, one decimal below. */
 export function formatPts(gap: number): string {
   const pts = gap * 100;
   const abs = Math.abs(pts);
-  if (abs < 0.05) return "0 pts";
+  if (abs < 0.05) return "0%";
   const n = abs >= 1 ? String(Math.round(abs)) : abs.toFixed(1);
-  return `${pts < 0 ? "-" : "+"}${n} pts`;
+  return `${pts < 0 ? "-" : "+"}${n}%`;
 }
 
 /** How close under the target still counts as "Nearly There" (3 points: 69% to 71.9% on a 72% target). Troy's call, 5 Oct 2026. */
@@ -256,7 +256,7 @@ const byOrder = (a: number[], b: number[]) => {
   return 0;
 };
 
-/** "-10 pts" for the gap between a GP and its target. */
+/** "-10%" for the gap between a GP and its target. */
 const gapText = (g: number | null, target: number) => formatPts((g ?? 0) - target);
 
 /** Every open alert as one list, most important first (see TIER). Ties keep the feed's own order. */

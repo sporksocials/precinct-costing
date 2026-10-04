@@ -4,6 +4,7 @@ import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChevronLeft, X } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
 import { costOffer, dayName, OFFER_KINDS, OFFER_STATUSES, offerLineCostId } from "@/lib/offers";
 import { gp, money } from "@/lib/format";
@@ -170,10 +171,10 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   return (
     <div className="max-w-5xl lg:pt-6">
       <VenueAccent slug={venue?.slug} />
-      <Link href="/specials" className="btn-text -ml-1 !gap-0 !text-accent">
+      <BackLink path="/specials" fallback="/specials" className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
         Specials
-      </Link>
+      </BackLink>
       <div className="mt-2 flex items-center gap-2">
         <h1 className="min-w-0 truncate text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{d.name.trim() || "New Offer"}</h1>
         <StatusPill status={d.status} />

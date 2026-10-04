@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
+import { useBackHref } from "@/components/use-back-href";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
 import { gp, money, parseDecimal, unitShort } from "@/lib/format";
@@ -534,7 +535,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
   const saveState: SaveState = status === "saving" ? "saving" : status === "error" && dirty ? "error" : dirty ? "dirty" : "saved";
   const openLineObj = openLine ? lines.find((l) => l.id === openLine) ?? null : null;
-  const backHref = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
+  // the arrow returns to the list as it was left (venue, chip, search, sort), else the plain list for this record's venue
+  const listPath = isFlavour || kind === "item" ? "/menu" : "/ingredients";
+  const listFallback = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
+  const backHref = useBackHref(listPath, listFallback, { venue: venue?.slug, require: kind === "prep" && !isFlavour ? { key: "type", value: "preps" } : undefined });
 
   const phoneSaveBar = <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="px-4 pb-1 pt-2" />;
 

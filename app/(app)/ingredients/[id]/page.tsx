@@ -8,6 +8,7 @@ import { ReviewSheet } from "@/components/price-review";
 import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
 import { DEFAULT_INGREDIENT_CATEGORY } from "@/components/ingredient-sheet";
 import { ChevronLeft } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
@@ -154,10 +155,10 @@ function Detail({ ing }: { ing: Ingredient }) {
   return (
     <div className="lg:pt-6">
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
-        <Link href="/ingredients" className="btn-text -ml-1 !gap-0">
+        <BackLink path="/ingredients" fallback="/ingredients" rules={{ forbid: { key: "type", value: "preps" } }} className="btn-text -ml-1 !gap-0">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
           Ingredients
-        </Link>
+        </BackLink>
       </div>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{ing.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">

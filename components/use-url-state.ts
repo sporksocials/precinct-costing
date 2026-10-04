@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { rememberList } from "@/lib/list-memory";
 
 /**
  * A filter that lives in the address bar (?cat=Cocktail), so the browser's Back button brings the list back exactly as it
@@ -13,6 +14,10 @@ import { useSearchParams } from "next/navigation";
 export function useUrlState(key: string, def = ""): [string, (next: string) => void] {
   const params = useSearchParams();
   const value = params.get(key) ?? def;
+  // note how this list was left, for the back arrow on a record page (lib/list-memory.ts)
+  useEffect(() => {
+    rememberList(window.location.pathname, window.location.search);
+  }, [params]);
   const set = useCallback(
     (next: string) => {
       const sp = new URLSearchParams(window.location.search);

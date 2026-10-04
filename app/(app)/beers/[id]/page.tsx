@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
 import { beerItemId } from "@/lib/beer";
 import { costPerBaseFromIndex, resolveTargetGp } from "@/lib/costing";
@@ -53,10 +54,10 @@ export default function BeerPage() {
   return (
     <div className="max-w-2xl lg:pt-6">
       <VenueAccent slug={venue?.slug} />
-      <Link href={`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`} className="btn-text -ml-1 !gap-0 !text-accent">
+      <BackLink path="/menu" fallback={`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`} rules={{ venue: venue?.slug }} className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
         Menu
-      </Link>
+      </BackLink>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{beer.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">
         {venue?.name} · Tap Beer

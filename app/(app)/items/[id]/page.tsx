@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { parseBeerItemId } from "@/lib/beer";
 import { ChevronLeft } from "lucide-react";
+import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
 import { flavourName, parseVirtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
@@ -44,10 +45,10 @@ function GelatoServeView({ id }: { id: string }) {
   return (
     <div className="max-w-2xl lg:pt-6">
       <VenueAccent slug="gelato" />
-      <Link href="/menu?venue=gelato" className="btn-text -ml-1 !gap-0 !text-accent">
+      <BackLink path="/menu" fallback="/menu?venue=gelato" rules={{ venue: "gelato" }} className="btn-text -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
         Menu
-      </Link>
+      </BackLink>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">
         {flavourName(flavour)} <span className="text-label-2">· {serve.name}</span>
       </h1>

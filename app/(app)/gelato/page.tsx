@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { BackLink } from "@/components/back-link";
 import { ChevronLeft, Plus, SlidersHorizontal } from "lucide-react";
 import { useStore } from "@/lib/store";
 import type { ItemCost } from "@/lib/costing";
@@ -59,10 +60,10 @@ export default function GelatoPage() {
   return (
     <div>
       <div className="pt-2 lg:pt-6">
-        <Link href="/menu?venue=gelato" className="btn-text -ml-1 !gap-0 !text-accent">
+        <BackLink path="/menu" fallback="/menu?venue=gelato" rules={{ venue: "gelato" }} className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
           Menu
-        </Link>
+        </BackLink>
       </div>
       <PageHeader
         className="!pt-1 lg:!pt-1"

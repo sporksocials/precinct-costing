@@ -3,6 +3,7 @@
 import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { BackLink } from "@/components/back-link";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
 import { costLines } from "@/lib/costing";
@@ -43,10 +44,10 @@ export default function GelatoServesPage() {
   return (
     <div className="max-w-2xl">
       <div className="pt-2 lg:pt-6">
-        <Link href="/menu?venue=gelato" className="btn-text -ml-1 !gap-0 !text-accent">
+        <BackLink path="/menu" fallback="/menu?venue=gelato" rules={{ venue: "gelato" }} className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
           Menu
-        </Link>
+        </BackLink>
       </div>
       <PageHeader title="Serves" subtitle="Grams, price and packaging for every way a flavour is sold" className="!pt-1" />
       {error ? <Banner>{error}</Banner> : null}

@@ -4,7 +4,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Camera, Plus, X } from "lucide-react";
 import { composeGlass, cleanOptionName, findOption, optionsOf, parseGlass } from "@/lib/glass-rim";
 import { useStore } from "@/lib/store";
-import { barPhotoSrc, isBarVenue, isUploadedPhoto, textList } from "@/lib/bar";
+import { barMissing, barMissingText, barPhotoSrc, isBarVenue, isUploadedPhoto, textList } from "@/lib/bar";
 import { uploadBarPhoto } from "@/lib/bar-photo";
 import { DEMO, getSupabaseBrowser } from "@/lib/supabase/client";
 import type { BarOptionKind, MenuItem } from "@/lib/types";
@@ -17,6 +17,7 @@ import { Banner, Group, Row, Sheet, Toggle, useToast } from "../ui";
  */
 export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem; venueSlug: string | undefined; onPatch: (p: Partial<MenuItem>) => void }) {
   const station = venueSlug && isBarVenue(venueSlug) ? `/bar/${venueSlug}` : null;
+  const missing = barMissing(item);
   return (
     <>
       <Group
@@ -30,12 +31,23 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           ) : null
         }
       >
-        <Toggle
-          label="Show On Cocktail Station"
-          sub={item.active ? "Bartenders can see this drink on the station." : "Not active: hidden from the station and from averages. Turn it on when the drink is ready or on the menu."}
-          checked={item.active}
-          onChange={(v) => onPatch({ active: v })}
-        />
+        {missing.length ? (
+          <div className="flex min-h-[44px] items-center gap-3 px-4 py-2" role="status">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[17px] sm:text-[15px]">Show On Cocktail Station</span>
+              <span className="block text-[13px] font-medium text-warn">{barMissingText(missing)}</span>
+              <span className="block text-[13px] text-label-2">Add {missing.join(" and ")} below. The station shows this drink once it has both a glass and a method.</span>
+            </span>
+            <span className="shrink-0 rounded-full bg-fill px-3 py-1 text-[13px] font-medium text-label-2">Not Showing</span>
+          </div>
+        ) : (
+          <Toggle
+            label="Show On Cocktail Station"
+            sub={item.active ? "Bartenders can see this drink on the station." : "Not active: hidden from the station and from averages. Turn it on when the drink is ready or on the menu."}
+            checked={item.active}
+            onChange={(v) => onPatch({ active: v })}
+          />
+        )}
         <PhotoField item={item} onPatch={onPatch} />
         <GlassRimRows item={item} onPatch={onPatch} />
       </Group>
@@ -47,7 +59,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         value={item.garnish}
         onChange={(v) => onPatch({ garnish: v })}
         className="mt-4"
-        footer="The cocktail station shows this drink once it has a glass, method or garnish and Show On Cocktail Station is on."
+        footer="The cocktail station shows this drink once it has a glass and a method and Show On Cocktail Station is on. Garnish and photo are optional."
       />
     </>
   );

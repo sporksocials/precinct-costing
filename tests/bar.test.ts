@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { barIngredientName, barPhotoSrc, barUploadPath, fitWithin, isUploadedPhoto, isStale, staleAge, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
+import { readFileSync } from "node:fs";
+import { barMissing, barMissingText, barIngredientName, barPhotoSrc, barUploadPath, fitWithin, isUploadedPhoto, isStale, staleAge, slugForPhoto, glassType, isBarPath, ingredientDisplay, parseBarMenu, qtyText, shotsFor, syncedLabel, textList } from "@/lib/bar";
 
 describe("shotsFor", () => {
   it("turns clean jigger measures into shots", () => {
@@ -196,5 +197,30 @@ describe("uploaded bar photos", () => {
     expect(fitWithin(3024, 4032, 1200)).toEqual({ width: 900, height: 1200 });
     expect(fitWithin(800, 600, 1200)).toEqual({ width: 800, height: 600 });
     expect(fitWithin(10000, 1, 1200)).toEqual({ width: 1200, height: 1 });
+  });
+});
+
+describe("what a drink needs before the station shows it", () => {
+  it("needs both a glass and a method; garnish and photo are optional", () => {
+    expect(barMissing({ glass: "Coupe Glass", method: ["Shake hard for 12 seconds"] })).toEqual([]);
+    expect(barMissing({ glass: null, method: [] })).toEqual(["glass", "method"]);
+    expect(barMissing({ glass: "  ", method: ["Chill the glass"] })).toEqual(["glass"]);
+    expect(barMissing({ glass: "Martini Glass", method: [] })).toEqual(["method"]);
+    expect(barMissing({ glass: "Martini Glass", method: ["", "  "] })).toEqual(["method"]);
+    expect(barMissing({ glass: "Martini Glass" })).toEqual(["method"]);
+  });
+  it("words it for whoever built the drink", () => {
+    expect(barMissingText(["glass", "method"])).toBe("Missing glass, missing method");
+    expect(barMissingText(["method"])).toBe("Missing method");
+    expect(barMissingText([])).toBe("");
+  });
+  it("the station function and schema.sql apply the same rule", () => {
+    const mig = readFileSync("supabase/migrations/20261004210000_bar_menu_needs_glass_and_method.sql", "utf8");
+    const schema = readFileSync("supabase/schema.sql", "utf8");
+    for (const sql of [mig, schema]) {
+      expect(sql).toContain("btrim(coalesce(mi.glass, '')) <> ''");
+      expect(sql).toContain("coalesce(mi.method, '[]'::jsonb) <> '[]'::jsonb");
+      expect(sql).not.toContain("or coalesce(mi.garnish, '[]'::jsonb) <> '[]'::jsonb)");
+    }
   });
 });

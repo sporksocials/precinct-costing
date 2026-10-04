@@ -56,6 +56,22 @@ export function textList(v: unknown): string[] {
   return v.filter((s): s is string => typeof s === "string").map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * What a cocktail or mocktail still needs before the station shows it: both a glass and at least one method step
+ * (the `cost_bar_menu` function applies the same rule). Photo and garnish are optional.
+ */
+export function barMissing(item: { glass?: string | null; method?: unknown }): ("glass" | "method")[] {
+  const out: ("glass" | "method")[] = [];
+  if (!(typeof item.glass === "string" && item.glass.trim())) out.push("glass");
+  if (textList(item.method).length === 0) out.push("method");
+  return out;
+}
+
+/** "Missing glass, missing method" for the editor; empty when nothing is missing. */
+export function barMissingText(missing: readonly string[]): string {
+  return missing.map((m, i) => `${i === 0 ? "Missing" : "missing"} ${m}`).join(", ");
+}
+
 /** Validates the `cost_bar_menu` payload. Null when the venue doesn't exist. */
 export function parseBarMenu(raw: unknown, syncedAt: string): BarMenu | null {
   if (!raw || typeof raw !== "object") return null;

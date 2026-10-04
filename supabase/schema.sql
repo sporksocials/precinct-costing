@@ -619,9 +619,8 @@ as $$
         ) order by mi.name)
       from cost_menu_items mi
       where mi.venue_id = v.id and mi.active and mi.category in ('Cocktail', 'Mocktail')
-        and (mi.glass is not null
-          or coalesce(mi.method, '[]'::jsonb) <> '[]'::jsonb
-          or coalesce(mi.garnish, '[]'::jsonb) <> '[]'::jsonb)
+        and btrim(coalesce(mi.glass, '')) <> ''
+        and coalesce(mi.method, '[]'::jsonb) <> '[]'::jsonb
     ), '[]'::json)
   )
   from cost_venues v
@@ -631,7 +630,7 @@ $$;
 revoke all on function public.cost_bar_menu(text) from public;
 grant execute on function public.cost_bar_menu(text) to anon, authenticated;
 
-comment on function public.cost_bar_menu(text) is 'Bar display (public iPad cocktail station): one venue''s active cocktails/mocktails that have a glass, method or garnish set, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';
+comment on function public.cost_bar_menu(text) is 'Bar display (public iPad cocktail station): one venue''s active cocktails/mocktails that have BOTH a glass and a method, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';
 
 -- ---- Bar display photos (uploaded from the recipe editor); see supabase/migrations/20261003100000_bar_photos_storage.sql ----
 -- Bar display photos uploaded from the recipe editor ("Upload Photo"). Public bucket: the cocktail station iPads have no

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { barChips, barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, usesShots, type BarCategory, type BarItem, type BarMenu } from "@/lib/bar";
-import { premixCountText, type BarPremix } from "@/lib/bar-premix";
+import type { BarPremix } from "@/lib/bar-premix";
 import { cx } from "../ui";
 import { BottleIcon, GlassIcon } from "./glass-icon";
 
@@ -190,22 +190,6 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
             </div>
             <p className="mt-[2px] text-[16px] text-[#9B9890]">Drinks Station</p>
 
-            {premixCount > 0 ? (
-              <Link
-                href={`/bar/${slug}/premix`}
-                className={cx(CARD, "mt-4 flex min-h-[76px] items-center gap-4 px-5 py-3 transition-transform duration-150 active:scale-[0.99] active:bg-[#232327]")}
-              >
-                <BottleIcon className="shrink-0 text-[color:var(--bar-text)]" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[24px] font-medium leading-tight">Pre-Mix Bottles</span>
-                  <span className="mt-[2px] block text-[15px] leading-snug text-[#9B9890]">{premixCountText(premixCount)}, made up before service</span>
-                </span>
-                <span aria-hidden className="text-[28px] font-bold leading-none text-[color:var(--bar-text)]">
-                  &#8594;
-                </span>
-              </Link>
-            ) : null}
-
             {items.length ? (
               <>
                 <div className="relative mt-4">
@@ -241,7 +225,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                   ) : null}
                 </div>
 
-                {!hasSearch && chips.length ? (
+                {!hasSearch && (chips.length || premixCount > 0) ? (
                   <div className="mt-[14px] grid grid-cols-2 gap-2 sm:grid-flow-col sm:auto-cols-fr" role="group" aria-label="Category">
                     {chips.map((cat) => {
                       const on = cat.key === activeCategory;
@@ -260,6 +244,15 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                         </button>
                       );
                     })}
+                    {premixCount > 0 ? (
+                      <Link
+                        href={`/bar/${slug}/premix`}
+                        className="col-span-2 flex min-h-[58px] items-center justify-center gap-2 rounded-[14px] border-[0.5px] border-[color:var(--bar-accent)] px-3 py-3 text-[19px] font-semibold leading-[24px] text-[color:var(--bar-text)] transition-transform duration-150 active:scale-[0.98] sm:col-span-1"
+                      >
+                        <BottleIcon size={22} className="shrink-0" />
+                        Pre-Mix Bottles
+                      </Link>
+                    ) : null}
                   </div>
                 ) : null}
               </>

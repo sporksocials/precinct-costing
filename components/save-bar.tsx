@@ -15,6 +15,7 @@ export function SaveBar({
   onSave,
   onDiscard,
   saveLabel = "Save",
+  note,
   className,
 }: {
   state: SaveState;
@@ -22,11 +23,19 @@ export function SaveBar({
   /** asks to discard (the caller shows `DiscardSheet`) */
   onDiscard: () => void;
   saveLabel?: string;
+  /** a quiet line above the buttons (someone else saved while you were editing); never replaces the state or hides Save */
+  note?: string | null;
   className?: string;
 }) {
   const busy = state === "saving";
   return (
-    <div className={cx("flex items-center gap-3", className)} role="region" aria-label="Save Changes">
+    <div className={cx("flex flex-wrap items-center gap-x-3 gap-y-1.5", className)} role="region" aria-label="Save Changes">
+      {note ? (
+        <p role="status" className="flex basis-full items-start gap-2 text-[13px] leading-snug text-label-2">
+          <span className="mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
+          <span>{note}</span>
+        </p>
+      ) : null}
       <div className="min-w-0 flex-1 text-[15px]" aria-live="polite">
         {state === "saved" ? (
           <span className="flex items-center gap-1.5 text-label-2">

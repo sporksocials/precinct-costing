@@ -1,6 +1,8 @@
 "use client";
 
 import { rebaselineParent } from "@/lib/integrity";
+import type { CommitArgs, Fresh } from "@/lib/edit-conflict";
+import { fetchFreshRecord, guardedUpdate, type RecordKind } from "@/lib/fresh-record";
 import { cleanName } from "@/lib/people";
 import { latestPortalRows } from "@/lib/insights";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -271,7 +273,18 @@ export interface StoreValue extends StoreData {
   updatePrep: (id: string, patch: Partial<Prep>) => Promise<void>;
   insertPrep: (prep: Omit<Prep, "id">) => Promise<string>;
   deletePrep: (id: string) => Promise<void>;
-  saveLines: (parentType: "item" | "prep", parentId: string, lines: RecipeLine[]) => Promise<void>;
+  saveLines: (parentType: "item" | "prep", parentId: string, lines: RecipeLine[], opts?: { existing?: RecipeLine[] }) => Promise<void>;
+  /**
+   * Editor Save, step one: the dish or prep and its ingredient lines read straight from the database (one request per table),
+   * for the three-way check (lib/edit-conflict.ts). Throws when the database cannot be reached: the caller must not write blind.
+   */
+  fetchFresh: (kind: RecordKind, id: string) => Promise<Fresh<MenuItem | Prep>>;
+  /**
+   * Editor Save, step two: writes what the check decided. The field update is guarded by the updated_at the fresh read saw
+   * (stale = nothing written, read again); then the full line list is written (delete the stored lines that are not in it,
+   * upsert the rest). Lines cannot be made atomic: this is a delete plus an upsert, so the guard narrows the race, it does not close it.
+   */
+  commitRecord: (kind: RecordKind, id: string, args: CommitArgs) => Promise<{ stale: boolean }>;
   getItemRecipe: (itemId: string) => { item: MenuItem | undefined; lines: RecipeLine[] };
   updateIngredient: (id: string, patch: Partial<Ingredient>) => Promise<void>;
   /** Mark the current pack price as checked today (Brisbane) without changing it. Returns what is needed to undo. */
@@ -997,6 +1010,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [applyToday]);
 
+  // local QA only: run the background check on demand from the console (never present outside demo mode)
+  useEffect(() => {
+    if (!DEMO) return;
+    const w = window as Window & { __demoRevalidate?: () => Promise<void> };
+    w.__demoRevalidate = () => revalidateRef.current();
+    return () => {
+      delete w.__demoRevalidate;
+    };
+  }, []);
+
   const signOut = useCallback(async () => {
     clearCache();
     await sb.auth.signOut();
@@ -1181,9 +1204,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const saveLines = useCallback(
-    async (parentType: "item" | "prep", parentId: string, next: RecipeLine[]) => {
-      // read the latest lines (not a render-time snapshot): a caller may be an Undo that outlived its component
-      const existing = dataRef.current.lines.filter((l) => l.parent_type === parentType && l.parent_id === parentId);
+    async (parentType: "item" | "prep", parentId: string, next: RecipeLine[], opts?: { existing?: RecipeLine[] }) => {
+      // read the latest lines (not a render-time snapshot): a caller may be an Undo that outlived its component.
+      // The editor's Save passes the lines it just read from the database, so a line someone else added is never treated as stored-but-unknown.
+      const existing = opts?.existing ?? dataRef.current.lines.filter((l) => l.parent_type === parentType && l.parent_id === parentId);
       const nextIds = new Set(next.map((l) => l.id));
       const removed = existing.filter((l) => !nextIds.has(l.id)).map((l) => l.id);
       const normalised = next.map((l, i) => ({ ...l, parent_type: parentType, parent_id: parentId, sort: i + 1, qty: Number(l.qty) || 0 }));
@@ -1204,6 +1228,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }));
     },
     [sb, setData, resync],
+  );
+
+  const fetchFresh = useCallback((kind: RecordKind, id: string) => fetchFreshRecord<MenuItem | Prep>(sb, kind, id), [sb]);
+
+  const commitRecord = useCallback(
+    async (kind: RecordKind, id: string, a: CommitArgs): Promise<{ stale: boolean }> => {
+      const hasPatch = Object.keys(a.patch).length > 0;
+      let stored: MenuItem | Prep | null = null;
+      // A lines-only save still claims the row with a guarded stamp, so the optimistic guard covers it too.
+      if (hasPatch || (a.lines && a.guard)) {
+        const send = hasPatch ? a.patch : { updated_at: new Date().toISOString() };
+        const r = await guardedUpdate<MenuItem | Prep>(sb, kind, id, send, a.guard);
+        if (r.stale) return { stale: true };
+        if (!r.row) throw new Error(NOT_SAVED);
+        stored = r.row;
+      }
+      if (a.lines) await saveLines(kind, id, a.lines, { existing: a.freshLines });
+      else {
+        // the stored lines already are the result: the local copy only catches up
+        const normalised = a.finalLines.map((l, i) => ({ ...l, parent_type: kind, parent_id: id, sort: i + 1, qty: Number(l.qty) || 0 }));
+        rebaselineParent(kind, id, normalised.length);
+        setData((d) => ({ ...d, lines: [...d.lines.filter((l) => !(l.parent_type === kind && l.parent_id === id)), ...normalised] }));
+      }
+      const row = (stored ?? a.record) as Partial<MenuItem & Prep>;
+      if (kind === "item") setData((d) => ({ ...d, items: d.items.map((i) => (i.id === id ? { ...i, ...(row as Partial<MenuItem>) } : i)) }));
+      else setData((d) => ({ ...d, preps: d.preps.map((p) => (p.id === id ? { ...p, ...(row as Partial<Prep>) } : p)) }));
+      return { stale: false };
+    },
+    [sb, setData, saveLines],
   );
 
   // the item and its recipe lines as they are right now (stable: safe for an Undo that outlives its component)
@@ -1728,6 +1781,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     insertPrep,
     deletePrep,
     saveLines,
+    fetchFresh,
+    commitRecord,
     getItemRecipe,
     updateIngredient,
     confirmIngredientPrice,

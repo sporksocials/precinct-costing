@@ -337,6 +337,7 @@ export function Sheet({
   children,
   size = "md",
   hideHeader,
+  labelledBy,
 }: {
   open: boolean;
   onClose: () => void;
@@ -346,6 +347,8 @@ export function Sheet({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg";
   hideHeader?: boolean;
+  /** id of the heading inside, so screen readers announce the dialog by name (when there is no header row) */
+  labelledBy?: string;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -364,7 +367,7 @@ export function Sheet({
   if (!open || !mounted) return null;
   const width = size === "sm" ? "sm:max-w-sm" : size === "lg" ? "sm:max-w-2xl" : "sm:max-w-md";
   return createPortal(
-    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby={labelledBy}>
       <div className="anim-fade absolute inset-0 bg-[color:var(--scrim)]" onClick={onClose} />
       <div
         className={cx(
@@ -491,7 +494,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {toast ? (
         <div className="pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom))] z-[80] flex justify-center px-4 lg:bottom-8">
           <div key={toast.id} role="status" className="anim-pop pointer-events-auto flex max-w-md items-center gap-4 rounded-2xl bg-[#2c2c31] py-2.5 pl-4 pr-2 text-[15px] text-label shadow-float">
-            <span className="min-w-0 truncate">{toast.message}</span>
+            <span className="line-clamp-2 min-w-0">{toast.message}</span>
             {toast.action ? (
               <button
                 type="button"

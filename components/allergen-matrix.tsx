@@ -14,7 +14,7 @@ import {
   type AllergenId,
   type MatrixRow,
 } from "@/lib/allergens";
-import { badgeModel, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
+import { badgeModel, hidesQuietTiers, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
 import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
 import { useAllergenIndex } from "./allergen-picker";
@@ -366,7 +366,7 @@ export function AllergenMatrix() {
                         ))}
                         {[...SENS, ...ATTR].map((a, i) => (
                           <td key={a.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
-                            <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />
+                            {hidesQuietTiers(r.item) ? null : <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />}
                           </td>
                         ))}
                         {DIETS.map((d, i) => (

@@ -56,6 +56,30 @@ describe("allergen groups", () => {
   });
 });
 
+describe("badgeModel: drinks never show sulphites or alcohol", () => {
+  const wine = () => [ing("w", "Chardonnay", ok({ allergens: ["sulphites", "alcohol", "milk"] }))];
+  it("hides both tiers on a cocktail but keeps real allergens", () => {
+    const m = model(wine(), { category: "Cocktail" });
+    expect(m.sensitivities).toEqual([]);
+    expect(m.sensitivitiesMay).toEqual([]);
+    expect(m.attributes).toEqual([]);
+    expect(m.attributesMay).toEqual([]);
+    expect(m.contains).toEqual(["milk"]);
+  });
+  it("hides the suggested (may) tiers too, for every drink category", () => {
+    for (const category of ["Cocktail", "Mocktail", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD"]) {
+      const m = model([ing("w", "Red Wine")], { category });
+      expect(m.sensitivitiesMay).toEqual([]);
+      expect(m.attributesMay).toEqual([]);
+    }
+  });
+  it("still shows them on food", () => {
+    const m = model(wine(), { category: "Food" });
+    expect(m.sensitivities).toEqual(["sulphites"]);
+    expect(m.attributes).toEqual(["alcohol"]);
+  });
+});
+
 describe("badgeModel: reviewed and unreviewed", () => {
   it("a fully reviewed dish with no allergens: nothing in the tiers, positive diet badges, no banner", () => {
     const m = model([ing("a", "Rice", ok()), ing("b", "Salt", ok())]);

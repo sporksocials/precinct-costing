@@ -6,6 +6,7 @@ import {
   type Rollup,
 } from "./allergens";
 import { BADGE_LABELS, DIET_OPTION_IDS, dietOptionDef, type DietOptionId, type SeafoodLetter } from "./diet-legend";
+import { DRINK_CATEGORIES } from "./insights";
 import type { MenuItem } from "./types";
 
 /**
@@ -75,7 +76,12 @@ export interface BadgeModel {
   notes: { id: AllergenId; label: string; note: string }[];
 }
 
-export type BadgeItem = Pick<MenuItem, "diet_options" | "seafood_label">;
+export type BadgeItem = Pick<MenuItem, "diet_options" | "seafood_label"> & { category?: string | null };
+
+/** Drinks never show Sulphites or Contains Alcohol (Troy, 4 Oct 2026). Both stay recorded on the ingredients. */
+export function hidesQuietTiers(item?: { category?: string | null } | null): boolean {
+  return !!item?.category && DRINK_CATEGORIES.has(item.category);
+}
 
 /** Dish seafood letter from the ingredient origins: all A is A, all I is I, both is M. Null when there is no seafood. */
 export function seafoodBadge(r: Rollup, required: boolean): SeafoodBadge | null {
@@ -97,7 +103,7 @@ function absentState(r: Rollup, id: AllergenId): "is" | "not_confirmed" | null {
 }
 
 export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
-  const s = summarise(r);
+  const s = { ...summarise(r) };
   const diet: DietBadge[] = [];
   const gluten = absentState(r, "gluten");
   if (gluten) diet.push({ id: "no_gluten_ingredients", label: BADGE_LABELS.noGlutenIngredients, state: gluten });
@@ -122,6 +128,12 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
     options.push({ id, letter: def.letter, label: def.label, note });
   }
 
+  if (hidesQuietTiers(item)) {
+    s.sensitivities = [];
+    s.sensitivitiesMay = [];
+    s.attributes = [];
+    s.attributesMay = [];
+  }
   const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.sensitivities, ...s.sensitivitiesMay, ...s.attributes, ...s.attributesMay]);
   const notes = [...CONTAINS_IDS, ...s.sensitivities, ...s.attributes]
     .filter((id) => shown.has(id) && r.cells[id].note)

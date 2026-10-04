@@ -14,7 +14,7 @@ import {
   type AllergenId,
   type MatrixRow,
 } from "@/lib/allergens";
-import { badgeModel, isDrinkItem, showsAllergen, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
+import { badgeModel, DEFAULT_POLICY, isDrinkItem, showsAllergen, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
 import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
 import { useAllergenIndex } from "./allergen-picker";
@@ -50,14 +50,17 @@ const CSS = `
 `;
 
 /** the derived dietary columns: never a "gluten free" claim, only what the reviewed ingredients show */
-const DIETS: { id: DietId; label: string }[] = [
+const DIETS_ALL: { id: DietId; label: string }[] = [
   { id: "no_gluten_ingredients", label: BADGE_LABELS.noGlutenIngredients },
   { id: "no_dairy_ingredients", label: BADGE_LABELS.noDairyIngredients },
   { id: "vegetarian", label: BADGE_LABELS.vegetarian },
   { id: "vegan", label: BADGE_LABELS.vegan },
 ];
+/** Only what the printed menu shows is listed (Troy, 4 Oct 2026): no allergen or computed diet columns, just the option letters and seafood origin. */
+const MENU_ONLY_VIEW = DEFAULT_POLICY.allergens.length === 0;
+const DIETS = DEFAULT_POLICY.computedDiet ? DIETS_ALL : [];
 /** the main allergen columns (required, then chef extras), then the two narrow quiet ones */
-const MAIN = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra");
+const MAIN = ALLERGENS.filter((a) => (a.group === "required" || a.group === "extra") && DEFAULT_POLICY.allergens.includes(a.id));
 /** sulphites and alcohol are not on the menu, so the grid has no columns for them */
 const SENS: typeof ALLERGENS = [];
 const ATTR: typeof ALLERGENS = [];
@@ -254,21 +257,21 @@ export function AllergenMatrix() {
     <div className="allergen-print">
       <style>{CSS}</style>
       <PageHeader
-        title="Allergy Matrix"
-        subtitle={`${all.length} ${all.length === 1 ? "dish" : "dishes"} · ${reviewedCount} reviewed`}
+        title={MENU_ONLY_VIEW ? "Menu Labels" : "Allergy Matrix"}
+        subtitle={MENU_ONLY_VIEW ? `${all.length} ${all.length === 1 ? "dish" : "dishes"}` : `${all.length} ${all.length === 1 ? "dish" : "dishes"} · ${reviewedCount} reviewed`}
         trailing={
           <button type="button" className="btn-plain print:hidden" onClick={() => window.print()}>
             <Printer className="h-4 w-4" strokeWidth={2.25} /> Print
           </button>
         }
       />
-      <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>
+      {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GFO, VO, VGO, DF and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
       <div className="print:hidden">
         <VenueFilter className="mb-3" stats={false} compact />
         <SearchField value={q} onChange={setQ} placeholder="Search dishes" className="mb-4 lg:max-w-sm" />
-        <p className="pb-2 text-[13px] font-medium text-label-2">Not In Any Ingredient</p>
-        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Not in any ingredient">
-          {ALLERGENS.map((a) => (
+        {MENU_ONLY_VIEW ? null : <p className="pb-2 text-[13px] font-medium text-label-2">Not In Any Ingredient</p>}
+        {MENU_ONLY_VIEW ? null : <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Not in any ingredient">
+          {ALLERGENS.filter((a) => MAIN.some((m) => m.id === a.id)).map((a) => (
             <FilterChip key={a.id} label={a.label} on={free.has(a.id)} onClick={() => toggle(free, a.id, setFree)} />
           ))}
           {DIETS.map((d) => (
@@ -279,7 +282,7 @@ export function AllergenMatrix() {
               Clear
             </button>
           ) : null}
-        </div>
+        </div>}
         {filtering ? (
           <p className="mt-2 text-[13px] text-label-2">
             Only fully reviewed dishes can be listed as having none of something. {all.length - reviewedCount} {all.length - reviewedCount === 1 ? "dish still needs" : "dishes still need"} review.
@@ -290,9 +293,11 @@ export function AllergenMatrix() {
         {venueName} · printed {today}
         {filterText.length ? ` · showing dishes with no ${filterText.join(", ")} in any ingredient` : ""}
       </p>
-      <div className="my-4">
-        <Legend />
-      </div>
+      {MENU_ONLY_VIEW ? <div className="my-4" /> : (
+        <div className="my-4">
+          <Legend />
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <Empty
@@ -356,7 +361,7 @@ export function AllergenMatrix() {
                           <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-label-2">
                             {!venue ? <span>{VENUE_SHORT[store.venueById.get(r.venueId)?.slug ?? ""] ?? ""}</span> : null}
                             {r.mixOnly ? <span>Mix only</span> : null}
-                            {!r.rollup.reviewed ? <NeedsReview n={r.rollup.unreviewedCount} /> : null}
+                            {!MENU_ONLY_VIEW && !r.rollup.reviewed ? <NeedsReview n={r.rollup.unreviewedCount} /> : null}
                           </span>
                         </th>
                         {MAIN.map((a) => (

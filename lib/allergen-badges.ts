@@ -54,7 +54,27 @@ export type SeafoodBadge =
       missing: string[];
     };
 
+/**
+ * What a screen is allowed to list. Troy, 4 Oct 2026: ONLY what the printed menu shows is listed, and the menu shows no
+ * allergens: just the option letters (GFO, VO, VGO, DF) and the seafood origin letters (A, I, M). So by default no
+ * allergen, no computed "No Gluten Ingredients / Vegetarian / Vegan" badge and no "Allergens Not Reviewed" banner is
+ * shown anywhere. The ingredient allergen ticks stay recorded. To list allergens again, change `DEFAULT_POLICY`.
+ */
+export interface BadgePolicy {
+  /** allergen ids that may be listed (drinks are further limited to DRINK_ALLERGEN_IDS) */
+  allergens: readonly AllergenId[];
+  /** the computed No Gluten Ingredients, No Dairy Ingredients, Vegetarian and Vegan badges */
+  computedDiet: boolean;
+  /** the Allergens Not Reviewed banner and its review lists */
+  reviewBanner: boolean;
+}
+export const MENU_ONLY: BadgePolicy = { allergens: [], computedDiet: false, reviewBanner: false };
+export const FULL_ALLERGENS: BadgePolicy = { allergens: CONTAINS_IDS, computedDiet: true, reviewBanner: true };
+export const DEFAULT_POLICY: BadgePolicy = MENU_ONLY;
+
 export interface BadgeModel {
+  /** true when allergens are listed at all (false on a menu-only screen) */
+  listsAllergens: boolean;
   /** a drink: only egg, milk and nuts are marked, and there are no dietary or seafood badges */
   drink: boolean;
   /** set when anything is unreviewed (or the recipe is empty): show this banner first, in every view */
@@ -92,12 +112,11 @@ export function isDrinkItem(item?: { category?: string | null } | null): boolean
 export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts"];
 
 /**
- * True when this allergen is marked on this item. Only what the menus show is listed (Troy, 4 Oct 2026): sulphites and
- * alcohol are never listed anywhere, on food or drinks. Food shows the declared allergens and chef extras, drinks only
- * egg, milk and nuts.
+ * True when this allergen may be listed on this item under the policy. Sulphites and alcohol are never listed. Drinks
+ * list only egg, milk and nuts, and only if the policy lists allergens at all.
  */
-export function showsAllergen(item: { category?: string | null } | null | undefined, id: AllergenId): boolean {
-  if (!CONTAINS_IDS.includes(id)) return false;
+export function showsAllergen(item: { category?: string | null } | null | undefined, id: AllergenId, policy: BadgePolicy = DEFAULT_POLICY): boolean {
+  if (!CONTAINS_IDS.includes(id) || !policy.allergens.includes(id)) return false;
   return !isDrinkItem(item) || DRINK_ALLERGEN_IDS.includes(id);
 }
 
@@ -120,7 +139,7 @@ function absentState(r: Rollup, id: AllergenId): "is" | "not_confirmed" | null {
   return "is";
 }
 
-export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
+export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePolicy = DEFAULT_POLICY): BadgeModel {
   const s = { ...summarise(r) };
   const diet: DietBadge[] = [];
   const gluten = absentState(r, "gluten");
@@ -152,9 +171,10 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
   s.sensitivitiesMay = [];
   s.attributes = [];
   s.attributesMay = [];
+  s.contains = s.contains.filter((id) => showsAllergen(item, id, policy));
+  s.may = s.may.filter((id) => showsAllergen(item, id, policy));
+  if (!policy.computedDiet) diet.length = 0;
   if (drink) {
-    s.contains = s.contains.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
-    s.may = s.may.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
     diet.length = 0;
     options.length = 0;
     optionsMissingNote.length = 0;
@@ -166,7 +186,8 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
 
   return {
     drink,
-    notReviewed: r.reviewed ? null : { unreviewedNames: r.unreviewed },
+    listsAllergens: policy.allergens.length > 0,
+    notReviewed: !policy.reviewBanner || r.reviewed ? null : { unreviewedNames: r.unreviewed },
     contains: s.contains,
     mayContain: s.may,
     sensitivities: s.sensitivities,

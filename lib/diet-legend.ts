@@ -25,14 +25,18 @@ export interface DietOptionDef {
 }
 
 function option(id: DietOptionId, letter: string, name: string, label: string, detail: string): DietOptionDef {
-  return { id, letter, name, label, detail, definition: `${name}: ${detail}` };
+  return { id, letter, name, label, detail, definition: detail ? `${name}: ${detail}` : name };
 }
 
+/**
+ * Wording is the printed menu legend, word for word (Drift menu Sept 26 V3): GFO Gluten Free Option Available, VO
+ * Vegetarian Option, VGO Vegan Option, DF Dairy Free. The stored key for the dairy marker stays `dfo`.
+ */
 export const DIET_OPTIONS: DietOptionDef[] = [
-  option("gfo", "GFO", "Gluten Free Option", "Gluten Free Option, cross-contact possible", "The gluten ingredients are left out on request. Cross-contact is possible."),
-  option("vo", "VO", "Vegetarian Option", "Vegetarian Option", "Can be made vegetarian on request."),
-  option("vgo", "VGO", "Vegan Option", "Vegan Option", "Can be made vegan on request."),
-  option("dfo", "DFO", "Dairy Free Option", "Dairy Free Option, cross-contact possible", "The dairy ingredients are left out on request. Cross-contact is possible."),
+  option("gfo", "GFO", "Gluten Free Option Available", "Gluten Free Option Available", ""),
+  option("vo", "VO", "Vegetarian Option", "Vegetarian Option", ""),
+  option("vgo", "VGO", "Vegan Option", "Vegan Option", ""),
+  option("dfo", "DF", "Dairy Free", "Dairy Free", ""),
 ];
 
 const OPTION_BY_ID = new Map(DIET_OPTIONS.map((o) => [o.id, o]));
@@ -53,9 +57,9 @@ export interface SeafoodDef {
 
 /** "NZ" is not a permitted letter: New Zealand seafood is imported, so it is I. */
 export const SEAFOOD_LETTERS: SeafoodDef[] = [
-  { letter: "A", label: "Australian Seafood", definition: "Australian seafood, harvested in Australian waters." },
-  { letter: "I", label: "Imported Seafood", definition: "Imported seafood, harvested outside Australia. New Zealand seafood is imported." },
-  { letter: "M", label: "Mixed Origin Seafood", definition: "Mixed origin seafood, both Australian and imported." },
+  { letter: "A", label: "Australian Seafood", definition: "Australian Seafood" },
+  { letter: "I", label: "Imported Seafood", definition: "Imported Seafood" },
+  { letter: "M", label: "Mixed Origin Seafood", definition: "Mixed Origin Seafood" },
 ];
 
 const SEAFOOD_BY_LETTER = new Map(SEAFOOD_LETTERS.map((s) => [s.letter, s]));
@@ -107,7 +111,7 @@ export interface LegendLine {
   text: string;
 }
 
-/** Dietary option lines for the legend (GFO, VO, VGO, DFO). */
+/** Dietary option lines for the legend (GFO, VO, VGO, DF). */
 export function dietLegendLines(): LegendLine[] {
   return DIET_OPTIONS.map((o) => ({ key: o.id, letter: o.letter, text: o.definition }));
 }

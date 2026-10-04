@@ -328,7 +328,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
   const rows = marked.filter((a) => r.cells[a.id].state !== "none");
   const cleared = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
   const addable = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
-  const toReview = r.unreviewedIngredients;
+  const toReview = model.listsAllergens ? r.unreviewedIngredients : [];
   const unreviewed = useMemo(() => toReview.flatMap((i) => store.index.ingredients.get(i.id) ?? []), [toReview, store.index.ingredients]);
   const shown = showAll ? toReview : toReview.slice(0, 6);
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";
@@ -341,13 +341,13 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
 
   return (
     <Group
-      title="Allergens"
+      title={model.listsAllergens ? "Allergens" : "Menu Labels"}
       className="mt-6"
-      trailing={r.reviewed ? <span className="pb-0.5 text-[13px] font-medium text-good">All ingredients reviewed</span> : null}
-      footer={ALLERGEN_NOTICE}
+      trailing={model.listsAllergens && r.reviewed ? <span className="pb-0.5 text-[13px] font-medium text-good">All ingredients reviewed</span> : null}
+      footer={model.listsAllergens ? ALLERGEN_NOTICE : undefined}
     >
       <div className="space-y-5 px-4 py-4">
-        {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">{PENDING_NOTE}</p> : null}
+        {model.listsAllergens && !ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">{PENDING_NOTE}</p> : null}
 
         <BadgePanel model={model} seafoodLabel={!!item?.seafood_label} />
 
@@ -412,6 +412,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
           </div>
         ) : null}
 
+        {model.listsAllergens ? (
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Add Allergen</p>
           <div className="flex flex-wrap gap-2">
@@ -421,6 +422,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
             {addable.length === 0 ? <span className="text-[13px] text-label-2">Everything is already listed above.</span> : null}
           </div>
         </div>
+        ) : null}
 
         {toReview.length ? (
           <div>

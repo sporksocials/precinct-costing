@@ -130,8 +130,10 @@ function SeafoodMarker({ s }: { s: SeafoodBadge }) {
 export function BadgeStrip({ m }: { m: BadgeModel }) {
   const seafood = seafoodShown(m);
   const flagged = m.contains.length + m.mayContain.length + m.sensitivities.length + m.sensitivitiesMay.length + m.attributes.length + m.attributesMay.length > 0;
+  // a menu-only screen lists just the option letters and the seafood letter: nothing at all when a dish has neither
+  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !seafood) return null;
   return (
-    <ul className="flex flex-wrap items-center gap-2" aria-label="Allergens and dietary">
+    <ul className="flex flex-wrap items-center gap-2" aria-label={m.listsAllergens ? "Allergens and dietary" : "Menu labels"}>
       {m.notReviewed ? (
         <li>
           <NotReviewedChip />
@@ -176,7 +178,7 @@ export function BadgeStrip({ m }: { m: BadgeModel }) {
           <SeafoodMarker s={seafood} />
         </li>
       ) : null}
-      {!m.notReviewed && !flagged ? <li className="text-[20px] text-[#9B9890]">{BADGE_LABELS.noAllergensListed}</li> : null}
+      {m.listsAllergens && !m.notReviewed && !flagged ? <li className="text-[20px] text-[#9B9890]">{BADGE_LABELS.noAllergensListed}</li> : null}
     </ul>
   );
 }
@@ -273,12 +275,14 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
   const solid = m.diet.filter((d) => d.state === "is");
   const unconfirmed = m.diet.filter((d) => d.state === "not_confirmed");
   const seafood = seafoodShown(m);
+  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !seafood) return null;
   return (
-    <section className={cx(CARD, "mt-5 px-[22px] py-5")} aria-label="Allergens and dietary" data-testid="kitchen-badges">
-      <h2 className={cx(HEADING, "mb-3")}>ALLERGENS AND DIETARY</h2>
+    <section className={cx(CARD, "mt-5 px-[22px] py-5")} aria-label={m.listsAllergens ? "Allergens and dietary" : "Menu labels"} data-testid="kitchen-badges">
+      <h2 className={cx(HEADING, "mb-3")}>{m.listsAllergens ? "ALLERGENS AND DIETARY" : "MENU LABELS"}</h2>
 
       {m.notReviewed ? <NotReviewedBanner names={m.notReviewed.unreviewedNames} /> : null}
 
+      {m.listsAllergens ? (
       <div>
         <p className={TIER}>{BADGE_LABELS.contains}</p>
         {mainEmpty ? (
@@ -310,6 +314,7 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
           </ul>
         ) : null}
       </div>
+      ) : null}
 
       {hasSens ? (
         <div className="mt-5">
@@ -357,7 +362,7 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
         </div>
       ) : null}
 
-      <p className="mt-5 text-[16px] leading-snug text-[#9B9890]">{ALLERGEN_NOTICE}</p>
+      {m.listsAllergens ? <p className="mt-5 text-[16px] leading-snug text-[#9B9890]">{ALLERGEN_NOTICE}</p> : null}
     </section>
   );
 }
@@ -379,7 +384,6 @@ export function KitchenLegend() {
         <ul className="space-y-2">{dietLegendLines().map(line)}</ul>
         <ul className="space-y-2">{seafoodLegendLines().map(line)}</ul>
       </div>
-      <p className="mt-4 text-[20px] font-medium leading-snug text-[#F5F3EE]">{LEGEND_INVITATION}</p>
     </section>
   );
 }

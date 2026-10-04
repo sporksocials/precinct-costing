@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { SECTION_ORDER, compareGroups, formatQty, groupItems, isKitchenPath, isKitchenVenue, kitchenPhotoSrc, KITCHEN_VENUES, matchesName, parseKitchenData, qtyParts, scaleLabel, scaleQty, yieldText } from "@/lib/kitchen";
-import { buildKitchenModel, componentsOf, dishBadges, prepBadges, usedIn } from "@/lib/kitchen-model";
-import { badgeModel } from "@/lib/allergen-badges";
+import { buildKitchenModel, componentsOf, dishBadges as dishBadgesP, prepBadges as prepBadgesP, usedIn } from "@/lib/kitchen-model";
+import { badgeModel, FULL_ALLERGENS } from "@/lib/allergen-badges";
+
+/** the original allergen-listing behaviour stays under test; the app default is menu-only (see "kitchen menu-only default") */
+const dishBadges = (m: Parameters<typeof dishBadgesP>[0], id: string) => dishBadgesP(m, id, FULL_ALLERGENS);
+const prepBadges = (m: Parameters<typeof prepBadgesP>[0], id: string) => prepBadgesP(m, id, FULL_ALLERGENS);
 import { BADGE_LABELS } from "@/lib/diet-legend";
 import { CARD_BG, KB } from "@/components/kitchen/palette";
 import { rollup } from "@/lib/allergens";
@@ -301,7 +305,27 @@ describe("kitchen model", () => {
     expect(b.contains).toEqual(["peanuts"]);
     expect(b.diet.some((d) => d.state === "is")).toBe(false);
     // the kitchen shows exactly what the costing app's badge model says for the same roll-up
-    expect(b).toEqual(badgeModel(rollup({ kind: "item", id: "d" }, m.index), m.index.items?.get("d")));
+    expect(b).toEqual(badgeModel(rollup({ kind: "item", id: "d" }, m.index), m.index.items?.get("d"), FULL_ALLERGENS));
+  });
+});
+
+describe("kitchen menu-only default (Troy, 4 Oct 2026)", () => {
+  const RAWM = { venue: { slug: "drift" }, dishes: [{ id: "d", name: "D", diet_options: { gfo: { note: "GF bun" } } }, { id: "e", name: "E" }], ingredients: [{ id: "j", name: "Peanut Sauce", allergens: ["peanuts", "milk"], allergens_reviewed: false }], lines: [{ parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "j", qty: 5, unit: "g" }] };
+  it("shows no allergens, no banner and no diet badges: only the menu letters", () => {
+    const m = buildKitchenModel(parseKitchenData(RAWM, SYNCED)!);
+    const b = dishBadgesP(m, "d");
+    expect(b.listsAllergens).toBe(false);
+    expect(b.contains).toEqual([]);
+    expect(b.notReviewed).toBeNull();
+    expect(b.diet).toEqual([]);
+    expect(b.options.map((o) => o.letter)).toEqual(["GFO"]);
+  });
+  it("a dish with no menu labels has nothing to show", () => {
+    const m = buildKitchenModel(parseKitchenData(RAWM, SYNCED)!);
+    const b = dishBadgesP(m, "e");
+    expect(b.options).toEqual([]);
+    expect(b.seafood).toBeNull();
+    expect(b.contains).toEqual([]);
   });
 });
 

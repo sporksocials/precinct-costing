@@ -14,7 +14,7 @@ import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./u
 const MAIN = [
   { href: "/", label: "Home", icon: House },
   { href: "/menu", label: "Menu", icon: BookOpen },
-  { href: "/allergens", label: "Allergens", icon: Wheat },
+  { href: "/allergens", label: "Menu Labels", icon: Wheat },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
   { href: "/specials", label: "Specials", icon: Tag },
 ];

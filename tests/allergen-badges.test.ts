@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildIndex } from "@/lib/costing";
 import { rollup, summarise, ALLERGENS, CONTAINS_IDS, SENSITIVITY_IDS, ATTRIBUTE_IDS, type AllergenIndex } from "@/lib/allergens";
-import { badgeModel, isDrinkItem, seafoodBadge, showsAllergen } from "@/lib/allergen-badges";
+import { badgeModel as badgeModelP, FULL_ALLERGENS, isDrinkItem, MENU_ONLY, seafoodBadge, showsAllergen as showsAllergenP } from "@/lib/allergen-badges";
+
+/** the original allergen-listing behaviour, kept under test; the app default is menu-only (see the last describe) */
+const badgeModel = (r: Parameters<typeof badgeModelP>[0], item?: Parameters<typeof badgeModelP>[1]) => badgeModelP(r, item, FULL_ALLERGENS);
+const showsAllergen = (item: Parameters<typeof showsAllergenP>[0], id: Parameters<typeof showsAllergenP>[1]) => showsAllergenP(item, id, FULL_ALLERGENS);
 import { BADGE_LABELS, DIET_OPTIONS, SEAFOOD_LETTERS, dietLegendLines, seafoodLegendLines } from "@/lib/diet-legend";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
 
@@ -228,12 +232,12 @@ describe("badgeModel: dietary options", () => {
     expect(m.options.map((o) => [o.id, o.letter, o.note])).toEqual([
       ["gfo", "GFO", "Swap the bun for a gluten free bun"],
       ["vgo", "VGO", "No egg"],
-      ["dfo", "DFO", "No cheese"],
+      ["dfo", "DF", "No cheese"],
     ]);
   });
   it("the GFO label is the cautious wording and never the bare claim", () => {
     const m = model(base, { diet_options: { gfo: { note: "Swap the bun" } } });
-    expect(m.options[0].label).toBe("Gluten Free Option, cross-contact possible");
+    expect(m.options[0].label).toBe("Gluten Free Option Available");
     // a dish that contains gluten and offers a GFO still has no 'No Gluten Ingredients' badge
     expect(m.diet.find((d) => d.id === "no_gluten_ingredients")).toBeUndefined();
   });
@@ -306,7 +310,7 @@ describe("badgeModel: seafood origin", () => {
 
 describe("legend wording", () => {
   it("has the four options and three seafood letters, and no NZ letter", () => {
-    expect(DIET_OPTIONS.map((o) => o.letter)).toEqual(["GFO", "VO", "VGO", "DFO"]);
+    expect(DIET_OPTIONS.map((o) => o.letter)).toEqual(["GFO", "VO", "VGO", "DF"]);
     expect(SEAFOOD_LETTERS.map((s) => s.letter)).toEqual(["A", "I", "M"]);
     expect(dietLegendLines()).toHaveLength(4);
     expect(seafoodLegendLines()).toHaveLength(3);
@@ -315,10 +319,54 @@ describe("legend wording", () => {
     const all = [...Object.values(BADGE_LABELS), ...DIET_OPTIONS.flatMap((o) => [o.label, o.definition]), ...SEAFOOD_LETTERS.flatMap((s) => [s.label, s.definition])];
     for (const text of all) expect(/gluten[\s-]?free(?!\s+option)/i.test(text)).toBe(false);
     expect(BADGE_LABELS.noGlutenIngredients).toBe("No Gluten Ingredients");
-    expect(DIET_OPTIONS[0].label).toBe("Gluten Free Option, cross-contact possible");
+    expect(DIET_OPTIONS[0].label).toBe("Gluten Free Option Available");
   });
   it("uses no em dashes", () => {
     const all = [...Object.values(BADGE_LABELS), ...DIET_OPTIONS.flatMap((o) => [o.label, o.definition]), ...SEAFOOD_LETTERS.flatMap((s) => [s.label, s.definition])];
     for (const text of all) expect(text.includes("—")).toBe(false);
+  });
+});
+
+describe("menu-only default (Troy, 4 Oct 2026): only what the printed menu shows", () => {
+  const wine = () => [ing("w", "Amaretto Cream", ok({ allergens: ["milk", "tree_nuts", "gluten", "egg", "fish", "sulphites", "alcohol"] }))];
+  it("lists no allergen, no computed diet badge and no review banner, on food or drinks", () => {
+    for (const category of ["Food", "Cocktail", "Wine"]) {
+      const { d, r } = dish(wine(), { category });
+      const m = badgeModelP(r, d);
+      expect(m.listsAllergens).toBe(false);
+      expect(m.contains).toEqual([]);
+      expect(m.mayContain).toEqual([]);
+      expect(m.sensitivities).toEqual([]);
+      expect(m.attributes).toEqual([]);
+      expect(m.diet).toEqual([]);
+      expect(m.notes).toEqual([]);
+      expect(m.notReviewed).toBeNull();
+    }
+  });
+  it("an unreviewed dish shows no banner", () => {
+    const { d, r } = dish([ing("x", "Mystery")]);
+    expect(badgeModelP(r, d).notReviewed).toBeNull();
+    expect(badgeModelP(r, d, FULL_ALLERGENS).notReviewed).not.toBeNull();
+  });
+  it("still shows the option letters and the seafood letter, in the menu's wording", () => {
+    const { d, r } = dish([ing("p", "Prawns", ok({ allergens: ["crustacea"], seafood_origin: "I" as never }))], { seafood_label: true, diet_options: { gfo: { note: "GF bun" }, dfo: { note: "No cheese" } } as never });
+    const m = badgeModelP(r, d);
+    expect(m.options.map((o) => [o.letter, o.label])).toEqual([["GFO", "Gluten Free Option Available"], ["DF", "Dairy Free"]]);
+    expect(m.seafood).toEqual({ letter: "I", required: true });
+  });
+  it("drinks carry no option letters or seafood", () => {
+    const { d, r } = dish(wine(), { category: "Cocktail", seafood_label: true, diet_options: { gfo: { note: "x" } } as never });
+    const m = badgeModelP(r, d);
+    expect(m.options).toEqual([]);
+    expect(m.seafood).toBeNull();
+  });
+  it("showsAllergen is false for everything by default, and the policy is one switch", () => {
+    expect(showsAllergenP({ category: "Food" }, "milk")).toBe(false);
+    expect(MENU_ONLY.allergens).toEqual([]);
+    expect(showsAllergenP({ category: "Food" }, "milk", FULL_ALLERGENS)).toBe(true);
+  });
+  it("the ticks stay recorded in the roll-up", () => {
+    const { r } = dish(wine());
+    expect(r.cells.milk.state).toBe("contains");
   });
 });

@@ -19,7 +19,7 @@ export default function MorePage() {
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
-        <Row href="/allergens" title="Allergy Matrix" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
+        <Row href="/allergens" title="Menu Labels" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
         <Row
           href="/research-notes"
           title="Research Notes"

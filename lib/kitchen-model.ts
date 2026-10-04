@@ -1,5 +1,5 @@
 import { rollup, type AllergenIndex } from "./allergens";
-import { badgeModel, type BadgeModel } from "./allergen-badges";
+import { badgeModel, type BadgeModel, type BadgePolicy } from "./allergen-badges";
 import { barIngredientName } from "./bar";
 import { MAX_PREP_DEPTH, buildIndex, parentKey } from "./costing";
 import type { KitchenData, KitchenDish, KitchenPrep } from "./kitchen";
@@ -74,10 +74,10 @@ export function usedIn(model: KitchenModel, prepId: string): KitchenDish[] {
  * What the screens print for a dish or prep: the shared badge model (lib/allergen-badges.ts), the same one the costing app
  * reads, so the kitchen and the editor can never disagree. All the safety rules live there and in lib/allergens.ts.
  */
-export function dishBadges(model: KitchenModel, dishId: string): BadgeModel {
-  return badgeModel(rollup({ kind: "item", id: dishId }, model.index), model.index.items?.get(dishId));
+export function dishBadges(model: KitchenModel, dishId: string, policy?: BadgePolicy): BadgeModel {
+  return badgeModel(rollup({ kind: "item", id: dishId }, model.index), model.index.items?.get(dishId), policy);
 }
 /** A prep's roll-up has no menu fields (options, seafood label), so it carries no options and no required seafood letter. */
-export function prepBadges(model: KitchenModel, prepId: string): BadgeModel {
-  return badgeModel(rollup({ kind: "prep", id: prepId }, model.index));
+export function prepBadges(model: KitchenModel, prepId: string, policy?: BadgePolicy): BadgeModel {
+  return badgeModel(rollup({ kind: "prep", id: prepId }, model.index), null, policy);
 }

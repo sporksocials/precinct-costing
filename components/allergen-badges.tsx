@@ -134,6 +134,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
     <div className={cx("space-y-4", className)} data-testid="badge-panel">
       {m.notReviewed ? <NotReviewedBanner names={m.notReviewed.unreviewedNames} empty={m.notReviewed.unreviewedNames.length === 0} /> : null}
 
+      {m.listsAllergens ? (
       <div>
         <TierLabel>{BADGE_LABELS.contains}</TierLabel>
         {mainEmpty ? (
@@ -158,6 +159,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
           </ul>
         ) : null}
       </div>
+      ) : null}
 
       {quiet || alc ? (
         <div className="space-y-3">
@@ -178,9 +180,9 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
         </div>
       ) : null}
 
-      {m.drink ? null : (
+      {m.listsAllergens || m.options.length ? (
       <div>
-        <TierLabel>Dietary</TierLabel>
+        <TierLabel>{m.listsAllergens ? "Dietary" : "Dietary Options"}</TierLabel>
         {m.diet.length ? (
           <div className="flex flex-wrap gap-2">
             {m.diet.map((d) => (
@@ -204,7 +206,9 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
           </ul>
         ) : null}
       </div>
-      )}
+      ) : null}
+
+      {!m.listsAllergens && !m.options.length && !(seafood || seafoodLabel) ? <p className="text-[15px] text-label-2">{m.drink ? "Drinks carry no menu labels." : "No menu labels set. Add GFO, VO, VGO or DF under Dietary Options."}</p> : null}
 
       {!m.drink && (seafood || seafoodLabel) ? (
         <div>
@@ -239,7 +243,6 @@ export function BadgeLegend({ className }: { className?: string }) {
     <div className={cx("text-[13px] text-label-2", className)} aria-label="Legend">
       <ul className="space-y-0.5">{dietLegendLines().map(line)}</ul>
       <ul className="mt-2 space-y-0.5">{seafoodLegendLines().map(line)}</ul>
-      <p className="mt-2">{LEGEND_INVITATION}</p>
     </div>
   );
 }

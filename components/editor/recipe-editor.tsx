@@ -29,6 +29,7 @@ import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
+import { ResearchDrinkCard } from "./research-drink";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
 import { describeChanges, patchOf } from "@/lib/draft-changes";
@@ -576,6 +577,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             </div>
           ) : null}
 
+          {kind === "item" ? <ResearchDrinkCard item={saved as MenuItem} dirty={dirty} /> : null}
           <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
@@ -789,7 +791,8 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
         const { id: _i, ...rest } = draft as MenuItem;
         void _i;
         const nid = await store.insertItem(
-          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate" },
+          // a copy of an existing drink is not a new build: it is never offered Research This Drink
+          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null },
           clean.map((l, i) => ({ component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
         );
         onClose();

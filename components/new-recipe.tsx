@@ -3,6 +3,7 @@
 import { useGuardedRouter } from "@/components/unsaved-guard";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
+import { initialResearchStatus } from "@/lib/research-drink";
 import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
 import { parseServeCount, portionsForMode, type ServesMode } from "@/lib/serves";
 import { Banner, Chips, FieldRow, Sheet } from "./ui";
@@ -78,6 +79,8 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
           active: true,
           source: "app",
           notes: null,
+          // a new cocktail or mocktail is offered Research This Drink on its recipe page; everything else never is
+          research_status: initialResearchStatus(category),
         };
         const id = await store.insertItem(item, []);
         onClose();

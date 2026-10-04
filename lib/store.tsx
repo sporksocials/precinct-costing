@@ -32,6 +32,7 @@ import {
   type PriceLog,
   type AppliedRecord,
   type ResearchNote,
+  type ResearchOffer,
   type BarOption,
   type BarOptionKind,
   type IgnoredAlert,
@@ -50,6 +51,7 @@ import { brisbaneToday, groupDeals } from "./deals";
 import { cleanOptionName, findOption, nextSort } from "./glass-rim";
 import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
 import { DEMO } from "./supabase/client";
+import { prepareNotes, type ResearchedNote } from "./research-drink";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
 import { buildIgnoredRow, IGNORE_UNAVAILABLE, withIgnored, withoutIgnored, type AlertEntry } from "./ignored-alerts";
 import {
@@ -300,6 +302,17 @@ export interface StoreValue extends StoreData {
   deleteDeal: (id: string) => Promise<void>;
   /** Approve, dismiss or reopen a research note. Saved straight away; the note keeps everything else. */
   setResearchNoteStatus: (id: string, status: ResearchStatus) => Promise<void>;
+  /**
+   * Research This Drink: saves where a new drink's research offer stands (offered, done or skipped). Written straight to the
+   * database and the store, never through the recipe editor's draft, so it never makes the page "unsaved".
+   */
+  setResearchOffer: (itemId: string, status: ResearchOffer) => Promise<void>;
+  /**
+   * Files researched notes on a drink as open Research Notes (through insertRows). A title the drink already has (open or
+   * closed) is skipped, so a repeat run never doubles a note, and the drink never holds more than MAX_NOTES_PER_DRINK.
+   * Resolves with the notes that were added.
+   */
+  addResearchNotes: (itemId: string, notes: readonly ResearchedNote[]) => Promise<ResearchNote[]>;
   /** approves a note and records what it changed on the recipe (one update), so it can be undone later */
   applyResearchNote: (id: string, applied: AppliedRecord) => Promise<void>;
   /** sets the status (default open) and clears the applied record in one update */
@@ -621,6 +634,61 @@ export async function deleteIgnoredAlert(sb: SupabaseClient, alertKey: string): 
     if (ignoredTableMissing(error)) throw new Error(IGNORE_UNAVAILABLE);
     throw new Error(error.message);
   }
+}
+
+/** True when the error just means cost_menu_items.research_status has not been added to the database yet. */
+export function researchColumnMissing(error: { code?: string; message?: string } | null | undefined): boolean {
+  return !!error && isSchemaMissingError(error) && /research_status/i.test(error.message ?? "");
+}
+
+/**
+ * Saves one new menu item (through insertRow, like every insert) and returns the row that was actually saved. A database
+ * that does not have cost_menu_items.research_status yet (the research update is not applied) still saves the drink: the
+ * field is left out, so the drink simply is not offered Research This Drink. Any other error throws.
+ */
+export async function insertMenuItemRow(sb: SupabaseClient, item: MenuItem): Promise<MenuItem> {
+  const first = await insertRow(sb, "cost_menu_items", item);
+  if (!first.error) return item;
+  if (item.research_status && researchColumnMissing(first.error)) {
+    const { research_status: _r, ...bare } = item;
+    void _r;
+    const second = await insertRow(sb, "cost_menu_items", bare);
+    if (!second.error) return bare as MenuItem;
+    throw new Error(second.error.message);
+  }
+  throw new Error(first.error.message);
+}
+
+export const RESEARCH_UNAVAILABLE = "Research is not set up in the database yet. Ask SPORK to apply the research update.";
+
+/**
+ * Files researched notes on one drink (through insertRows, like every insert) and returns the saved rows. `existing` is
+ * the drink's notes already held; a title it already has is skipped. Pure of React so it can be tested.
+ */
+export async function insertResearchNotes(sb: SupabaseClient, itemId: string, existing: readonly Pick<ResearchNote, "title">[], notes: readonly ResearchedNote[], makeId: () => string = newId): Promise<ResearchNote[]> {
+  const fresh = prepareNotes(notes, existing.map((n) => n.title));
+  if (!fresh.length) return [];
+  // one insert gets one database timestamp, and notes sort by it: stagger them by a millisecond so they keep the order the
+  // research gave them (most important first) instead of falling back to alphabetical
+  const t0 = Date.now();
+  const rows = fresh.map((n, i) => ({
+    id: makeId(),
+    created_at: new Date(t0 + i).toISOString(),
+    item_id: itemId,
+    kind: n.kind,
+    title: n.title,
+    body: n.body,
+    changes: n.changes,
+    sources: n.sources,
+    method_step: n.method_step,
+    method_replaces: n.method_replaces,
+    status: "open" as const,
+  }));
+  const { data, error } = await insertRows(sb, "cost_research_notes", rows).select("*");
+  if (error) throw new Error(error.message);
+  // the database fills created_at and updated_at; if a reply ever comes back without them, notes still need them to sort
+  const now = new Date().toISOString();
+  return ((data as Partial<ResearchNote>[] | null) ?? rows).map((r) => ({ prep_id: null, created_at: now, updated_at: now, ...r }) as ResearchNote);
 }
 
 async function updateOne(sb: SupabaseClient, table: string, col: string, val: string | number, patch: object) {
@@ -1032,9 +1100,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const insertItem = useCallback(
     async (item: Omit<MenuItem, "id">, lines: Omit<RecipeLine, "id" | "parent_id" | "parent_type">[]) => {
       const id = newId();
-      const row: MenuItem = { ...item, id };
-      const { error } = await insertRow(sb, "cost_menu_items", row);
-      if (error) throw new Error(error.message);
+      const row = await insertMenuItemRow(sb, { ...item, id });
       const newLines: RecipeLine[] = lines.map((l) => ({ ...l, id: newId(), parent_type: "item", parent_id: id }));
       if (newLines.length) {
         const { error: e2 } = await insertRows(sb, "cost_recipe_lines", newLines);
@@ -1587,6 +1653,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     [sb, setData],
   );
+  const setResearchOffer = useCallback(
+    async (itemId: string, status: ResearchOffer) => {
+      const { data: rows, error } = await sb.from("cost_menu_items").update({ research_status: status }).eq("id", itemId).select("id");
+      if (error) throw new Error(researchColumnMissing(error) ? RESEARCH_UNAVAILABLE : error.message);
+      assertSaved(rows);
+      setData((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, research_status: status } : i)) }));
+    },
+    [sb, setData],
+  );
+  const addResearchNotes = useCallback(
+    async (itemId: string, notes: readonly ResearchedNote[]) => {
+      const held = dataRef.current.researchNotes.filter((n) => n.item_id === itemId);
+      const saved = await insertResearchNotes(sb, itemId, held, notes);
+      if (saved.length) setData((d) => ({ ...d, researchNotes: [...d.researchNotes, ...saved.filter((n) => !d.researchNotes.some((x) => x.id === n.id))] }));
+      return saved;
+    },
+    [sb, setData],
+  );
   const setResearchNoteStatus = useCallback((id: string, status: ResearchStatus) => writeResearchNote(id, { status }), [writeResearchNote]);
   const applyResearchNote = useCallback((id: string, applied: AppliedRecord) => writeResearchNote(id, { status: "approved", applied }), [writeResearchNote]);
   const undoResearchNote = useCallback((id: string, status: ResearchStatus = "open") => writeResearchNote(id, { status, applied: null }), [writeResearchNote]);
@@ -1657,6 +1741,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addDeal,
     updateDeal,
     deleteDeal,
+    setResearchOffer,
+    addResearchNotes,
     setResearchNoteStatus,
     applyResearchNote,
     undoResearchNote,

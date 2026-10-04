@@ -99,6 +99,8 @@ export interface Prep {
   kitchen_ready?: boolean;
 }
 
+export type ResearchOffer = "offered" | "done" | "skipped";
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -132,6 +134,8 @@ export interface MenuItem {
   kitchen_plating?: string[] | null;
   kitchen_photo?: string | null;
   kitchen_ready?: boolean;
+  /** Research This Drink (cocktails and mocktails only): null/absent = never offered, offered = new drink awaiting a choice, done = researched, skipped = skipped */
+  research_status?: ResearchOffer | null;
   /** computed items only: true when the serve is not on the menu (still costed, left out of averages and feeds) */
   off_menu?: boolean;
 }

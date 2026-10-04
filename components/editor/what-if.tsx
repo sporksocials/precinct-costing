@@ -54,7 +54,8 @@ export function WhatIfSheet({
       const { id: _i, ...rest } = item;
       void _i;
       const id = await store.insertItem(
-        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if" },
+        // a variation of an existing drink is not a new build: it is never offered Research This Drink
+        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if", research_status: null },
         lines.filter((l) => l.component_id).map((l, i) => ({ component_type: l.component_type, component_id: l.component_id, qty: Math.round(Number(l.qty) * k * 1000) / 1000, unit: l.unit, note: l.note, sort: i + 1 })),
       );
       onClose();

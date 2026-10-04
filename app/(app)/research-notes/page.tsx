@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { countByStatus, groupNotes, type NoteRecord } from "@/lib/research-notes";
 import type { ResearchNote, ResearchStatus } from "@/lib/types";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
-import { ResearchNoteCard, useNoteEffects, useNoteStatus } from "@/components/editor/research-notes";
+import { ResearchNoteCard, useNoteEffects } from "@/components/editor/research-notes";
 import { Chips, cx, Dot, Empty, Group, PageHeader } from "@/components/ui";
 
 type Filter = ResearchStatus | "all";
@@ -16,7 +16,6 @@ export default function ResearchNotesPage() {
   const store = useStore();
   const { venue } = useVenue();
   const [filter, setFilter] = useState<Filter>("open");
-  const { setStatus, busy } = useNoteStatus();
 
   const resolver = useMemo(() => {
     const items = new Map(store.items.map((i) => [i.id, i]));
@@ -49,7 +48,7 @@ export default function ResearchNotesPage() {
         <Empty title="No Research Notes Yet" body="Suggestions from research show up here once they are added to a recipe, with the cost and GP worked out." />
       ) : (
         <>
-          <p className="px-1 text-[15px] text-label-2">Ideas from research, with the cost and GP effect at the menu price. Managers only: never shown on the cocktail station. Approving an idea does not change the recipe.</p>
+          <p className="px-1 text-[15px] text-label-2">Ideas from research, with the cost and GP effect at the menu price. Managers only: never shown on the cocktail station. Approve shows what will change in the recipe first, then updates it when you tap Add or Apply. Undo puts it back.</p>
           <Chips
             ariaLabel="Status"
             className="mt-4"
@@ -93,7 +92,7 @@ export default function ResearchNotesPage() {
                       }
                     >
                       {d.notes.map((n) => (
-                        <ResearchNoteCard key={n.id} note={n} effect={effects.get(n.id)} busy={busy.has(n.id)} onStatus={(x, s) => void setStatus(x, s)} recipeHref={d.href} />
+                        <ResearchNoteCard key={n.id} note={n} effect={effects.get(n.id)} recipeHref={d.href} />
                       ))}
                     </Group>
                   ))}

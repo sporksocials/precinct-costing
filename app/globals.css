@@ -305,6 +305,21 @@ textarea:focus-visible {
   .btn-text {
     @apply inline-flex min-h-[44px] items-center gap-1 px-1 text-[17px] text-accent active:opacity-60 sm:min-h-0 sm:text-[15px];
   }
+  /* allergen and diet badges: shape and words carry the meaning, colour only backs them up */
+  .ab-solid-danger {
+    background: var(--danger);
+    color: #240806;
+  }
+  .ab-solid-good {
+    background: var(--good);
+    color: #06240f;
+  }
+  .ab-hatch-warn {
+    background-image: repeating-linear-gradient(135deg, rgba(255, 179, 64, 0.26) 0 7px, rgba(255, 179, 64, 0.07) 7px 14px);
+  }
+  .ab-hatch-grey {
+    background-image: repeating-linear-gradient(135deg, var(--fill-2) 0 6px, transparent 6px 12px);
+  }
 }
 
 @keyframes sheet-up {

@@ -23,10 +23,11 @@ import { PriceHistory } from "./price-history";
 import { CostBar, FixCard, trimFix } from "./cost-insight";
 import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
+import { DietOptionsGroup } from "./diet-options";
 import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
-import { RecordResearchNotes } from "./research-notes";
+import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
 
@@ -209,6 +210,46 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       schedule();
     },
     [schedule],
+  );
+
+  // Research notes: Approve writes through this draft (the autosave persists it) and resolves once it is saved
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const commitNow = useCallback(async () => {
+    for (let i = 0; i < 40; i++) {
+      await flush();
+      if (failed.current) return false;
+      if (!saving.current && version.current === savedVersion.current) return true;
+      await new Promise((r) => window.setTimeout(r, 150));
+    }
+    return false;
+  }, [flush]);
+  const noteTarget = useMemo<RecipeTarget | undefined>(
+    () =>
+      kind === "item"
+        ? {
+            getLines: () => linesRef.current,
+            getMethod: () => {
+              const m = (draftRef.current as MenuItem)[methodField(draftRef.current as MenuItem)];
+              return Array.isArray(m) ? m.map(String) : [];
+            },
+            write: async ({ lines, method }) => {
+              if (lines) setLines(() => lines);
+              if (method) {
+                const field = methodField(draftRef.current as MenuItem);
+                setDraft((d) => ({ ...d, [field]: method }) as Rec);
+              }
+              if (!(await commitNow())) throw new Error("Not saved");
+            },
+            alive: () => mounted.current,
+          }
+        : undefined,
+    [kind, setLines, setDraft, commitNow],
   );
 
   // adopt store changes (background refresh) when there are no local edits
@@ -546,9 +587,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             </div>
           ) : null}
 
-          <RecordResearchNotes kind={kind} id={id} />
+          <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
+          {item ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
           {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}

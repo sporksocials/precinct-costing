@@ -72,6 +72,10 @@ export interface Ingredient {
   allergens_reviewed?: boolean | null;
   /** confirmed diet flags: meat, fish, dairy, egg, honey */
   diet_flags?: string[] | null;
+  /** seafood origin: A Australian, I imported (New Zealand counts as imported); null = not set */
+  seafood_origin?: "A" | "I" | null;
+  /** seafood the origin standard exempts (fish sauce, canned tuna, bonito powder) */
+  seafood_exempt?: boolean | null;
 }
 
 export interface Prep {
@@ -111,6 +115,10 @@ export interface MenuItem {
   allergen_add?: string[] | null;
   allergen_remove?: string[] | null;
   allergen_notes?: Record<string, string> | null;
+  /** dietary option flags the menu prints (gfo, vo, vgo, dfo); a key present = the dish offers it, note = what changes */
+  diet_options?: Partial<Record<"gfo" | "vo" | "vgo" | "dfo", { note: string }>> | null;
+  /** the menu wording markets the dish as seafood, so it needs an origin letter (A / I / M) */
+  seafood_label?: boolean | null;
   /** Bar display (cocktails/mocktails only): which glass, e.g. "Rocks Glass, Salt Rim" */
   glass?: string | null;
   /** Bar display: ordered method steps */
@@ -368,6 +376,21 @@ export interface ResearchSource {
   url: string;
 }
 
+/** One recipe line changed by an applied note: an existing line's quantity, or a line the note created. */
+export type AppliedLine = { line_id: string; before_qty: number; after_qty: number } | { created_line_id: string };
+
+/**
+ * What Approve changed on the recipe (cost_research_notes.applied), kept so Undo can put it back exactly.
+ * `summary` is the human wording of each change, saved at apply time so the Done list can still say what happened.
+ */
+export interface AppliedRecord {
+  at: string;
+  lines: AppliedLine[];
+  method_before?: string[];
+  method_after?: string[];
+  summary?: string[];
+}
+
 /**
  * A manager-only research note on a recipe (cost_research_notes): a suggestion, or a flag that the venue's sheet differs
  * from the classic recipe. Never shown on the public bar or kitchen stations. Belongs to a menu item OR a prep.
@@ -382,6 +405,14 @@ export interface ResearchNote {
   changes: ResearchChange[];
   sources: ResearchSource[];
   status: ResearchStatus;
+  /** a suggested method step to add (tidied into the house style on Approve) */
+  method_step?: string | null;
+  /** text of an existing step the suggested step replaces */
+  method_replaces?: string | null;
+  /** when set the note is a question for the venue: Approve asks for a short typed answer first */
+  answer_prompt?: string | null;
+  /** what Approve changed on the recipe; null when nothing was applied */
+  applied?: AppliedRecord | null;
   created_at: string;
   updated_at: string;
 }

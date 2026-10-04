@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
-import { Check, Minus, Printer, X } from "lucide-react";
+import { Check, Info, Minus, Printer, Wine, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
   ALLERGENS,
@@ -10,17 +10,19 @@ import {
   allergenLabel,
   isFreeFrom,
   matrixRows,
-  summarise,
   type AllergenCell,
   type AllergenId,
-  type DietTag,
   type MatrixRow,
 } from "@/lib/allergens";
+import { badgeModel, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
+import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
 import { useAllergenIndex } from "./allergen-picker";
+import { BadgeLegend, BadgePanel } from "./allergen-badges";
 import { cx, Empty, PageHeader, SearchField } from "./ui";
 
-type DietId = "vegetarian" | "vegan";
+type DietId = DietBadgeId;
+type Row = MatrixRow & { model: BadgeModel };
 
 /** Screen (dark) and print (light, high contrast) colours for the grid; only the print block changes them. */
 const CSS = `
@@ -30,6 +32,7 @@ const CSS = `
 .mx-grn { background: var(--mx-grn-bg); color: var(--mx-grn-fg); }
 .mx-may { border: 1.5px dashed var(--mx-may); color: var(--mx-may); }
 .mx-grey { color: var(--mx-grey-fg); }
+.mx-quiet { border: 1px solid var(--label-3); color: var(--label-2); }
 @media print {
   @page { size: A4 landscape; margin: 9mm; }
   html, body { background: #fff !important; color: #000 !important; }
@@ -40,15 +43,24 @@ const CSS = `
     --mx-red-bg: #f4a9a2; --mx-red-fg: #5c0a03; --mx-yel-bg: #ffe66d; --mx-yel-fg: #3d3000; --mx-grn-bg: #b6e6c3; --mx-grn-fg: #0b3d1b; --mx-may: #7a4a00; --mx-grey-fg: #333;
     -webkit-print-color-adjust: exact; print-color-adjust: exact; color: #000; }
   .allergen-print table { min-width: 0 !important; font-size: 9px !important; }
+  .allergen-print .ab-solid-danger, .allergen-print .ab-solid-good { color: #fff; }
   .allergen-print thead { display: table-header-group; }
   .allergen-print tr { break-inside: avoid; }
 }
 `;
 
+/** the derived dietary columns: never a "gluten free" claim, only what the reviewed ingredients show */
 const DIETS: { id: DietId; label: string }[] = [
-  { id: "vegetarian", label: "Vegetarian" },
-  { id: "vegan", label: "Vegan" },
+  { id: "no_gluten_ingredients", label: BADGE_LABELS.noGlutenIngredients },
+  { id: "no_dairy_ingredients", label: BADGE_LABELS.noDairyIngredients },
+  { id: "vegetarian", label: BADGE_LABELS.vegetarian },
+  { id: "vegan", label: BADGE_LABELS.vegan },
 ];
+/** the main allergen columns (required, then chef extras), then the two narrow quiet ones */
+const MAIN = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra");
+const SENS = ALLERGENS.filter((a) => a.group === "sensitivity");
+const ATTR = ALLERGENS.filter((a) => a.group === "attribute");
+const COLS = MAIN.length + SENS.length + ATTR.length + DIETS.length + 2;
 
 function FilterChip({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
@@ -73,9 +85,10 @@ function Legend() {
     <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-label-2" aria-label="Legend">
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-red")}><X className="h-3 w-3" strokeWidth={3} /></span>Red: contains, cannot eat</li>
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-yel text-[11px] font-bold")}>!</span>Yellow: can be made without (see note)</li>
-      <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-grn")}><Check className="h-3 w-3" strokeWidth={3} /></span>Green: free from</li>
+      <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-grn")}><Check className="h-3 w-3" strokeWidth={3} /></span>Green: not in any ingredient</li>
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-may text-[11px] font-bold")}>?</span>Dashed: may contain, not confirmed</li>
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-grey")}><Minus className="h-3 w-3" strokeWidth={3} /></span>Grey: needs review, nothing claimed</li>
+      <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-quiet")}><Info className="h-3 w-3" strokeWidth={2.5} /></span>Outline: sulphite sensitivity or Contains Alcohol, not allergens</li>
     </ul>
   );
 }
@@ -111,21 +124,79 @@ function Cell({ c, reviewed, label }: { c: AllergenCell; reviewed: boolean; labe
       </span>
     );
   return (
-    <span className={cx(box, "mx-grn")} title={c.chef === "removed" ? `${label}: cleared by the chef${c.was.length ? `, was from ${c.was.join(", ")}` : ""}` : `${label}: free from`} aria-label={`${label}: free from`}>
+    <span className={cx(box, "mx-grn")} title={c.chef === "removed" ? `${label}: cleared by the chef${c.was.length ? `, was from ${c.was.join(", ")}` : ""}` : `${label}: not in any ingredient`} aria-label={`${label}: not in any ingredient`}>
       <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
       {c.chef === "removed" ? <span aria-hidden className="text-[11px] font-bold">*</span> : null}
     </span>
   );
 }
 
-function DietCell({ tag }: { tag: DietTag }) {
+/** Sulphites and Contains Alcohol: narrow, outlined and quiet. Never green: a quiet column makes no "free from" claim. */
+function QuietCell({ c, reviewed, label, kind }: { c: AllergenCell; reviewed: boolean; label: string; kind: "sensitivity" | "alcohol" }) {
   const box = "flex min-h-[44px] w-full items-center justify-center rounded-md";
-  const label = `${tag.label}: ${tag.state === "yes" ? "yes" : tag.state === "no" ? "no" : tag.state === "maybe" ? "probably not" : "needs review"}`;
-  const because = tag.because.length ? ` (${tag.because.join(", ")})` : "";
-  if (tag.state === "yes") return <span className={cx(box, "mx-grn")} title={label} aria-label={label}><Check aria-hidden className="h-4 w-4" strokeWidth={3} /></span>;
-  if (tag.state === "no") return <span className={cx(box, "mx-red")} title={label + because} aria-label={label}><X aria-hidden className="h-4 w-4" strokeWidth={3} /></span>;
-  if (tag.state === "maybe") return <span className={cx(box, "mx-may text-[13px] font-bold")} title={label + because} aria-label={label}>?</span>;
-  return <span className={cx(box, "mx-grey")} title={label} aria-label={label}><Minus aria-hidden className="h-4 w-4" strokeWidth={2.5} /></span>;
+  const Icon = kind === "alcohol" ? Wine : Info;
+  const from = c.sources.length ? ` (${c.sources.join(", ")})` : "";
+  if (c.state === "contains")
+    return (
+      <span className={cx(box, "mx-quiet")} title={`${label}: ${kind === "alcohol" ? "contains alcohol" : "sensitivity"}${from}`} aria-label={`${label}: ${kind === "alcohol" ? "contains alcohol" : "sensitivity"}`}>
+        <Icon aria-hidden className="h-4 w-4" strokeWidth={2.25} />
+      </span>
+    );
+  if (c.state === "may_contain")
+    return (
+      <span className={cx(box, "mx-may text-[13px] font-bold")} title={`${label}: may contain, not confirmed${from}`} aria-label={`${label}: may contain, not confirmed`}>
+        ?
+      </span>
+    );
+  if (!reviewed)
+    return (
+      <span className={cx(box, "mx-grey")} title={`${label}: needs review`} aria-label={`${label}: needs review`}>
+        <Minus aria-hidden className="h-4 w-4" strokeWidth={2.5} />
+      </span>
+    );
+  return (
+    <span className={cx(box, "mx-grey text-[10px]")} title={`${label}: none ticked on any ingredient`} aria-label={`${label}: none ticked`}>
+      none
+    </span>
+  );
+}
+
+function DietCell({ m, id }: { m: BadgeModel; id: DietId }) {
+  const box = "flex min-h-[44px] w-full items-center justify-center rounded-md";
+  const d = m.diet.find((x) => x.id === id);
+  const name = DIETS.find((x) => x.id === id)?.label ?? id;
+  if (!d) return <span className={cx(box, "mx-red")} title={`${name}: no`} aria-label={`${name}: no`}><X aria-hidden className="h-4 w-4" strokeWidth={3} /></span>;
+  if (d.state === "is") return <span className={cx(box, "mx-grn")} title={name} aria-label={name}><Check aria-hidden className="h-4 w-4" strokeWidth={3} /></span>;
+  return <span className={cx(box, "mx-grey")} title={`${name}: not confirmed`} aria-label={`${name}: not confirmed`}><Minus aria-hidden className="h-4 w-4" strokeWidth={2.5} /></span>;
+}
+
+/** Dietary option letters for the dish (GFO, VO, VGO, DFO), each with its note in the tooltip. */
+function OptionsCell({ m }: { m: BadgeModel }) {
+  if (!m.options.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No dietary options">-</span>;
+  return (
+    <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-accent" title={m.options.map((o) => `${o.letter}: ${o.note}`).join("\n")}>
+      {m.options.map((o) => (
+        <span key={o.id}>{o.letter}</span>
+      ))}
+    </span>
+  );
+}
+
+/** Seafood origin letter, or ? when an origin is not confirmed. Dishes with no seafood are blank. */
+function SeafoodCell({ m }: { m: BadgeModel }) {
+  const sf = m.seafood;
+  if (!sf) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No seafood">-</span>;
+  if ("letter" in sf)
+    return (
+      <span className={cx("mx-auto flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold", sf.required ? "bg-accent-fill text-accent-on" : "mx-quiet")} title={`${seafoodDef(sf.letter).label}${sf.required ? "" : " (not marketed as seafood)"}`} aria-label={seafoodDef(sf.letter).label}>
+        {sf.letter}
+      </span>
+    );
+  return (
+    <span className="mx-may mx-auto flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold" title={`${BADGE_LABELS.originNotConfirmed}: ${sf.missing.join(", ")}`} aria-label={BADGE_LABELS.originNotConfirmed}>
+      ?
+    </span>
+  );
 }
 
 function NeedsReview({ n }: { n: number }) {
@@ -146,7 +217,7 @@ export function AllergenMatrix() {
 
   const all = useMemo(() => {
     const items = store.items.filter((i) => i.active && (!venue || i.venue_id === venue.id));
-    return matrixRows(items, idx);
+    return matrixRows(items, idx).map((row): Row => ({ ...row, model: badgeModel(row.rollup, row.item) }));
   }, [store.items, idx, venue]);
 
   const needle = q.trim().toLowerCase();
@@ -155,7 +226,7 @@ export function AllergenMatrix() {
       all.filter((r) => {
         if (needle && !`${r.name} ${r.category}`.toLowerCase().includes(needle)) return false;
         for (const id of free) if (!isFreeFrom(r.rollup, id)) return false;
-        for (const d of diet) if (r.rollup.diet[d].state !== "yes") return false;
+        for (const d of diet) if (r.model.diet.find((x) => x.id === d)?.state !== "is") return false;
         return true;
       }),
     [all, needle, free, diet],
@@ -172,7 +243,7 @@ export function AllergenMatrix() {
   const today = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric", timeZone: "Australia/Brisbane" });
   const filterText = [...[...free].map((id) => allergenLabel(id)), ...[...diet].map((d) => DIETS.find((x) => x.id === d)!.label)];
 
-  const byCategory: { category: string; rows: MatrixRow[] }[] = [];
+  const byCategory: { category: string; rows: Row[] }[] = [];
   for (const r of rows) {
     const last = byCategory[byCategory.length - 1];
     if (last && last.category === r.category) last.rows.push(r);
@@ -195,8 +266,8 @@ export function AllergenMatrix() {
       <div className="print:hidden">
         <VenueFilter className="mb-3" stats={false} compact />
         <SearchField value={q} onChange={setQ} placeholder="Search dishes" className="mb-4 lg:max-w-sm" />
-        <p className="pb-2 text-[13px] font-medium text-label-2">Free From</p>
-        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Free from">
+        <p className="pb-2 text-[13px] font-medium text-label-2">Not In Any Ingredient</p>
+        <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Not in any ingredient">
           {ALLERGENS.map((a) => (
             <FilterChip key={a.id} label={a.label} on={free.has(a.id)} onClick={() => toggle(free, a.id, setFree)} />
           ))}
@@ -211,13 +282,13 @@ export function AllergenMatrix() {
         </div>
         {filtering ? (
           <p className="mt-2 text-[13px] text-label-2">
-            Only fully reviewed dishes can be listed as free from anything. {all.length - reviewedCount} {all.length - reviewedCount === 1 ? "dish still needs" : "dishes still need"} review.
+            Only fully reviewed dishes can be listed as having none of something. {all.length - reviewedCount} {all.length - reviewedCount === 1 ? "dish still needs" : "dishes still need"} review.
           </p>
         ) : null}
       </div>
       <p className="hidden pt-1 text-[13px] print:block">
         {venueName} · printed {today}
-        {filterText.length ? ` · showing dishes free from ${filterText.join(", ")}` : ""}
+        {filterText.length ? ` · showing dishes with no ${filterText.join(", ")} in any ingredient` : ""}
       </p>
       <div className="my-4">
         <Legend />
@@ -226,7 +297,7 @@ export function AllergenMatrix() {
       {rows.length === 0 ? (
         <Empty
           title={filtering ? "No Dishes Match" : "No Dishes Yet"}
-          body={filtering ? "No fully reviewed dish is free from all of those. Review more ingredients on the Ingredients page." : "Add menu items and tick their ingredients’ allergens."}
+          body={filtering ? "No fully reviewed dish has none of all of those. Review more ingredients on the Ingredients page." : "Add menu items and tick their ingredients’ allergens."}
         />
       ) : (
         <>
@@ -239,29 +310,40 @@ export function AllergenMatrix() {
 
           {/* desktop (and print): the full grid */}
           <div className="hidden overflow-x-auto rounded-2xl bg-surface lg:block print:block print:overflow-visible print:rounded-none">
-            <table className="w-full min-w-[960px] border-separate border-spacing-0 text-[13px]">
+            <table className="w-full min-w-[900px] border-separate border-spacing-0 text-[13px]">
               <thead>
                 <tr>
-                  <th scope="col" className="sticky left-0 z-[2] min-w-[180px] bg-surface px-3 py-2 text-left text-[13px] font-medium text-label-2">
+                  <th scope="col" className="sticky left-0 z-[2] min-w-[150px] bg-surface px-3 py-2 text-left text-[13px] font-medium text-label-2">
                     Dish
                   </th>
-                  {ALLERGENS.map((a, i) => (
-                    <th key={a.id} scope="col" className={cx("h-[104px] w-[46px] min-w-[46px] px-0.5 align-bottom text-[12px] font-medium text-label-2", (i === 12) && "border-l border-[color:var(--separator)]")}>
+                  {MAIN.map((a) => (
+                    <th key={a.id} scope="col" className="h-[132px] w-[36px] min-w-[36px] px-0.5 align-bottom text-[12px] font-medium text-label-2">
                       <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{a.short}</span>
                     </th>
                   ))}
+                  {[...SENS, ...ATTR].map((a, i) => (
+                    <th key={a.id} scope="col" className={cx("h-[132px] w-[32px] min-w-[32px] px-0.5 align-bottom text-[12px] font-medium text-label-2", i === 0 && "border-l border-[color:var(--separator)]")}>
+                      <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{a.group === "sensitivity" ? `Sensitivity: ${a.short}` : a.short}</span>
+                    </th>
+                  ))}
                   {DIETS.map((d, i) => (
-                    <th key={d.id} scope="col" className={cx("h-[104px] w-[46px] min-w-[46px] px-0.5 align-bottom text-[12px] font-medium text-label-2", i === 0 && "border-l border-[color:var(--separator)]")}>
+                    <th key={d.id} scope="col" className={cx("h-[132px] w-[36px] min-w-[36px] px-0.5 align-bottom text-[12px] font-medium text-label-2", i === 0 && "border-l border-[color:var(--separator)]")}>
                       <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{d.label}</span>
                     </th>
                   ))}
+                  <th scope="col" className="h-[132px] w-[56px] min-w-[56px] border-l border-[color:var(--separator)] px-0.5 align-bottom text-[12px] font-medium text-label-2">
+                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Dietary Options</span>
+                  </th>
+                  <th scope="col" className="h-[132px] w-[40px] min-w-[40px] px-0.5 align-bottom text-[12px] font-medium text-label-2">
+                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Seafood Origin</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {byCategory.map((g) => (
                   <React.Fragment key={g.category}>
                     <tr>
-                      <th colSpan={ALLERGENS.length + 3} scope="colgroup" className="bg-fill px-3 py-1.5 text-left text-[12px] font-semibold text-label-2">
+                      <th colSpan={COLS + 1} scope="colgroup" className="bg-fill px-3 py-1.5 text-left text-[12px] font-semibold text-label-2">
                         {g.category}
                       </th>
                     </tr>
@@ -277,16 +359,27 @@ export function AllergenMatrix() {
                             {!r.rollup.reviewed ? <NeedsReview n={r.rollup.unreviewedCount} /> : null}
                           </span>
                         </th>
-                        {ALLERGENS.map((a, i) => (
-                          <td key={a.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 12 && "border-l")}>
+                        {MAIN.map((a) => (
+                          <td key={a.id} className="border-b border-[color:var(--separator)] p-0.5">
                             <Cell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.label} />
+                          </td>
+                        ))}
+                        {[...SENS, ...ATTR].map((a, i) => (
+                          <td key={a.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
+                            <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />
                           </td>
                         ))}
                         {DIETS.map((d, i) => (
                           <td key={d.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
-                            <DietCell tag={r.rollup.diet[d.id]} />
+                            <DietCell m={r.model} id={d.id} />
                           </td>
                         ))}
+                        <td className="border-b border-l border-[color:var(--separator)] p-0.5">
+                          <OptionsCell m={r.model} />
+                        </td>
+                        <td className="border-b border-[color:var(--separator)] p-0.5">
+                          <SeafoodCell m={r.model} />
+                        </td>
                       </tr>
                     ))}
                   </React.Fragment>
@@ -295,81 +388,25 @@ export function AllergenMatrix() {
             </table>
           </div>
           <p className="mt-3 text-[13px] text-label-2">
-            * Cleared by the chef on this dish. Gelato rows cover the flavour mix; cones and toppings are separate. Tap beer rows cover the keg.
+            * Cleared by the chef on this dish. Gelato rows cover the flavour mix; cones and toppings are separate. Tap beer rows cover the keg. The dietary columns are worked out from reviewed ingredients; a dish is never called gluten free.
           </p>
+          <BadgeLegend className="mt-3 print:mt-2" />
         </>
       )}
     </div>
   );
 }
 
-function DishCard({ r, showVenue }: { r: MatrixRow; showVenue: boolean }) {
+function DishCard({ r, showVenue }: { r: Row; showVenue: boolean }) {
   const store = useStore();
-  const { contains, may } = summarise(r.rollup);
   const venueName = VENUE_SHORT[store.venueById.get(r.venueId)?.slug ?? ""] ?? "";
-  const free = ALLERGENS.filter((a) => isFreeFrom(r.rollup, a.id));
-  const chip = "inline-flex items-center rounded-full px-2.5 py-1 text-[13px] font-medium";
   return (
     <Link href={r.href} className="block rounded-2xl bg-surface p-4 active:bg-surface-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[17px] font-semibold leading-tight">{r.name}</p>
-          <p className="mt-0.5 text-[13px] text-label-2">{[showVenue ? venueName : null, r.category, r.mixOnly ? "Mix only" : null].filter(Boolean).join(" · ")}</p>
-        </div>
-        {!r.rollup.reviewed ? <NeedsReview n={0} /> : null}
+      <div className="min-w-0">
+        <p className="text-[17px] font-semibold leading-tight">{r.name}</p>
+        <p className="mt-0.5 text-[13px] text-label-2">{[showVenue ? venueName : null, r.category, r.mixOnly ? "Mix only" : null].filter(Boolean).join(" · ")}</p>
       </div>
-      {!r.rollup.reviewed ? (
-        <p className="mt-2 rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">
-          {r.rollup.ingredientCount === 0 ? "No ingredients yet." : `${r.rollup.unreviewedCount} ${r.rollup.unreviewedCount === 1 ? "ingredient" : "ingredients"} not reviewed.`} Nothing is marked free from until every ingredient is reviewed.
-        </p>
-      ) : null}
-      {contains.length ? (
-        <div className="mt-3">
-          <p className="pb-1.5 text-[12px] font-medium text-label-2">Contains</p>
-          <div className="flex flex-wrap gap-1.5">
-            {contains.map((id) => {
-              const c = r.rollup.cells[id];
-              return (
-                <span key={id} className={cx(chip, c.note ? "mx-yel" : "mx-red")}>
-                  {allergenLabel(id)}
-                  {c.note ? `: ${c.note}` : ""}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-      {may.length ? (
-        <div className="mt-3">
-          <p className="pb-1.5 text-[12px] font-medium text-label-2">May contain (unconfirmed)</p>
-          <div className="flex flex-wrap gap-1.5">
-            {may.map((id) => (
-              <span key={id} className={cx(chip, "mx-may")}>
-                {allergenLabel(id)}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {r.rollup.reviewed && free.length ? (
-        <div className="mt-3">
-          <p className="pb-1.5 text-[12px] font-medium text-label-2">Free from</p>
-          <div className="flex flex-wrap gap-1.5">
-            {free.map((a) => (
-              <span key={a.id} className={cx(chip, "mx-grn")}>
-                {a.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="mt-3 flex flex-wrap gap-1.5 text-[12px]">
-        {[r.rollup.diet.vegetarian, r.rollup.diet.vegan].map((t) => (
-          <span key={t.id} className={cx("inline-flex items-center rounded-full px-2.5 py-0.5 font-semibold", t.state === "yes" ? "mx-grn" : t.state === "no" ? "mx-red" : t.state === "maybe" ? "mx-may" : "bg-fill text-label-2")}>
-            {t.label}: {t.state === "yes" ? "Yes" : t.state === "no" ? "No" : t.state === "maybe" ? "Probably not" : "Not reviewed"}
-          </span>
-        ))}
-      </div>
+      <BadgePanel model={r.model} seafoodLabel={!!r.item?.seafood_label} className="mt-3" />
     </Link>
   );
 }

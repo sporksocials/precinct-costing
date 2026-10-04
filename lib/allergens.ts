@@ -19,9 +19,20 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "./types";
  * ticked explicitly in cost_ingredients.diet_flags, and implied by allergens (milk -> dairy, egg -> egg,
  * fish / crustacea / molluscs -> fish). Vegetarian = no meat or fish flag. Vegan = none of the five flags.
  * Chef add / remove overrides change the allergen columns only; they never change the diet tags.
+ *
+ * GROUPS: sulphites are a "sensitivity" and alcohol an "attribute", not allergens. Both stay recorded under the same ids
+ * and roll up the same way, but summarise() returns them in their own fields and every list of allergens (contains,
+ * counts) is the main set only. lib/allergen-badges.ts turns a roll-up into the tiers the screens print.
  */
 
-export type AllergenGroup = "required" | "extra";
+/**
+ * required    : the Food Standards Code declared allergens (Schedule 9), shown as the main allergen badges
+ * extra       : chef extras (not law), shown with the main badges
+ * sensitivity : sulphites. Recorded and answered to a guest, but a quiet separate tier, never in the main allergen row
+ * attribute   : alcohol. Not an allergen: a neutral "Contains Alcohol" attribute shown outside the allergen row
+ * The ids stay as stored ('sulphites', 'alcohol' stay in the arrays); only grouping and display changed.
+ */
+export type AllergenGroup = "required" | "extra" | "sensitivity" | "attribute";
 
 export interface AllergenDef {
   id: AllergenId;
@@ -44,10 +55,11 @@ export const ALLERGEN_IDS = [
   "tree_nuts",
   "lupin",
   "molluscs",
-  "sulphites",
   // chef extras
   "chilli",
   "onion_garlic",
+  // sensitivity, then attribute (not part of the main allergen list)
+  "sulphites",
   "alcohol",
 ] as const;
 export type AllergenId = (typeof ALLERGEN_IDS)[number];
@@ -64,11 +76,25 @@ export const ALLERGENS: AllergenDef[] = [
   { id: "tree_nuts", label: "Tree Nuts", short: "Tree Nuts", group: "required" },
   { id: "lupin", label: "Lupin", short: "Lupin", group: "required" },
   { id: "molluscs", label: "Molluscs", short: "Molluscs", group: "required" },
-  { id: "sulphites", label: "Sulphites", short: "Sulphites", group: "required" },
   { id: "chilli", label: "Chilli", short: "Chilli", group: "extra" },
   { id: "onion_garlic", label: "Onion & Garlic", short: "Onion & Garlic", group: "extra" },
-  { id: "alcohol", label: "Alcohol", short: "Alcohol", group: "extra" },
+  { id: "sulphites", label: "Sulphites", short: "Sulphites", group: "sensitivity" },
+  { id: "alcohol", label: "Alcohol", short: "Contains Alcohol", group: "attribute" },
 ];
+
+/** The main allergen badges, in the fixed order: required, then chef extras. */
+export const CONTAINS_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map((a) => a.id);
+export const SENSITIVITY_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "sensitivity").map((a) => a.id);
+export const ATTRIBUTE_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "attribute").map((a) => a.id);
+export function allergenGroup(id: AllergenId): AllergenGroup {
+  return ALLERGENS.find((a) => a.id === id)?.group ?? "required";
+}
+
+/** Ingredients with these allergens are seafood for the origin label (unless marked exempt). */
+export const SEAFOOD_ALLERGENS: AllergenId[] = ["fish", "crustacea", "molluscs"];
+export function isSeafoodAllergen(id: string): boolean {
+  return (SEAFOOD_ALLERGENS as string[]).includes(id);
+}
 
 const ALLERGEN_BY_ID = new Map(ALLERGENS.map((a) => [a.id, a]));
 export function allergenLabel(id: string): string {
@@ -336,6 +362,17 @@ export interface Rollup {
   /** every ingredient reviewed, and there is at least one: the only case where "free from" may be shown */
   reviewed: boolean;
   problems: ("cycle" | "depth" | "missing")[];
+  /**
+   * Seafood ingredients (fish, crustacea or molluscs, not marked exempt) through every nested prep, with the origin set
+   * on each (null = not set). Suggested (unreviewed) seafood counts too, so an unset origin is never missed.
+   */
+  seafood: SeafoodIngredient[];
+}
+
+export interface SeafoodIngredient {
+  id: string;
+  name: string;
+  origin: "A" | "I" | null;
 }
 
 export interface AllergenIndex extends CostingIndex {
@@ -348,13 +385,14 @@ interface Acc {
   suggested: Map<string, Set<string>>;
   removed: Map<string, Set<string>>;
   ingredients: Map<string, { name: string; reviewed: boolean }>;
+  seafood: Map<string, SeafoodIngredient>;
   problems: Set<"cycle" | "depth" | "missing">;
 }
 const K_A = "a:";
 const K_D = "d:";
 
 function newAcc(): Acc {
-  return { confirmed: new Map(), suggested: new Map(), removed: new Map(), ingredients: new Map(), problems: new Set() };
+  return { confirmed: new Map(), suggested: new Map(), removed: new Map(), ingredients: new Map(), seafood: new Map(), problems: new Set() };
 }
 function put(m: Map<string, Set<string>>, key: string, src: string) {
   const s = m.get(key);
@@ -366,6 +404,7 @@ function mergeInto(into: Acc, from: Acc) {
   for (const [k, v] of from.suggested) for (const s of v) put(into.suggested, k, s);
   for (const [k, v] of from.removed) for (const s of v) put(into.removed, k, s);
   for (const [k, v] of from.ingredients) if (!into.ingredients.has(k)) into.ingredients.set(k, v);
+  for (const [k, v] of from.seafood) if (!into.seafood.has(k)) into.seafood.set(k, v);
   for (const p of from.problems) into.problems.add(p);
 }
 
@@ -376,6 +415,8 @@ function addIngredient(acc: Acc, ing: Ingredient, beerLine: boolean) {
   for (const f of st.confirmedAnimal) put(acc.confirmed, K_D + f, ing.name);
   for (const s of st.suggested) put(acc.suggested, K_A + s.id, ing.name);
   for (const s of st.suggestedAnimal) put(acc.suggested, K_D + s.flag, ing.name);
+  const isSeafood = st.confirmed.some(isSeafoodAllergen) || st.suggested.some((x) => isSeafoodAllergen(x.id));
+  if (isSeafood && !ing.seafood_exempt) acc.seafood.set(ing.id, { id: ing.id, name: ing.name, origin: ing.seafood_origin === "A" || ing.seafood_origin === "I" ? ing.seafood_origin : null });
   if (beerLine && !st.reviewed && !/\b(cider|seltzer|gluten[\s-]?free)\b/i.test(ing.name)) {
     // a tap beer keg: barley and alcohol are suggested even when the keg's name does not say "beer"
     if (!st.confirmed.includes("gluten")) put(acc.suggested, K_A + "gluten", ing.name);
@@ -474,7 +515,8 @@ function finish(acc: Acc, notes: Record<string, string> | null | undefined): Rol
   const ingredientCount = acc.ingredients.size;
   const reviewed = ingredientCount > 0 && unreviewed.length === 0;
   const diet = dietFrom(animal, reviewed);
-  return { cells, animal, diet, ingredientCount, unreviewed, unreviewedCount: unreviewed.length, unreviewedIngredients, reviewed, problems: [...acc.problems] };
+  const seafood = [...acc.seafood.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { cells, animal, diet, ingredientCount, unreviewed, unreviewedCount: unreviewed.length, unreviewedIngredients, reviewed, problems: [...acc.problems], seafood };
 }
 
 function dietFrom(animal: Record<AnimalFlag, AnimalCell>, reviewed: boolean): { vegetarian: DietTag; vegan: DietTag } {
@@ -533,11 +575,32 @@ export function withDraft(index: AllergenIndex, kind: "item" | "prep", rec: Menu
   return { ...index, items: new Map(index.items ?? []).set(rec.id, rec as MenuItem), linesByParent };
 }
 
-/** Short counts for a summary line. */
-export function summarise(r: Rollup): { contains: AllergenId[]; may: AllergenId[] } {
+export interface RollupSummary {
+  /** the main allergens (required, then chef extras) that are confirmed */
+  contains: AllergenId[];
+  /** the main allergens a keyword suggests on an unreviewed ingredient */
+  may: AllergenId[];
+  /** sensitivities (sulphites): confirmed, then suggested. Never counted in `contains` */
+  sensitivities: AllergenId[];
+  sensitivitiesMay: AllergenId[];
+  /** attributes (alcohol): confirmed, then suggested. Not allergens */
+  attributes: AllergenId[];
+  attributesMay: AllergenId[];
+}
+
+/**
+ * Short lists for a summary line. `contains` / `may` hold only the main allergens; sulphites and alcohol come back in
+ * their own fields so no count or list of "allergens" ever includes them.
+ */
+export function summarise(r: Rollup): RollupSummary {
+  const pick = (ids: AllergenId[], state: CellState) => ids.filter((a) => r.cells[a].state === state);
   return {
-    contains: ALLERGEN_IDS.filter((a) => r.cells[a].state === "contains"),
-    may: ALLERGEN_IDS.filter((a) => r.cells[a].state === "may_contain"),
+    contains: pick(CONTAINS_IDS, "contains"),
+    may: pick(CONTAINS_IDS, "may_contain"),
+    sensitivities: pick(SENSITIVITY_IDS, "contains"),
+    sensitivitiesMay: pick(SENSITIVITY_IDS, "may_contain"),
+    attributes: pick(ATTRIBUTE_IDS, "contains"),
+    attributesMay: pick(ATTRIBUTE_IDS, "may_contain"),
   };
 }
 
@@ -551,6 +614,8 @@ export interface MatrixRow {
   section: string | null;
   href: string;
   rollup: Rollup;
+  /** the menu item itself (its dietary options and seafood flag), when the row is one: null for a gelato flavour mix */
+  item: MenuItem | null;
   /** gelato flavours: the mix only (cones and toppings are separate) */
   mixOnly: boolean;
 }
@@ -567,14 +632,14 @@ export function matrixRows(items: MenuItem[], index: AllergenIndex): MatrixRow[]
       const prep = p ? index.preps.get(p.prepId) : null;
       if (!p || !prep) continue;
       const key = `prep:${prep.id}`;
-      if (!rows.has(key)) rows.set(key, { key, name: flavourName(prep), venueId: it.venue_id, category: it.category, section: null, href: `/preps/${prep.id}`, rollup: rollup({ kind: "prep", id: prep.id }, index), mixOnly: true });
+      if (!rows.has(key)) rows.set(key, { key, name: flavourName(prep), venueId: it.venue_id, category: it.category, section: null, href: `/preps/${prep.id}`, rollup: rollup({ kind: "prep", id: prep.id }, index), item: null, mixOnly: true });
     } else if (isBeerItemId(it.id)) {
       const p = parseBeerItemId(it.id);
       if (!p) continue;
       const key = `beer:${p.beerId}`;
-      if (!rows.has(key)) rows.set(key, { key, name: it.name.replace(/\s+-\s+[^-]*$/, ""), venueId: it.venue_id, category: it.category, section: it.section, href: `/beers/${p.beerId}`, rollup: rollup({ kind: "item", id: it.id }, index), mixOnly: false });
+      if (!rows.has(key)) rows.set(key, { key, name: it.name.replace(/\s+-\s+[^-]*$/, ""), venueId: it.venue_id, category: it.category, section: it.section, href: `/beers/${p.beerId}`, rollup: rollup({ kind: "item", id: it.id }, index), item: it, mixOnly: false });
     } else {
-      rows.set(`item:${it.id}`, { key: `item:${it.id}`, name: it.name, venueId: it.venue_id, category: it.category, section: it.section, href: `/items/${it.id}`, rollup: rollup({ kind: "item", id: it.id }, index), mixOnly: false });
+      rows.set(`item:${it.id}`, { key: `item:${it.id}`, name: it.name, venueId: it.venue_id, category: it.category, section: it.section, href: `/items/${it.id}`, rollup: rollup({ kind: "item", id: it.id }, index), item: it, mixOnly: false });
     }
   }
   return [...rows.values()].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));

@@ -9,7 +9,6 @@ import {
   buildIndex,
   costItem,
   costPrep,
-  parentKey,
   type CostingIndex,
   type ItemCost,
   type PrepCost,
@@ -31,6 +30,7 @@ import {
   type PortalPrice,
   type Prep,
   type PriceLog,
+  type AppliedRecord,
   type ResearchNote,
   type BarOption,
   type BarOptionKind,
@@ -265,6 +265,7 @@ export interface StoreValue extends StoreData {
   insertPrep: (prep: Omit<Prep, "id">) => Promise<string>;
   deletePrep: (id: string) => Promise<void>;
   saveLines: (parentType: "item" | "prep", parentId: string, lines: RecipeLine[]) => Promise<void>;
+  getItemRecipe: (itemId: string) => { item: MenuItem | undefined; lines: RecipeLine[] };
   updateIngredient: (id: string, patch: Partial<Ingredient>) => Promise<void>;
   /** Mark the current pack price as checked today (Brisbane) without changing it. Returns what is needed to undo. */
   confirmIngredientPrice: (id: string) => Promise<ConfirmReceipt>;
@@ -295,6 +296,10 @@ export interface StoreValue extends StoreData {
   deleteDeal: (id: string) => Promise<void>;
   /** Approve, dismiss or reopen a research note. Saved straight away; the note keeps everything else. */
   setResearchNoteStatus: (id: string, status: ResearchStatus) => Promise<void>;
+  /** approves a note and records what it changed on the recipe (one update), so it can be undone later */
+  applyResearchNote: (id: string, applied: AppliedRecord) => Promise<void>;
+  /** sets the status (default open) and clears the applied record in one update */
+  undoResearchNote: (id: string, status?: ResearchStatus) => Promise<void>;
   /**
    * Adds a glass type or rim to the Bar Display pickers (name tidied, Title Cased). A name already in the list
    * (any case) is not added twice: the existing option comes back. The local list changes only once the database confirms.
@@ -1051,8 +1056,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const saveLines = useCallback(
     async (parentType: "item" | "prep", parentId: string, next: RecipeLine[]) => {
-      const key = parentKey(parentType, parentId);
-      const existing = index.linesByParent.get(key) ?? [];
+      // read the latest lines (not a render-time snapshot): a caller may be an Undo that outlived its component
+      const existing = dataRef.current.lines.filter((l) => l.parent_type === parentType && l.parent_id === parentId);
       const nextIds = new Set(next.map((l) => l.id));
       const removed = existing.filter((l) => !nextIds.has(l.id)).map((l) => l.id);
       const normalised = next.map((l, i) => ({ ...l, parent_type: parentType, parent_id: parentId, sort: i + 1, qty: Number(l.qty) || 0 }));
@@ -1072,8 +1077,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         lines: [...d.lines.filter((l) => !(l.parent_type === parentType && l.parent_id === parentId)), ...normalised],
       }));
     },
-    [sb, setData, resync, index.linesByParent],
+    [sb, setData, resync],
   );
+
+  // the item and its recipe lines as they are right now (stable: safe for an Undo that outlives its component)
+  const getItemRecipe = useCallback((itemId: string) => {
+    const d = dataRef.current;
+    return { item: d.items.find((i) => i.id === itemId), lines: d.lines.filter((l) => l.parent_type === "item" && l.parent_id === itemId).sort((a, b) => a.sort - b.sort) };
+  }, []);
 
   const confirmIngredientPrice = useCallback(
     async (id: string): Promise<ConfirmReceipt> => {
@@ -1460,16 +1471,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---- research notes (manager-only; only the status is ever changed from the app, notes are written by SPORK) ----
-  const setResearchNoteStatus = useCallback(
-    async (id: string, status: ResearchStatus) => {
-      const { data: rows, error } = await sb.from("cost_research_notes").update({ status }).eq("id", id).select("*");
+  // one update to the note row; the local copy changes only after the database confirms
+  const writeResearchNote = useCallback(
+    async (id: string, patch: Partial<Pick<ResearchNote, "status" | "applied">>) => {
+      const { data: rows, error } = await sb.from("cost_research_notes").update(patch).eq("id", id).select("*");
       if (error) throw new Error(error.message);
       assertSaved(rows);
       const fresh = rows?.[0] as ResearchNote | undefined;
-      setData((d) => ({ ...d, researchNotes: d.researchNotes.map((n) => (n.id === id ? (fresh ?? { ...n, status }) : n)) }));
+      setData((d) => ({ ...d, researchNotes: d.researchNotes.map((n) => (n.id === id ? (fresh ?? { ...n, ...patch }) : n)) }));
     },
     [sb, setData],
   );
+  const setResearchNoteStatus = useCallback((id: string, status: ResearchStatus) => writeResearchNote(id, { status }), [writeResearchNote]);
+  const applyResearchNote = useCallback((id: string, applied: AppliedRecord) => writeResearchNote(id, { status: "approved", applied }), [writeResearchNote]);
+  const undoResearchNote = useCallback((id: string, status: ResearchStatus = "open") => writeResearchNote(id, { status, applied: null }), [writeResearchNote]);
 
   const value: StoreValue = {
     ...data,
@@ -1510,6 +1525,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     insertPrep,
     deletePrep,
     saveLines,
+    getItemRecipe,
     updateIngredient,
     confirmIngredientPrice,
     undoConfirmIngredientPrice,
@@ -1537,6 +1553,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateDeal,
     deleteDeal,
     setResearchNoteStatus,
+    applyResearchNote,
+    undoResearchNote,
     addBarOption,
   };
 

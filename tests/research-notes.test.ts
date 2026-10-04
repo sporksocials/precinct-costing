@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildIndex } from "@/lib/costing";
-import { applyChanges, cleanChanges, countByStatus, effectTone, groupNotes, notesForRecord, portionWord, researchNoteEffect, safeUrl, sortNotes } from "@/lib/research-notes";
+import { applyChanges, applyKinds, applyMethodOp, cleanChanges, countByStatus, describeMethodOp, effectCanApply, effectTone, groupNotes, hasApplied, notesForRecord, opIsNoop, partitionNotes, planApply, portionWord, researchNoteEffect, safeUrl, sortNotes, undoApplied } from "@/lib/research-notes";
 import { DEFAULT_SETTINGS, type Ingredient, type MenuItem, type RecipeLine, type ResearchNote } from "@/lib/types";
 
 const ing = (id: string, name: string, over: Partial<Ingredient> = {}): Ingredient => ({
@@ -259,5 +259,157 @@ describe("safeUrl", () => {
     expect(safeUrl("javascript:alert(1)")).toBeNull();
     expect(safeUrl("not a url")).toBeNull();
     expect(safeUrl(null)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- Approve applies the note
+
+describe("applyKinds", () => {
+  const n = (over: Record<string, unknown> = {}) => ({ item_id: "m1", changes: [], method_step: null, answer_prompt: null, ...over }) as Parameters<typeof applyKinds>[0];
+  it("a priced change is a lines note", () => {
+    expect(applyKinds(n({ changes: [{ ingredient_id: "lime", qty: -5, unit: "ml" }] }), true)).toEqual({ lines: true, method: false, question: false, any: true });
+  });
+  it("a method step is a method note; a blank step is not", () => {
+    expect(applyKinds(n({ method_step: "Strain over ice" }), true)).toMatchObject({ method: true, question: false, any: true });
+    expect(applyKinds(n({ method_step: "   " }), true).any).toBe(false);
+  });
+  it("an answer prompt makes it a question (and a method note)", () => {
+    expect(applyKinds(n({ answer_prompt: "Strain or dump?" }), true)).toMatchObject({ question: true, method: true, any: true });
+  });
+  it("a pure observation, a prep note and a missing recipe apply nothing", () => {
+    expect(applyKinds(n(), true).any).toBe(false);
+    expect(applyKinds(n({ item_id: null, changes: [{ ingredient_id: "lime", qty: 1, unit: "ml" }], method_step: "x y z" }), false).any).toBe(false);
+    expect(applyKinds(n({ changes: [{ ingredient_id: "lime", qty: 1, unit: "ml" }] }), false).any).toBe(false);
+  });
+});
+
+describe("method ops", () => {
+  const m = ["Chill the glass", "Shake hard for 12 seconds", "Garnish with a lime wedge"];
+  it("inserts, replaces and keeps the index in range", () => {
+    expect(applyMethodOp(m, { op: "insert", index: 2, text: "Double strain" })).toEqual(["Chill the glass", "Shake hard for 12 seconds", "Double strain", "Garnish with a lime wedge"]);
+    expect(applyMethodOp(m, { op: "insert", index: 99, text: "Serve" })[3]).toBe("Serve");
+    expect(applyMethodOp(m, { op: "replace", index: 0, text: "Chill the glass well" })[0]).toBe("Chill the glass well");
+    expect(m).toHaveLength(3); // the original is never changed
+  });
+  it("describes the change in plain words", () => {
+    expect(describeMethodOp(m, { op: "insert", index: 2, text: "Double strain" }).sentence).toBe("Add to the method after step 2: Double strain");
+    expect(describeMethodOp(m, { op: "insert", index: 0, text: "Chill" }).headline).toBe("Add to the method as step 1");
+    expect(describeMethodOp([], { op: "insert", index: 0, text: "Chill" }).headline).toBe("Add to the method as the first step");
+    const r = describeMethodOp(m, { op: "replace", index: 0, text: "Chill the glass well" });
+    expect(r).toMatchObject({ headline: "Replace step 1", old: "Chill the glass", text: "Chill the glass well" });
+  });
+  it("knows when a step is already there", () => {
+    expect(opIsNoop(m, { op: "insert", index: 1, text: "chill the glass" })).toBe(true);
+    expect(opIsNoop(m, { op: "insert", index: 1, text: "Double strain" })).toBe(false);
+    expect(opIsNoop(m, { op: "replace", index: 0, text: "Chill the glass" })).toBe(true);
+  });
+});
+
+describe("planApply and undoApplied", () => {
+  const METHOD = ["Chill the glass", "Shake hard for 12 seconds", "Garnish with a lime wedge"];
+  let n = 0;
+  const makeId = () => `new${++n}`;
+  const plan = (changes: unknown, op: Parameters<typeof planApply>[0]["op"] = null, lines = LINES, method = METHOD) => {
+    const effect = researchNoteEffect({ ...base, lines, changes });
+    return { effect, plan: planApply({ note: { changes } as never, item: item(), lines, method, effect, op, makeId, now: "2026-10-04T10:00:00Z" }) };
+  };
+
+  it("adds the delta to the existing line and records before and after", () => {
+    const { plan: p } = plan([{ ingredient_id: "lime", qty: -15, unit: "ml" }]);
+    expect(p.linesChanged).toBe(true);
+    expect(p.lines.find((l) => l.id === "l2")?.qty).toBe(15);
+    expect(p.applied.lines).toEqual([{ line_id: "l2", before_qty: 30, after_qty: 15 }]);
+    expect(p.applied.summary?.[0]).toBe("Recipe: Lime Juice (L) 30 ml to 15 ml");
+    expect(p.applied.summary?.[1]).toContain("Saves about $0.18 per drink");
+    expect(LINES[1].qty).toBe(30); // inputs are not changed
+  });
+
+  it("converts units into the existing line (0.015 L onto a ml line)", () => {
+    const { plan: p } = plan([{ ingredient_id: "lime", qty: 0.015, unit: "L" }]);
+    expect(p.lines.find((l) => l.id === "l2")?.qty).toBe(45);
+  });
+
+  it("creates a line when the recipe has none, and never goes below zero", () => {
+    const { plan: p } = plan([{ ingredient_id: "wedge", qty: 2, unit: "each" }]);
+    const created = p.lines.find((l) => l.component_id === "wedge")!;
+    expect(created).toMatchObject({ id: "new1", qty: 2, unit: "each", parent_type: "item", parent_id: "m1", sort: 3 });
+    expect(p.applied.lines).toEqual([{ created_line_id: "new1" }]);
+    expect(p.applied.summary?.[0]).toBe("Recipe: add Lime Wedge 2 ea");
+    const { plan: z } = plan([{ ingredient_id: "lime", qty: -500, unit: "ml" }]);
+    expect(z.lines.find((l) => l.id === "l2")?.qty).toBe(0);
+  });
+
+  it("applies a method step and records the method before and after", () => {
+    const { plan: p } = plan([], { op: "insert", index: 2, text: "Double strain into the glass" });
+    expect(p.linesChanged).toBe(false);
+    expect(p.methodChanged).toBe(true);
+    expect(p.method).toEqual(["Chill the glass", "Shake hard for 12 seconds", "Double strain into the glass", "Garnish with a lime wedge"]);
+    expect(p.applied).toMatchObject({ method_before: METHOD, method_after: p.method, lines: [] });
+    expect(p.applied.summary).toEqual(["Add to the method after step 2: Double strain into the glass"]);
+  });
+
+  it("does both at once, and a duplicate step changes nothing", () => {
+    const { plan: both } = plan([{ ingredient_id: "wedge", qty: 1, unit: "each" }], { op: "replace", index: 2, text: "Garnish with a lime wheel" });
+    expect(both.linesChanged && both.methodChanged).toBe(true);
+    expect(both.applied.summary).toHaveLength(3);
+    const { plan: dup } = plan([], { op: "insert", index: 0, text: "chill the glass" });
+    expect(dup.methodChanged).toBe(false);
+    expect(dup.applied.method_before).toBeUndefined();
+  });
+
+  it("an unpriced ingredient can still be applied (no cost worked out)", () => {
+    const { effect, plan: p } = plan([{ ingredient_id: "mystery", qty: 2, unit: "ml" }]);
+    expect(effect.status).toBe("price_tbc");
+    expect(effectCanApply(effect)).toBe(true);
+    expect(p.linesChanged).toBe(true);
+    expect(p.applied.summary).toEqual(["Recipe: add Mystery Bitters 2 ml"]);
+  });
+
+  it("will not touch the lines when the note cannot be worked out", () => {
+    const { effect, plan: p } = plan([{ ingredient_id: "gone", qty: 5, unit: "ml" }]);
+    expect(effectCanApply(effect)).toBe(false);
+    expect(p.linesChanged).toBe(false);
+    expect(p.lines).toBe(LINES);
+  });
+
+  it("undo restores lines and method exactly", () => {
+    const { plan: p } = plan([{ ingredient_id: "wedge", qty: 2, unit: "each" }, { ingredient_id: "lime", qty: -10, unit: "ml" }], { op: "insert", index: 1, text: "Add the lime wedge" });
+    const back = undoApplied(p.lines, p.method, p.applied);
+    expect(back.skipped).toEqual([]);
+    expect(back.method).toEqual(METHOD);
+    expect(back.lines.map((l) => [l.id, l.qty])).toEqual(LINES.map((l) => [l.id, l.qty]));
+  });
+
+  it("undo after later edits reverses just the note's part", () => {
+    const { plan: p } = plan([{ ingredient_id: "lime", qty: 10, unit: "ml" }], { op: "insert", index: 1, text: "Add the lime wedge" });
+    // someone since changed lime from 40 to 50 and added a step at the front
+    const edited = p.lines.map((l) => (l.id === "l2" ? { ...l, qty: 50 } : l));
+    const method = ["Wipe the bench", ...p.method];
+    const back = undoApplied(edited, method, p.applied);
+    expect(back.lines.find((l) => l.id === "l2")?.qty).toBe(40);
+    expect(back.method).toEqual(["Wipe the bench", ...METHOD]);
+    expect(back.skipped).toEqual([]);
+  });
+
+  it("undo reverses a replace and skips parts that are already gone", () => {
+    const { plan: p } = plan([{ ingredient_id: "wedge", qty: 1, unit: "each" }], { op: "replace", index: 2, text: "Garnish with a lime wheel" });
+    const edited = p.method.map((m) => (m === "Garnish with a lime wheel" ? "Something else" : m));
+    const gone = p.lines.filter((l) => l.component_id !== "wedge");
+    const back = undoApplied(gone, edited, p.applied);
+    expect(back.skipped.length).toBe(2);
+    expect(back.method).toEqual(edited);
+    const exact = undoApplied(p.lines, p.method, p.applied);
+    expect(exact.method).toEqual(METHOD);
+    expect(exact.lines.some((l) => l.component_id === "wedge")).toBe(false);
+  });
+
+  it("hasApplied and partitionNotes", () => {
+    expect(hasApplied({ applied: null })).toBe(false);
+    expect(hasApplied({ applied: { at: "x", lines: [] } })).toBe(false);
+    expect(hasApplied({ applied: { at: "x", lines: [{ created_line_id: "a" }] } })).toBe(true);
+    expect(hasApplied({ applied: { at: "x", lines: [], method_before: [], method_after: ["a"] } })).toBe(true);
+    const part = partitionNotes([{ status: "open" }, { status: "approved" }, { status: "dismissed" }] as { status: "open" | "approved" | "dismissed" }[]);
+    expect(part.open).toHaveLength(1);
+    expect(part.done).toHaveLength(2);
   });
 });

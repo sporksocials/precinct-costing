@@ -11,20 +11,33 @@ import {
   allergenLabel,
   allergensReady,
   ingredientAllergenState,
+  isSeafoodAllergen,
   rollup,
   withDraft,
   type AllergenId,
   type AllergenIndex,
   type AnimalFlag,
-  type DietTag,
+  type Rollup,
 } from "@/lib/allergens";
+import { badgeModel, type BadgeModel } from "@/lib/allergen-badges";
+import { BADGE_LABELS } from "@/lib/diet-legend";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
-import { Banner, cx, Group, Sheet } from "./ui";
+import { BadgePanel } from "./allergen-badges";
+import { Banner, cx, Group, Segmented, Sheet, Toggle } from "./ui";
 
 /** The costing index plus menu items by id, for allergen roll-ups (virtual gelato and beer items included). */
 export function useAllergenIndex(): AllergenIndex {
   const { index, items } = useStore();
   return useMemo(() => ({ ...index, items: new Map(items.map((i) => [i.id, i])) }), [index, items]);
+}
+
+/** The roll-up and badge model for the recipe being edited (live as lines change). */
+export function useBadgeModel(kind: "item" | "prep", rec: MenuItem | Prep, lines: RecipeLine[]): { r: Rollup; model: BadgeModel } {
+  const base = useAllergenIndex();
+  const idx = useMemo(() => withDraft(base, kind, rec, lines), [base, kind, rec, lines]);
+  const r = useMemo(() => rollup({ kind, id: rec.id }, idx), [idx, kind, rec.id]);
+  const model = useMemo(() => badgeModel(r, kind === "item" ? (rec as MenuItem) : null), [r, kind, rec]);
+  return { r, model };
 }
 
 function friendlyError(e: unknown): string {
@@ -105,6 +118,8 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
     return <TickChip key={id} label={label} state={state} hint={state === "suggested" ? `“${kw(id)}”` : undefined} disabled={!ready} onClick={() => tick(id)} />;
   };
   const nSuggest = suggestedIds.length + suggestedDiet.length;
+  const hasSeafood = st.confirmed.some(isSeafoodAllergen);
+  const seafoodReady = ready && ("seafood_origin" in ing || "seafood_exempt" in ing);
 
   return (
     <div>
@@ -116,6 +131,12 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
       </p>
       <ChipGroup title="Required">{ALLERGENS.filter((a) => a.group === "required").map((a) => allergenChip(a.id, a.label))}</ChipGroup>
       <ChipGroup title="Chef Extras">{ALLERGENS.filter((a) => a.group === "extra").map((a) => allergenChip(a.id, a.label))}</ChipGroup>
+      <ChipGroup title="Sensitivity And Alcohol">
+        {ALLERGENS.filter((a) => a.group === "sensitivity").map((a) => allergenChip(a.id, a.label))}
+        {ALLERGENS.filter((a) => a.group === "attribute").map((a) => allergenChip(a.id, BADGE_LABELS.containsAlcohol))}
+      </ChipGroup>
+      <p className="mt-2 text-[13px] text-label-2">Sulphites show as a quiet sensitivity and alcohol as Contains Alcohol. Neither is counted as an allergen.</p>
+      {hasSeafood ? <SeafoodOriginEditor ing={ing} ready={seafoodReady} save={save} /> : null}
       <ChipGroup title="Diet">
         {ANIMAL_FLAGS.map((f) => {
           const implied = st.confirmedAnimal.includes(f) && !st.tickedAnimal.includes(f);
@@ -154,6 +175,49 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
   );
 }
 
+/**
+ * Seafood origin for an ingredient with fish, crustacea or molluscs ticked: Australian, Imported (New Zealand counts as
+ * imported) or Not Set, plus an exemption for seafood the origin standard leaves out (fish sauce, canned tuna, bonito powder).
+ */
+function SeafoodOriginEditor({ ing, ready, save }: { ing: Ingredient; ready: boolean; save: (patch: Partial<Ingredient>) => Promise<void> }) {
+  const exempt = !!ing.seafood_exempt;
+  const origin = ing.seafood_origin === "A" || ing.seafood_origin === "I" ? ing.seafood_origin : "none";
+  return (
+    <div className="mt-4" role="group" aria-label="Seafood origin">
+      <p className="pb-2 text-[13px] font-medium text-label-2">{BADGE_LABELS.seafoodOrigin}</p>
+      {exempt ? (
+        <p className="rounded-xl bg-fill px-3 py-2 text-[14px] text-label-2">No origin letter is needed while this is exempt.</p>
+      ) : (
+        <>
+          <Segmented
+            ariaLabel="Seafood origin"
+            value={origin}
+            onChange={(v) => {
+              if (ready) void save({ seafood_origin: v === "none" ? null : v });
+            }}
+            options={[
+              { value: "A", label: "Australian" },
+              { value: "I", label: "Imported" },
+              { value: "none", label: "Not Set" },
+            ]}
+          />
+          <p className="mt-1.5 text-[13px] text-label-2">Where it was harvested, not where it was packed. New Zealand seafood is imported.</p>
+        </>
+      )}
+      <div className="-mx-4 mt-1">
+        <Toggle
+          label="Exempt From Origin Label"
+          sub="Liquid, powder or shelf-stable chopped seafood, such as fish sauce, canned tuna or bonito powder."
+          checked={exempt}
+          onChange={(v) => {
+            if (ready) void save({ seafood_exempt: v });
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** The ingredient page's Allergens section. */
 export function IngredientAllergensSection({ ing }: { ing: Ingredient }) {
   const { portalPrices, supplierById } = useStore();
@@ -175,35 +239,19 @@ export function IngredientAllergensSection({ ing }: { ing: Ingredient }) {
 
 const pill = "inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-semibold";
 
-export function DietPill({ tag }: { tag: DietTag }) {
-  const map = {
-    yes: { cls: "bg-good-soft text-good", text: "Yes" },
-    no: { cls: "bg-danger-soft text-danger", text: "No" },
-    maybe: { cls: "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn", text: "Probably not" },
-    unknown: { cls: "bg-fill text-label-2", text: "Not reviewed" },
-  }[tag.state];
-  return (
-    <span className={cx(pill, map.cls)} title={tag.because.length ? `Because of ${tag.because.join(", ")}` : undefined}>
-      {tag.label}: {map.text}
-    </span>
-  );
-}
-
 type Rec = MenuItem | Prep;
 
 /**
  * Allergens for a dish or prep: rolled up from its ingredients (nested preps included), live as lines are added.
- * The chef can add or remove an allergen and write a "made without" note. Anything not reviewed is flagged, and
- * nothing here ever says "free from".
+ * The badge panel on top is the answer (tiers in a fixed order); below it the chef can add or remove an allergen and
+ * write a "made without" note. Anything not reviewed is flagged first, and nothing here ever says "gluten free".
  */
 export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" | "prep"; rec: Rec; lines: RecipeLine[]; setDraft: (fn: (d: Rec) => Rec) => void }) {
   const store = useStore();
-  const base = useAllergenIndex();
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const ready = allergensReady(rec);
-  const idx = useMemo(() => withDraft(base, kind, rec, lines), [base, kind, rec, lines]);
-  const r = useMemo(() => rollup({ kind, id: rec.id }, idx), [idx, kind, rec.id]);
+  const { r, model } = useBadgeModel(kind, rec, lines);
 
   const add = rec.allergen_add ?? [];
   const notes = rec.allergen_notes ?? {};
@@ -225,6 +273,12 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
   const toReview = r.unreviewedIngredients;
   const shown = showAll ? toReview : toReview.slice(0, 6);
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";
+  const item = kind === "item" ? (rec as MenuItem) : null;
+  const pillFor = (a: (typeof ALLERGENS)[number], state: "contains" | "may_contain" | "none") => {
+    if (a.group === "sensitivity") return { cls: "border border-[color:var(--label-3)] text-label-2", text: state === "contains" ? "Sensitivity" : "Sensitivity (unconfirmed)" };
+    if (a.group === "attribute") return { cls: "border border-[color:var(--label-3)] text-label-2", text: state === "contains" ? BADGE_LABELS.containsAlcohol : `${BADGE_LABELS.containsAlcohol} (unconfirmed)` };
+    return state === "contains" ? { cls: "bg-danger-soft text-danger", text: "Contains" } : { cls: "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn", text: "May contain (unconfirmed)" };
+  };
 
   return (
     <Group
@@ -233,67 +287,53 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
       trailing={r.reviewed ? <span className="pb-0.5 text-[13px] font-medium text-good">All ingredients reviewed</span> : null}
       footer={ALLERGEN_NOTICE}
     >
-      <div className="space-y-4 px-4 py-4">
+      <div className="space-y-5 px-4 py-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">{PENDING_NOTE}</p> : null}
 
-        {r.ingredientCount === 0 ? (
-          <p className="text-[15px] text-label-2">Add ingredients and their allergens appear here as you build. Nothing is marked free from until every ingredient is reviewed.</p>
-        ) : !r.reviewed ? (
-          <div className="flex items-start gap-2.5 rounded-xl bg-warn-soft px-3 py-2.5 text-warn">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
-            <div className="min-w-0 text-[14px]">
-              <p className="font-semibold">
-                {r.unreviewedCount} {r.unreviewedCount === 1 ? "ingredient" : "ingredients"} not reviewed
-              </p>
-              <p className="mt-0.5 text-[13px]">
-                {r.unreviewed.slice(0, 5).join(", ")}
-                {r.unreviewed.length > 5 ? ` and ${r.unreviewed.length - 5} more` : ""}. Anything not listed below may still apply.
-              </p>
-            </div>
-          </div>
-        ) : null}
+        <BadgePanel model={model} seafoodLabel={!!item?.seafood_label} />
 
         {rows.length ? (
-          <ul className="divide-y divide-[color:var(--separator)]">
-            {rows.map((a) => {
-              const c = r.cells[a.id];
-              const chefAdded = add.includes(a.id);
-              return (
-                <li key={a.id} className="py-3 first:pt-0">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <span className="min-w-0 flex-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-[17px] font-medium sm:text-[15px]">{a.label}</span>
-                        <span className={cx(pill, c.state === "contains" ? "bg-danger-soft text-danger" : "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn")}>
-                          {c.state === "contains" ? "Contains" : "May contain (unconfirmed)"}
+          <div>
+            <p className="text-[13px] font-medium text-label-2">Sources And Changes</p>
+            <p className="pb-1 text-[13px] text-label-2">Where each one comes from. Clear one the dish is made without, or add a note.</p>
+            <ul className="divide-y divide-[color:var(--separator)]">
+              {rows.map((a) => {
+                const c = r.cells[a.id];
+                const chefAdded = add.includes(a.id);
+                const pl = pillFor(a, c.state);
+                return (
+                  <li key={a.id} className="py-3">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-[17px] font-medium sm:text-[15px]">{a.label}</span>
+                          <span className={cx(pill, pl.cls)}>{pl.text}</span>
                         </span>
+                        <span className="mt-0.5 block text-[13px] text-label-2">{c.sources.length ? `From ${c.sources.map((s) => (s === "Chef" ? "the chef" : s)).join(", ")}` : ""}</span>
                       </span>
-                      <span className="mt-0.5 block text-[13px] text-label-2">{c.sources.length ? `From ${c.sources.map((s) => (s === "Chef" ? "the chef" : s)).join(", ")}` : ""}</span>
-                    </span>
-                    <span className="flex gap-2">
-                      {c.state === "may_contain" ? (
-                        <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, true)}>
-                          Confirm
-                        </button>
-                      ) : null}
-                      {chefAdded ? (
-                        <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, false)}>
-                          Undo Add
-                        </button>
-                      ) : (
-                        <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, true)}>
-                          {c.state === "may_contain" ? "Clear" : "Remove"}
-                        </button>
-                      )}
-                    </span>
-                  </div>
-                  <NoteField label={a.label} value={notes[a.id] ?? ""} disabled={!ready} onCommit={(t) => setNote(a.id, t)} />
-                </li>
-              );
-            })}
-          </ul>
-        ) : r.ingredientCount > 0 ? (
-          <p className="text-[15px] text-label-2">{r.reviewed ? "No allergens ticked on any ingredient." : "No allergens found so far."}</p>
+                      <span className="flex gap-2">
+                        {c.state === "may_contain" ? (
+                          <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, true)}>
+                            Confirm
+                          </button>
+                        ) : null}
+                        {chefAdded ? (
+                          <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, false)}>
+                            Undo Add
+                          </button>
+                        ) : (
+                          <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, true)}>
+                            {c.state === "may_contain" ? "Clear" : "Remove"}
+                          </button>
+                        )}
+                      </span>
+                    </div>
+                    <NoteField label={a.label} value={notes[a.id] ?? ""} disabled={!ready} onCommit={(t) => setNote(a.id, t)} />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ) : null}
 
         {cleared.length ? (
@@ -314,18 +354,13 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
         ) : null}
 
         <div>
-          <p className="pb-2 text-[13px] font-medium text-label-2">Add An Allergen</p>
+          <p className="pb-2 text-[13px] font-medium text-label-2">Add Allergen, Sensitivity Or Alcohol</p>
           <div className="flex flex-wrap gap-2">
             {addable.map((a) => (
-              <TickChip key={a.id} label={a.label} state="off" disabled={!ready} onClick={() => setAdd(a.id, true)} />
+              <TickChip key={a.id} label={a.group === "attribute" ? BADGE_LABELS.containsAlcohol : a.label} state="off" disabled={!ready} onClick={() => setAdd(a.id, true)} />
             ))}
-            {addable.length === 0 ? <span className="text-[13px] text-label-2">Every allergen is already listed above.</span> : null}
+            {addable.length === 0 ? <span className="text-[13px] text-label-2">Everything is already listed above.</span> : null}
           </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <DietPill tag={r.diet.vegetarian} />
-          <DietPill tag={r.diet.vegan} />
         </div>
 
         {toReview.length ? (

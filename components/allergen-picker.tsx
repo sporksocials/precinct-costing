@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import {
   ALLERGENS,
   ALLERGEN_NOTICE,
+  CONTAINS_IDS,
   ANIMAL_FLAGS,
   ANIMAL_LABELS,
   allergenLabel,
@@ -97,7 +98,9 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
   const run = useRef(0);
   const results = useRef<HTMLDivElement>(null);
   const ready = allergensReady(ing);
-  const st = ingredientAllergenState(ing, description);
+  const st0 = ingredientAllergenState(ing, description);
+  // sulphites and alcohol are not on the menu: never suggested
+  const st = { ...st0, suggested: st0.suggested.filter((x) => CONTAINS_IDS.includes(x.id)) };
   const heurIds = st.suggested.map((s) => s.id);
   const heurDiet = st.suggestedAnimal.filter((s) => s.flag === "meat" || s.flag === "honey");
   // Smart Tidy's proposals for this ingredient (only what is still unticked). They only PROPOSE: they show as suggested chips and nothing is saved until a person confirms.
@@ -168,11 +171,6 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
       </p>
       <ChipGroup title="Required">{ALLERGENS.filter((a) => a.group === "required").map((a) => allergenChip(a.id, a.label))}</ChipGroup>
       <ChipGroup title="Chef Extras">{ALLERGENS.filter((a) => a.group === "extra").map((a) => allergenChip(a.id, a.label))}</ChipGroup>
-      <ChipGroup title="Sensitivity And Alcohol">
-        {ALLERGENS.filter((a) => a.group === "sensitivity").map((a) => allergenChip(a.id, a.label))}
-        {ALLERGENS.filter((a) => a.group === "attribute").map((a) => allergenChip(a.id, BADGE_LABELS.containsAlcohol))}
-      </ChipGroup>
-      <p className="mt-2 text-[13px] text-label-2">Sulphites show as a quiet sensitivity and alcohol as Contains Alcohol. Neither is counted as an allergen.</p>
       {hasSeafood ? <SeafoodOriginEditor ing={ing} ready={seafoodReady} save={save} /> : null}
       <ChipGroup title="Diet">
         {ANIMAL_FLAGS.map((f) => {
@@ -326,7 +324,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
 
   // drinks mark only egg, milk and nuts: nothing else is listed, cleared or offered (Troy, 4 Oct 2026)
   const drink = kind === "item" && isDrinkItem(rec as MenuItem);
-  const marked = ALLERGENS.filter((a) => showsAllergen(drink ? (rec as MenuItem) : null, a.id));
+  const marked = ALLERGENS.filter((a) => showsAllergen(kind === "item" ? (rec as MenuItem) : null, a.id));
   const rows = marked.filter((a) => r.cells[a.id].state !== "none");
   const cleared = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
   const addable = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
@@ -415,10 +413,10 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
         ) : null}
 
         <div>
-          <p className="pb-2 text-[13px] font-medium text-label-2">{drink ? "Add Allergen" : "Add Allergen, Sensitivity Or Alcohol"}</p>
+          <p className="pb-2 text-[13px] font-medium text-label-2">Add Allergen</p>
           <div className="flex flex-wrap gap-2">
             {addable.map((a) => (
-              <TickChip key={a.id} label={a.group === "attribute" ? BADGE_LABELS.containsAlcohol : a.label} state="off" disabled={!ready} onClick={() => setAdd(a.id, true)} />
+              <TickChip key={a.id} label={a.label} state="off" disabled={!ready} onClick={() => setAdd(a.id, true)} />
             ))}
             {addable.length === 0 ? <span className="text-[13px] text-label-2">Everything is already listed above.</span> : null}
           </div>
@@ -460,7 +458,7 @@ function ReviewRow({ ing, ready, drink, onReview }: { ing: Ingredient; ready: bo
   const [error, setError] = useState<string | null>(null);
   const st0 = ingredientAllergenState(ing);
   // on a drink only egg, milk and nuts are suggested; alcohol and sulphites stay recorded but are not offered here
-  const st = drink ? { ...st0, suggested: st0.suggested.filter((s) => DRINK_ALLERGEN_IDS.includes(s.id)) } : st0;
+  const st = { ...st0, suggested: st0.suggested.filter((s) => (drink ? DRINK_ALLERGEN_IDS : CONTAINS_IDS).includes(s.id)) };
   const confirm = async (id: AllergenId) => {
     setError(null);
     try {

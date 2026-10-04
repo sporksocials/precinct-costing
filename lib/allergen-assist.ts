@@ -11,6 +11,7 @@
 import {
   ALLERGENS,
   ANIMAL_FLAGS,
+  CONTAINS_IDS,
   impliedAnimalFlag,
   isAllergenId,
   isAnimalFlag,
@@ -135,7 +136,7 @@ const GROUP_WORDS: Record<string, string> = {
 export const SYSTEM_PROMPT = `You check ingredients for a recipe costing app used by hospitality venues in Australia. For each ingredient you are given, say which allergens and which animal products it contains, so a person can confirm them quickly. You only propose. A person decides, so a missing proposal is better than a wrong one.
 
 Allergen ids you may use, exactly as written, and nothing else:
-${ALLERGENS.map((a) => `- ${a.id}: ${a.label} (${GROUP_WORDS[a.group]})`).join("\n")}
+${ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map((a) => `- ${a.id}: ${a.label} (${GROUP_WORDS[a.group]})`).join("\n")}
 
 Diet flags you may use, exactly as written: ${ANIMAL_FLAGS.join(", ")}. Use meat for meat, poultry, gelatine and lard. Use fish for fish and seafood. Use dairy for milk products, egg for egg products and honey for honey and mead.
 
@@ -154,13 +155,10 @@ Rules:
 - Flour, bread, pasta, pastry, batter and crumbs contain gluten unless the name says gluten free or names a gluten free flour such as rice or corn.
 
 Drinks, wine, beer, spirits and liqueurs:
-- Beer, ale, lager, stout and pale ale contain gluten (barley) and alcohol. Gluten free beer has no gluten. Ginger beer and root beer are not beer and have no alcohol.
+- Beer, ale, lager, stout and pale ale contain gluten (barley). Gluten free beer has no gluten. Ginger beer and root beer are not beer.
 - Do not propose gluten for distilled spirits such as gin, vodka, rum, tequila, brandy, bourbon and whisky, because distillation removes it. Propose gluten for a whisky style product only if the name says malt.
-- Cider contains alcohol and sulphites, and no gluten.
-- Wine, sparkling wine, champagne, prosecco, vermouth, sherry and port contain alcohol and sulphites.
-- Spirits and liqueurs contain alcohol. Propose alcohol for every alcoholic drink or alcoholic ingredient.
-- Sulphites and alcohol are recorded for the record even though the app never shows them on drinks, so still propose them for wine and spirits as above.
-- Cream liqueurs such as Baileys and Irish cream contain milk and alcohol.
+- Cider, wine, sparkling wine, champagne, prosecco, vermouth, sherry, port, spirits and liqueurs have none of the allergens above unless the name says so. Never propose sulphites or alcohol: the menu does not list them, so they are not an option.
+- Cream liqueurs such as Baileys and Irish cream contain milk.
 - Amaretto, orgeat, frangelico and nut syrups or nut liqueurs contain tree_nuts.
 - Egg white used in a drink contains egg.
 
@@ -246,6 +244,7 @@ export function validateReplyDetailed(raw: string, input: AssistRequest): { item
     for (const a of it.allergens as Record<string, unknown>[]) {
       if (!a || typeof a.id !== "string" || !isAllergenId(a.id) || ids.has(a.id)) return { reason: "bad_reply_allergen" };
       if (!isValidReason(a.reason)) return { reason: "bad_reply_reason" };
+      if (!CONTAINS_IDS.includes(a.id)) continue; // sulphites and alcohol are not on the menu: dropped, never shown
       ids.add(a.id);
       allergens.push({ id: a.id, reason: a.reason });
     }
@@ -282,7 +281,7 @@ export function builtinItems(input: AssistRequest): AllergenAssistItem[] {
     const have = alreadyHas(ing);
     const where = ing.description ? "The name or description" : "The name";
     const allergens = suggestAllergens(ing.name, ing.description)
-      .filter((s) => !have.allergens.has(s.id))
+      .filter((s) => CONTAINS_IDS.includes(s.id) && !have.allergens.has(s.id))
       .map((s) => ({ id: s.id, reason: `${where} mentions "${s.keyword}".` }));
     const diet = suggestDietFlags(ing.name, ing.description).map((s) => ({ flag: s.flag, reason: `${where} mentions "${s.keyword}".` }));
     return { key: ing.key, allergens, diet: newDiet(ing, allergens, diet) };

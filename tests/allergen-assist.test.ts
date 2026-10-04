@@ -76,8 +76,12 @@ describe("parseRequest", () => {
 describe("prompt", () => {
   const p = SYSTEM_PROMPT.toLowerCase();
   it("names every real allergen id and diet flag", () => {
-    for (const id of ALLERGEN_IDS) expect(SYSTEM_PROMPT).toContain(`- ${id}: `);
-    for (const a of ALLERGENS) expect(SYSTEM_PROMPT).toContain(a.label);
+    for (const a of ALLERGENS.filter((x) => x.group === "required" || x.group === "extra")) {
+      expect(SYSTEM_PROMPT).toContain(`- ${a.id}: `);
+      expect(SYSTEM_PROMPT).toContain(a.label);
+    }
+    expect(SYSTEM_PROMPT).not.toContain("- sulphites: ");
+    expect(SYSTEM_PROMPT).not.toContain("- alcohol: ");
     for (const f of ANIMAL_FLAGS) expect(SYSTEM_PROMPT).toContain(f);
   });
   it("states the rules: clear composition only, leave out may contain doubt, ONLY JSON", () => {
@@ -90,12 +94,11 @@ describe("prompt", () => {
       "beer, ale, lager",
       "contain gluten (barley)",
       "cream liqueurs",
-      "contain milk and alcohol",
+      "contain milk",
       "amaretto, orgeat, frangelico",
       "tree_nuts",
       "egg white",
-      "never shows them on drinks",
-      "still propose them for wine and spirits",
+      "never propose sulphites or alcohol",
     ]) {
       expect(p).toContain(w.toLowerCase());
     }
@@ -204,6 +207,20 @@ describe("validateReply", () => {
       input,
     );
     expect(r).toEqual([{ key: "a1", allergens: [{ id: "milk", reason: "Cream is a milk product." }], diet: [{ flag: "meat", reason: "Contains meat." }] }]);
+  });
+});
+
+describe("sulphites and alcohol are never proposed (not on the menu)", () => {
+  it("the keyword check proposes nothing for wine, beer, cider or spirits", () => {
+    const names = ["Chardonnay Wine", "Petes Pure Prosecco", "Gin", "Cider", "Aperol (700ml)"];
+    for (const it of builtinItems({ ingredients: names.map((name, i) => ing({ key: `k${i}`, name })) })) {
+      expect(it.allergens.map((a) => a.id)).not.toContain("sulphites");
+      expect(it.allergens.map((a) => a.id)).not.toContain("alcohol");
+    }
+  });
+  it("a model reply that names them has them dropped, not shown", () => {
+    const r = validateReply(JSON.stringify({ items: [{ key: "a1", allergens: [{ id: "alcohol", reason: "Wine contains alcohol." }, { id: "sulphites", reason: "Wine contains sulphites." }, { id: "milk", reason: "Cream is a milk product." }], diet: [] }] }), ONE);
+    expect(r?.[0].allergens.map((a) => a.id)).toEqual(["milk"]);
   });
 });
 

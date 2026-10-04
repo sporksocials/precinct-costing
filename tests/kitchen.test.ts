@@ -311,12 +311,12 @@ describe("kitchen badges for the new feed fields", () => {
   const rev = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, allergens: [], allergens_reviewed: true, diet_flags: [], ...extra });
   const ln = (dish: string, ing: string, sort = 1) => ({ parent_type: "item", parent_id: dish, component_type: "ingredient", component_id: ing, qty: 100, unit: "g", note: null, sort });
 
-  it("a wine-only sulphite dish is not 'no allergens': sulphites and alcohol show, and vegan is Not Confirmed", () => {
+  it("a wine-only dish lists no sulphites or alcohol (not on the menu), and vegan is Not Confirmed", () => {
     const m = feed({ dishes: [{ id: "d", name: "Wine Jus" }], ingredients: [rev("w", "Red Wine", { allergens: ["sulphites", "alcohol"] })], lines: [ln("d", "w")] });
     const b = dishBadges(m, "d");
     expect(b.contains).toEqual([]);
-    expect(b.sensitivities).toEqual(["sulphites"]);
-    expect(b.attributes).toEqual(["alcohol"]);
+    expect(b.sensitivities).toEqual([]);
+    expect(b.attributes).toEqual([]);
     expect(b.diet.filter((d) => d.id === "vegetarian" || d.id === "vegan").every((d) => d.state === "not_confirmed")).toBe(true);
   });
 

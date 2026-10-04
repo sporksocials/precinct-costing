@@ -58,8 +58,9 @@ const DIETS: { id: DietId; label: string }[] = [
 ];
 /** the main allergen columns (required, then chef extras), then the two narrow quiet ones */
 const MAIN = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra");
-const SENS = ALLERGENS.filter((a) => a.group === "sensitivity");
-const ATTR = ALLERGENS.filter((a) => a.group === "attribute");
+/** sulphites and alcohol are not on the menu, so the grid has no columns for them */
+const SENS: typeof ALLERGENS = [];
+const ATTR: typeof ALLERGENS = [];
 const COLS = MAIN.length + SENS.length + ATTR.length + DIETS.length + 2;
 
 function FilterChip({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
@@ -88,7 +89,6 @@ function Legend() {
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-grn")}><Check className="h-3 w-3" strokeWidth={3} /></span>Green: not in any ingredient</li>
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-may text-[11px] font-bold")}>?</span>Dashed: may contain, not confirmed</li>
       <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-grey")}><Minus className="h-3 w-3" strokeWidth={3} /></span>Grey: needs review, nothing claimed</li>
-      <li className="flex items-center gap-1.5"><span className={cx(sw, "mx-quiet")}><Info className="h-3 w-3" strokeWidth={2.5} /></span>Outline: sulphite sensitivity or Contains Alcohol, not allergens</li>
     </ul>
   );
 }

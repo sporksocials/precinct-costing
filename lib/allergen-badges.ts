@@ -87,12 +87,17 @@ export function isDrinkItem(item?: { category?: string | null } | null): boolean
 
 /**
  * The only allergens marked on a drink (Troy, 4 Oct 2026): egg, milk and nuts. Nothing else is listed on drinks: no
- * gluten or gluten free, no sulphites, no alcohol, no dietary badges. The ingredient data stays recorded.
+ * gluten or gluten free, no dietary badges. The ingredient data stays recorded.
  */
 export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts"];
 
-/** True when this allergen is marked on this item: everything on food, only egg, milk and nuts on drinks. */
+/**
+ * True when this allergen is marked on this item. Only what the menus show is listed (Troy, 4 Oct 2026): sulphites and
+ * alcohol are never listed anywhere, on food or drinks. Food shows the declared allergens and chef extras, drinks only
+ * egg, milk and nuts.
+ */
 export function showsAllergen(item: { category?: string | null } | null | undefined, id: AllergenId): boolean {
+  if (!CONTAINS_IDS.includes(id)) return false;
   return !isDrinkItem(item) || DRINK_ALLERGEN_IDS.includes(id);
 }
 
@@ -142,13 +147,14 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null): BadgeModel {
   }
 
   const drink = isDrinkItem(item);
+  // sulphites and alcohol are not on the menu, so they are never listed (the ingredient data stays recorded)
+  s.sensitivities = [];
+  s.sensitivitiesMay = [];
+  s.attributes = [];
+  s.attributesMay = [];
   if (drink) {
     s.contains = s.contains.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
     s.may = s.may.filter((id) => DRINK_ALLERGEN_IDS.includes(id));
-    s.sensitivities = [];
-    s.sensitivitiesMay = [];
-    s.attributes = [];
-    s.attributesMay = [];
     diet.length = 0;
     options.length = 0;
     optionsMissingNote.length = 0;

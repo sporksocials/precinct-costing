@@ -80,11 +80,12 @@ describe("badgeModel: drinks mark only egg, milk and nuts", () => {
     expect(m.sensitivitiesMay).toEqual([]);
     expect(m.attributesMay).toEqual([]);
   });
-  it("still shows everything on food", () => {
+  it("still shows the declared allergens on food", () => {
     const m = model(rich(), { category: "Food" });
     expect(m.contains).toContain("gluten");
-    expect(m.sensitivities).toEqual(["sulphites"]);
-    expect(m.attributes).toEqual(["alcohol"]);
+    expect(m.contains).toContain("fish");
+    expect(m.sensitivities).toEqual([]);
+    expect(m.attributes).toEqual([]);
   });
   it("showsAllergen and isDrinkItem agree", () => {
     expect(isDrinkItem({ category: "Mocktail" })).toBe(true);
@@ -191,27 +192,32 @@ describe("badgeModel: nested preps", () => {
   });
 });
 
-describe("badgeModel: sensitivities and alcohol", () => {
-  it("a wine with sulphites: a sensitivity and Contains Alcohol, nothing in the allergen row", () => {
-    const m = model([ing("w", "Sauvignon Blanc", ok({ allergens: ["sulphites", "alcohol"] }))]);
-    expect(m.contains).toEqual([]);
-    expect(m.sensitivities).toEqual(["sulphites"]);
-    expect(m.attributes).toEqual(["alcohol"]);
-    expect(m.notReviewed).toBeNull();
+describe("badgeModel: sulphites and alcohol are never listed", () => {
+  it("a wine with sulphites and alcohol ticked shows neither, on food or drinks", () => {
+    for (const category of ["Food", "Cocktail", "Wine"]) {
+      const m = model([ing("w", "Sauvignon Blanc", ok({ allergens: ["sulphites", "alcohol"] }))], { category });
+      expect(m.contains).toEqual([]);
+      expect(m.sensitivities).toEqual([]);
+      expect(m.sensitivitiesMay).toEqual([]);
+      expect(m.attributes).toEqual([]);
+      expect(m.attributesMay).toEqual([]);
+    }
   });
-
-  it("a spirit with alcohol only", () => {
-    const m = model([ing("g", "Gin", ok({ allergens: ["alcohol"] }))]);
-    expect(m.contains).toEqual([]);
-    expect(m.sensitivities).toEqual([]);
-    expect(m.attributes).toEqual(["alcohol"]);
-  });
-
-  it("unreviewed wine: suggestions land in the may-tiers only", () => {
+  it("an unreviewed wine suggests nothing in any tier", () => {
     const m = model([ing("w", "Chardonnay Wine")]);
     expect(m.mayContain).toEqual([]);
-    expect(m.sensitivitiesMay).toEqual(["sulphites"]);
-    expect(m.attributesMay).toEqual(["alcohol"]);
+    expect(m.sensitivitiesMay).toEqual([]);
+    expect(m.attributesMay).toEqual([]);
+  });
+  it("the ticks stay recorded in the roll-up for the record", () => {
+    const { r } = dish([ing("w", "Sauvignon Blanc", ok({ allergens: ["sulphites", "alcohol"] }))]);
+    expect(r.cells.sulphites.state).toBe("contains");
+    expect(r.cells.alcohol.state).toBe("contains");
+  });
+  it("showsAllergen never allows them", () => {
+    expect(showsAllergen({ category: "Food" }, "sulphites")).toBe(false);
+    expect(showsAllergen({ category: "Cocktail" }, "alcohol")).toBe(false);
+    expect(showsAllergen(null, "alcohol")).toBe(false);
   });
 });
 

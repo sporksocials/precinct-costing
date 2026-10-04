@@ -270,6 +270,19 @@ export interface PrepCost {
   costPerUnit: number;
 }
 
+/** One bar shot (jigger), the unit a bar manager thinks in: 30 ml, as on the bar cards (1 shot = 30 ml). */
+export const SHOT_ML = 30;
+
+/**
+ * Cost of one 30 ml shot of a bar mix, ex GST, for drink pre-mixes and bar batches that yield litres. Null for anything
+ * else (food preps by kg or each). Straight from the batch cost: no wastage is added (Troy, 4 Oct 2026).
+ */
+export function costPerShot(p: { costPerUnit: number; prep: Pick<Prep, "yield_unit" | "prep_type"> }): number | null {
+  const type = (p.prep.prep_type ?? "").trim().toLowerCase();
+  if ((type !== "pre-mix" && type !== "bar batch") || p.prep.yield_unit !== "L") return null;
+  return Number.isFinite(p.costPerUnit) ? (p.costPerUnit * SHOT_ML) / 1000 : null;
+}
+
 export function costPrep(
   prep: Prep,
   index: CostingIndex,

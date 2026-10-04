@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
 import { money, packLabel, unitShort } from "@/lib/format";
-import type { PrepCost } from "@/lib/costing";
+import { costPerShot, type PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { Chips, cx, Empty, Row, SearchField, Segmented } from "@/components/ui";
@@ -122,6 +122,7 @@ function PrepTable({ rows }: { rows: PrepCost[] }) {
     { key: "type", label: "Type", render: (p) => <span className="text-label-2">{p.prep.prep_type ?? "—"}</span>, sort: (p) => p.prep.prep_type ?? "" },
     { key: "venue", label: "Venue", render: (p) => <span className="text-label-2">{p.prep.venue_id == null ? "Shared" : VENUE_SHORT[store.venueById.get(p.prep.venue_id)?.slug ?? ""] ?? ""}</span> },
     { key: "batch", label: "Batch", align: "right", render: (p) => packLabel(p.prep.yield_qty, p.prep.yield_unit), sort: (p) => Number(p.prep.yield_qty) },
+    { key: "shot", label: "Per Shot", align: "right", render: (p) => { const c = costPerShot(p); return c == null ? <span className="text-label-3">—</span> : money(c); }, sort: (p) => costPerShot(p) ?? -1 },
     { key: "unit", label: "Cost per Unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
     { key: "total", label: "Batch Cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
   ];
@@ -134,7 +135,7 @@ function PrepRow({ p }: { p: PrepCost }) {
       href={`/preps/${p.prep.id}`}
       title={p.prep.name}
       titleClassName={!p.prep.active ? "text-label-2" : undefined}
-      sub={`Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`}
+      sub={`Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${costPerShot(p) != null ? `${money(costPerShot(p))} per shot · ` : ""}${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`}
       trailing={<span className="text-label">{money(p.batchCost)}</span>}
     />
   );

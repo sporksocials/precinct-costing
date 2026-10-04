@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildIndex,
   costItem,
+  costPerShot,
   costPrep,
+  SHOT_ML,
   ingredientCostPerBase,
   ingredientExGstPackPrice,
   parsePackFromUom,
@@ -118,5 +120,30 @@ describe("parsePackFromUom", () => {
     expect(parsePackFromUom("12 X 330ML")).toEqual({ pack_size: 3.96, pack_unit: "L" });
     expect(parsePackFromUom("CTN 24 EA")).toEqual({ pack_size: 24, pack_unit: "each" });
     expect(parsePackFromUom("Bunch")).toBeNull();
+  });
+});
+
+describe("costPerShot (bar mixes, 30 ml, no wastage)", () => {
+  const p = (prep_type: string | null, yield_unit: "L" | "kg" | "each", costPerUnit: number) => ({ costPerUnit, prep: { prep_type, yield_unit } });
+  it("a shot is 30 ml", () => {
+    expect(SHOT_ML).toBe(30);
+  });
+  it("pre-mix and bar batch priced per litre give cost per litre x 0.03", () => {
+    expect(costPerShot(p("Pre-mix", "L", 40))).toBeCloseTo(1.2, 10);
+    expect(costPerShot(p("Bar batch", "L", 10))).toBeCloseTo(0.3, 10);
+    expect(costPerShot(p("pre-mix", "L", 40))).toBeCloseTo(1.2, 10);
+  });
+  it("a 700 ml pre-mix: batch cost over 0.7 L, then 30 ml of it", () => {
+    const batch = 28; // dollars for the 0.7 L bottle
+    expect(costPerShot(p("Pre-mix", "L", batch / 0.7))).toBeCloseTo(batch / (700 / 30), 10);
+  });
+  it("is null for food preps, other types and non-litre yields", () => {
+    expect(costPerShot(p(null, "L", 40))).toBeNull();
+    expect(costPerShot(p("Sauce", "L", 40))).toBeNull();
+    expect(costPerShot(p("Pre-mix", "kg", 40))).toBeNull();
+    expect(costPerShot(p("Pre-mix", "each", 40))).toBeNull();
+  });
+  it("adds no wastage and is zero for a free mix", () => {
+    expect(costPerShot(p("Pre-mix", "L", 0))).toBe(0);
   });
 });

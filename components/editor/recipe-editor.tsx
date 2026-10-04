@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
 import { newId, useStore } from "@/lib/store";
-import { costItem, costLines, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
+import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
 import { gp, money, parseDecimal, unitShort } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
 import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
@@ -636,7 +636,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             {itemCost && item ? (
               <ItemSummaryCard cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} />
             ) : prep ? (
-              <PrepSummary variant="card" batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} />
+              <PrepSummary variant="card" batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} perShot={costPerShot({ costPerUnit: prepCostPerUnit, prep })} />
             ) : null}
           </div>
         </aside>
@@ -650,7 +650,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       {itemCost && item ? (
         <ItemSummaryBar top={phoneSaveBar} cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} />
       ) : prep ? (
-        <PrepSummary variant="bar" top={phoneSaveBar} batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} />
+        <PrepSummary variant="bar" top={phoneSaveBar} batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} perShot={costPerShot({ costPerUnit: prepCostPerUnit, prep })} />
       ) : null}
 
       {/* line sheet (phones) */}

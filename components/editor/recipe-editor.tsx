@@ -24,6 +24,7 @@ import { CostBar, FixCard, trimFix } from "./cost-insight";
 import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
 import { DietOptionsGroup } from "./diet-options";
+import { isDrinkItem } from "@/lib/allergen-badges";
 import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
@@ -578,7 +579,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
-          {item ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+          {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
           {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}

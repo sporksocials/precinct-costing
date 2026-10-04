@@ -339,6 +339,9 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
     return state === "contains" ? { cls: "bg-danger-soft text-danger", text: "Contains" } : { cls: "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn", text: "May contain (unconfirmed)" };
   };
 
+  // drinks carry no menu labels at all (GFO, VO, VGO, DF and the seafood letters are for food), so there is nothing to show
+  if (drink && !model.listsAllergens) return null;
+
   return (
     <Group
       title={model.listsAllergens ? "Allergens" : "Menu Labels"}

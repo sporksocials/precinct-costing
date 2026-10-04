@@ -7,7 +7,7 @@ import { newId, useStore } from "@/lib/store";
 import { parentKey } from "@/lib/costing";
 import { formatQty } from "@/lib/parse-qty";
 import { requestTidy } from "@/lib/method-assist-client";
-import { tidyBuiltin, TidyError, type MethodOp, type TidyInput } from "@/lib/method-style";
+import { tidyBuiltin, tidyNote, TidyError, type MethodOp, type TidyInput } from "@/lib/method-style";
 import {
   applyKinds,
   describeMethodOp,
@@ -100,7 +100,7 @@ type Flow =
   | { step: "idle" }
   | { step: "ask"; text: string; error?: string }
   | { step: "loading"; text: string }
-  | { step: "preview"; text: string; op: MethodOp | null; method: string[]; effect: NoteEffect | undefined; plan: ApplyPlan };
+  | { step: "preview"; text: string; op: MethodOp | null; method: string[]; effect: NoteEffect | undefined; plan: ApplyPlan; tidied?: string };
 
 const TIDY_ERROR = "That cannot be a method step. Type a short instruction in words, then try again.";
 
@@ -204,14 +204,14 @@ function useNoteController(note: ResearchNote, editor: RecipeTarget | undefined)
     };
   };
 
-  const buildPreview = (text: string, op: MethodOp | null) => {
+  const buildPreview = (text: string, op: MethodOp | null, tidied?: string) => {
     const s = storeRef.current;
     if (!item || !target) return;
     const lines = target.getLines();
     const method = target.getMethod();
     const effect = kinds.lines ? researchNoteEffect({ changes: note.changes, item, lines, index: s.index, settings: s.settings, targets: s.targets }) : undefined;
     const plan = planApply({ note, item, lines, method, effect, op, makeId: newId, now: new Date().toISOString() });
-    setFlow({ step: "preview", text, op, method, effect, plan });
+    setFlow({ step: "preview", text, op, method, effect, plan, tidied });
   };
 
   const tidy = async (text: string) => {
@@ -223,14 +223,14 @@ function useNoteController(note: ResearchNote, editor: RecipeTarget | undefined)
     try {
       const res = await requestTidy(input);
       if (!alive.current) return;
-      buildPreview(text, res.ops[0] ?? null);
+      buildPreview(text, res.ops[0] ?? null, tidyNote(res));
     } catch (e) {
       if (!alive.current) return;
       if (e instanceof TidyError) setFlow({ step: "ask", text, error: TIDY_ERROR });
       else {
         // anything unexpected: tidy right here instead
         try {
-          buildPreview(text, tidyBuiltin(input).ops[0] ?? null);
+          buildPreview(text, tidyBuiltin(input).ops[0] ?? null, tidyNote({ source: "builtin", fallback: "unreachable" }));
         } catch {
           setFlow({ step: "ask", text, error: TIDY_ERROR });
         }
@@ -348,6 +348,7 @@ function PreviewPanel({ flow, answer, busy, onConfirm, onCancel, onTryAgain }: {
         ) : null}
         {dup ? <p className="mt-1.5 text-[15px] leading-snug">That step is already in the method, so there is nothing to add.</p> : null}
         {nothing && !dup && !effectProblem ? <p className="mt-1.5 text-[15px] leading-snug">Nothing in the recipe needs to change.</p> : null}
+        {flow.tidied ? <p className="mt-2 text-[13px] leading-snug text-label-2">{flow.tidied}</p> : null}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <button type="button" className="btn-primary flex-1 sm:flex-none sm:px-6" disabled={busy} onClick={onConfirm}>

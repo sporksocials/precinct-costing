@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { askModel, assist, buildUserPrompt, DEFAULT_MODEL, isValidStepText, parseRequest, SYSTEM_PROMPT, validateReply } from "@/lib/method-assist";
 import { requestTidy } from "@/lib/method-assist-client";
-import { TidyError, type TidyInput } from "@/lib/method-style";
+import { TidyError, tidyNote, type TidyInput } from "@/lib/method-style";
 
 const METHOD = ["Chill the glass", "Add the lime juice", "Shake hard for 12 seconds", "Double strain into the glass", "Garnish with a lime wedge"];
 const INPUT: TidyInput = {
@@ -149,6 +149,26 @@ describe("assist (AI path and fallback)", () => {
   it("still throws TidyError for text that cannot be a step", async () => {
     await expect(assist({ ...INPUT, text: "https://example.com" }, {}, vi.fn() as never)).rejects.toBeInstanceOf(TidyError);
   });
+  it("says why the built-in tidy answered", async () => {
+    const reason = async (f: unknown, e: Record<string, string> = env) => (await assist(INPUT, e, f as never)).fallback;
+    expect(await reason(vi.fn(), {})).toBe("no_key");
+    expect(await reason(vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: { message: "invalid x-api-key" } }) }))).toBe("http_401");
+    expect(await reason(vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: { message: "Your credit balance is too low to access the Anthropic API." } }) }))).toBe("credits");
+    expect(await reason(vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")))).toBe("timeout");
+    expect(await reason(vi.fn().mockRejectedValue(new Error("offline")))).toBe("network");
+    expect(await reason(vi.fn().mockResolvedValue(ok([{ op: "insert", index: 2, text: "Strain — over ice" }])))).toBe("bad_reply");
+  });
+  it("never puts the key in the answer", async () => {
+    const r = await assist(INPUT, { ANTHROPIC_API_KEY: "sk-secret-123" }, vi.fn().mockRejectedValue(new Error("sk-secret-123")) as never);
+    expect(JSON.stringify(r)).not.toContain("sk-secret-123");
+  });
+  it("words the note in plain terms with no Claude or Anthropic wording", () => {
+    for (const r of [{ source: "ai" as const }, { source: "builtin" as const, fallback: "no_key" }, { source: "builtin" as const, fallback: "credits" }, { source: "builtin" as const, fallback: "http_500" }, { source: "builtin" as const }]) {
+      expect(tidyNote(r)).not.toMatch(/claude|anthropic|\bai\b|—/i);
+    }
+    expect(tidyNote({ source: "ai" })).toBe("Wording by Smart Tidy.");
+    expect(tidyNote({ source: "builtin", fallback: "credits" })).toContain("no credit left");
+  });
 });
 
 describe("requestTidy (browser)", () => {
@@ -203,7 +223,7 @@ describe("POST /api/method-assist", () => {
   it("answers with the built-in tidy when there is no key", async () => {
     const r = await post(reqBody);
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ ops: [{ op: "insert", index: 4, text: "Strain over ice in the glass" }], source: "builtin" });
+    expect(await r.json()).toEqual({ ops: [{ op: "insert", index: 4, text: "Strain over ice in the glass" }], source: "builtin", fallback: "no_key" });
   });
   it("answers with the model's step when a key is set (mock fetch)", async () => {
     process.env.ANTHROPIC_API_KEY = "dummy";

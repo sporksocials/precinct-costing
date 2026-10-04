@@ -132,10 +132,10 @@ export interface AssistEnv {
   METHOD_ASSIST_MODEL?: string;
 }
 
-/** Asks the model; returns the validated ops, or null for any failure (no key, network, timeout, bad reply). */
-export async function askModel(input: TidyInput, env: AssistEnv, fetchImpl: typeof fetch = fetch): Promise<MethodOp[] | null> {
+/** Asks the model; `ops` is the validated step, or null with a `reason` (no key, network, timeout, API error, bad reply). */
+export async function askModelDetailed(input: TidyInput, env: AssistEnv, fetchImpl: typeof fetch = fetch): Promise<{ ops: MethodOp[] | null; reason?: string }> {
   const key = env.ANTHROPIC_API_KEY?.trim();
-  if (!key) return null;
+  if (!key) return { ops: null, reason: "no_key" };
   const base = (env.ANTHROPIC_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
   try {
     const res = await fetchImpl(`${base}/v1/messages`, {
@@ -149,18 +149,32 @@ export async function askModel(input: TidyInput, env: AssistEnv, fetchImpl: type
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      let body = null as { error?: { message?: string } } | null;
+      try {
+        body = (await res.json()) as typeof body;
+      } catch {
+        body = null;
+      }
+      return { ops: null, reason: /credit balance/i.test(body?.error?.message ?? "") ? "credits" : `http_${res.status}` };
+    }
     const data = (await res.json()) as { content?: { type?: string; text?: string }[] };
     const text = (data.content ?? []).find((c) => c?.type === "text" && typeof c.text === "string")?.text;
-    return text ? validateReply(text, input) : null;
-  } catch {
-    return null;
+    const ops = text ? validateReply(text, input) : null;
+    return ops ? { ops } : { ops: null, reason: "bad_reply" };
+  } catch (e) {
+    return { ops: null, reason: e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? "timeout" : "network" };
   }
+}
+
+/** Asks the model; returns the validated ops, or null for any failure (no key, network, timeout, bad reply). */
+export async function askModel(input: TidyInput, env: AssistEnv, fetchImpl: typeof fetch = fetch): Promise<MethodOp[] | null> {
+  return (await askModelDetailed(input, env, fetchImpl)).ops;
 }
 
 /** The answer for a request: the model's step when it passes the checks, else the built-in tidy. May throw TidyError. */
 export async function assist(input: TidyInput, env: AssistEnv = process.env as AssistEnv, fetchImpl: typeof fetch = fetch): Promise<TidyResult> {
-  const ops = await askModel(input, env, fetchImpl);
+  const { ops, reason } = await askModelDetailed(input, env, fetchImpl);
   if (ops) return { ops, source: "ai" };
-  return tidyBuiltin(input);
+  return { ...tidyBuiltin(input), fallback: reason };
 }

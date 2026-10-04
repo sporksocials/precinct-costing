@@ -33,6 +33,25 @@ export interface TidyInput {
 export interface TidyResult {
   ops: MethodOp[];
   source: "ai" | "builtin";
+  /** Why the built-in tidy answered instead of the smart one (no_key, timeout, network, credits, http_<status>, bad_reply, unreachable). Never holds the key. */
+  fallback?: string;
+}
+
+/** Plain words for a manager under the preview: which tidy wrote the step, and why not the smart one. */
+export function tidyNote(r: Pick<TidyResult, "source" | "fallback">): string {
+  if (r.source === "ai") return "Wording by Smart Tidy.";
+  const f = r.fallback ?? "";
+  const why =
+    f === "no_key" ? "Smart Tidy is not switched on: the server has no key."
+    : f === "credits" ? "Smart Tidy could not run: the account has no credit left."
+    : f === "http_401" || f === "http_403" ? "Smart Tidy could not run: the key was refused."
+    : f === "timeout" ? "Smart Tidy took too long."
+    : f === "network" ? "Smart Tidy could not be reached."
+    : f === "bad_reply" ? "Smart Tidy gave a reply that did not pass the checks."
+    : f === "unreachable" ? "The tidy service could not be reached, so this page did it."
+    : f.startsWith("http_") ? `Smart Tidy could not run (error ${f.slice(5)}).`
+    : "";
+  return why ? `Wording by Built-In Tidy. ${why}` : "Wording by Built-In Tidy.";
 }
 
 /** The typed text cannot be turned into a step (empty, a link, too long to be one step). */

@@ -27,10 +27,10 @@ export async function requestTidy(input: TidyInput, fetchImpl: typeof fetch = fe
     }
     if (res.ok) {
       const body = (await res.json()) as Partial<TidyResult>;
-      if (okOps(body.ops, input.method, input.replaces)) return { ops: body.ops, source: body.source === "ai" ? "ai" : "builtin" };
+      if (okOps(body.ops, input.method, input.replaces)) return { ops: body.ops, source: body.source === "ai" ? "ai" : "builtin", fallback: typeof body.fallback === "string" ? body.fallback.slice(0, 40) : undefined };
     }
   } catch (e) {
     if (e instanceof TidyError) throw e;
   }
-  return tidyBuiltin(input);
+  return { ...tidyBuiltin(input), fallback: "unreachable" };
 }

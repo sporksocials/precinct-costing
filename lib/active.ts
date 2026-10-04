@@ -20,7 +20,7 @@ import type { Ingredient, Offer } from "./types";
  * Offers have no `active` column: their `status` carries it, and "retired" is the inactive state.
  */
 
-/** The label and sub line on every Active switch. Cocktails and mocktails keep "Show On Cocktail Station" (same flag). */
+/** The label and sub line on every Active switch. Cocktails, mocktails and cold drinks keep "Show On Drinks Station" (same flag). */
 export const ACTIVE_LABEL = "Active";
 export const ACTIVE_SUB = "Off hides it from lists, averages and alerts. Nothing is deleted.";
 /** Tap beers keep their own label because the team asked what "On Tap" meant; the sub line explains it. */

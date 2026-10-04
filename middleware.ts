@@ -8,7 +8,7 @@ const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/ico
 export async function middleware(request: NextRequest) {
   // DEMO MODE ONLY (local visual QA with a fixture): no auth. NEXT_PUBLIC_DEMO must never be set in production.
   if (process.env.NEXT_PUBLIC_DEMO === "1") return NextResponse.next({ request });
-  // the bar display (cocktail station iPads) never signs in: see isBarPath
+  // the bar display (drinks station iPads) never signs in: see isBarPath
   if (isBarPath(request.nextUrl.pathname)) return NextResponse.next({ request });
   // ...and neither do the kitchen station iPads: see isKitchenPath
   if (isKitchenPath(request.nextUrl.pathname)) return NextResponse.next({ request });

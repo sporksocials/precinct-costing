@@ -13,7 +13,7 @@ import { CARD, Chevron, EmptyState, StaleBanner, TilePhoto } from "./parts";
 
 /**
  * The kitchen station: one venue's signed-off dishes and preps on an iPad at the pass, readable with gloves on from arm's length.
- * Same shape as the cocktail station (components/bar/station.tsx): grid → one record full screen. No login; the iPad stays on this
+ * Same shape as the drinks station (components/bar/station.tsx): grid → one record full screen. No login; the iPad stays on this
  * page, so it refreshes its data in the background and drops back to the grid when left on a recipe.
  */
 

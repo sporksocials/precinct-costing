@@ -11,7 +11,7 @@ import type { BarOptionKind, MenuItem } from "@/lib/types";
 import { Banner, Group, Row, Sheet, Toggle, useToast } from "../ui";
 
 /**
- * Bar display card for a cocktail or mocktail: the glass, method steps and garnish the venue's cocktail
+ * Bar display card for a cocktail, mocktail or cold drink: the glass, method steps and garnish the venue's drinks
  * station iPad shows (/bar/<venue>). Edits go through the recipe editor's draft, so they autosave with
  * everything else (store.updateItem).
  */
@@ -34,7 +34,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         {missing.length ? (
           <div className="flex min-h-[44px] items-center gap-3 px-4 py-2" role="status">
             <span className="min-w-0 flex-1">
-              <span className="block text-[17px] sm:text-[15px]">Show On Cocktail Station</span>
+              <span className="block text-[17px] sm:text-[15px]">Show On Drinks Station</span>
               <span className="block text-[13px] font-medium text-warn">Won’t be displayed on the bar screen yet</span>
               <span className="block text-[13px] text-warn">{barMissingText(missing)}</span>
               <span className="block text-[13px] text-label-2">Add {missing.join(" and ")} below and it appears on the bar screen. A drink needs both a glass and a method.</span>
@@ -43,7 +43,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           </div>
         ) : (
           <Toggle
-            label="Show On Cocktail Station"
+            label="Show On Drinks Station"
             sub={item.active ? "Bartenders can see this drink on the station." : "Not active: hidden from the station and from averages. Turn it on when the drink is ready or on the menu."}
             checked={item.active}
             onChange={(v) => onPatch({ active: v })}
@@ -60,7 +60,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         value={item.garnish}
         onChange={(v) => onPatch({ garnish: v })}
         className="mt-4"
-        footer="The cocktail station shows this drink once it has a glass and a method and Show On Cocktail Station is on. Garnish and photo are optional."
+        footer="The drinks station shows this drink once it has a glass and a method and Show On Drinks Station is on. Garnish and photo are optional."
       />
     </>
   );
@@ -198,7 +198,7 @@ function AddOptionSheet({ kind, onBack, onAdded }: { kind: BarOptionKind; onBack
 }
 
 /**
- * The drink's reference photo: shown beside the ingredients on the cocktail station. Upload one (shrunk in the browser
+ * The drink's reference photo: shown beside the ingredients on the drinks station. Upload one (shrunk in the browser
  * before it goes up) and it replaces the placeholder; the station picks it up on its next refresh.
  */
 function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<MenuItem>) => void }) {
@@ -210,7 +210,7 @@ function PhotoField({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<Me
       uploaded={isUploadedPhoto(item.bar_photo)}
       stationName="station"
       noPhotoText="No photo yet. Upload one of the finished drink."
-      uploadedText="Shown on the cocktail station."
+      uploadedText="Shown on the drinks station."
       placeholderText="Placeholder photo. Upload a real one to replace it."
       onChange={(path) => onPatch({ bar_photo: path })}
     />

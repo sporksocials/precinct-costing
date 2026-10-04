@@ -72,7 +72,7 @@ describe("badgeModel: drinks mark only egg, milk and nuts", () => {
     expect(m.seafood).toBeNull();
   });
   it("never mentions gluten or gluten free on any drink category, even with a gluten option on the item", () => {
-    for (const category of ["Cocktail", "Mocktail", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD"]) {
+    for (const category of ["Cocktail", "Mocktail", "Cold Drink", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD"]) {
       const m = model([ing("b", "Lager", ok({ allergens: ["gluten"] }))], { category, diet_options: { gfo: { note: "Use a cider" } } as never });
       expect(m.contains).not.toContain("gluten");
       expect(m.diet.map((d) => d.id)).not.toContain("no_gluten_ingredients");
@@ -93,6 +93,7 @@ describe("badgeModel: drinks mark only egg, milk and nuts", () => {
   });
   it("showsAllergen and isDrinkItem agree", () => {
     expect(isDrinkItem({ category: "Mocktail" })).toBe(true);
+    expect(isDrinkItem({ category: "Cold Drink" })).toBe(true);
     expect(isDrinkItem({ category: "Food" })).toBe(false);
     expect(showsAllergen({ category: "Cocktail" }, "gluten")).toBe(false);
     expect(showsAllergen({ category: "Cocktail" }, "tree_nuts")).toBe(true);

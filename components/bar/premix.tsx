@@ -11,7 +11,7 @@ import { CARD, EmptyState, HEADING, IDLE_MS, REFRESH_MS, RETRY_MS, ROW, StaleBan
 
 /**
  * Pre-Mix Bottles: the drink pre-mixes the bar makes before service, one card per 700 ml bottle. Opens from the "Pre-Mix Bottles"
- * row on the cocktail station and works the same way: no login, refreshes in the background every 5 minutes, keeps the last good
+ * row on the drinks station and works the same way: no login, refreshes in the background every 5 minutes, keeps the last good
  * copy when the Wi-Fi drops (the service worker holds the page and its data), and drops back to the station after 2 minutes untouched.
  */
 export function BarPremixPage({ slug, venueName, initial }: { slug: string; venueName: string; initial: BarPremix | null }) {
@@ -51,7 +51,7 @@ export function BarPremixPage({ slug, venueName, initial }: { slug: string; venu
     return () => window.clearInterval(id);
   }, []);
 
-  // idle auto-return to the cocktail grid: any touch, scroll or key restarts the 2 minute clock
+  // idle auto-return to the drinks grid: any touch, scroll or key restarts the 2 minute clock
   useEffect(() => {
     const goBack = () => router.push(`/bar/${slug}`);
     let t = window.setTimeout(goBack, IDLE_MS);
@@ -78,7 +78,7 @@ export function BarPremixPage({ slug, venueName, initial }: { slug: string; venu
         <span aria-hidden className="text-[34px] font-bold leading-none">
           &#8592;
         </span>
-        BACK TO ALL COCKTAILS
+        BACK TO ALL DRINKS
       </Link>
       <StaleBanner syncedAt={data?.syncedAt ?? null} now={now} />
 

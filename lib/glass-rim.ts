@@ -1,6 +1,6 @@
 /**
- * Glass and rim for a cocktail or mocktail. The drink stores ONE text value in cost_menu_items.glass, because the
- * public cocktail station reads that text (and derives its glass icon from it): "<Glass>" or "<Glass>, <Rim> Rim".
+ * Glass and rim for a cocktail, mocktail or cold drink. The drink stores ONE text value in cost_menu_items.glass, because the
+ * public drinks station reads that text (and derives its glass icon from it): "<Glass>" or "<Glass>, <Rim> Rim".
  * The recipe editor shows it as two pickers; these helpers split and join that text and tidy names typed into the
  * "add a new one" pop-up. Pure and framework free.
  */

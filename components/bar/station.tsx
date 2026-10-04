@@ -2,32 +2,45 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
+import { barChips, barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, usesShots, type BarCategory, type BarItem, type BarMenu } from "@/lib/bar";
 import { premixCountText, type BarPremix } from "@/lib/bar-premix";
 import { cx } from "../ui";
 import { BottleIcon, GlassIcon } from "./glass-icon";
 
+/**
+ * Tracks whether a photo failed to load. The server-rendered <img> can finish failing before the page hydrates, so React's
+ * onError never fires for it: on mount a ref also checks whether the image has already finished loading with no picture.
+ */
+function useBrokenPhoto() {
+  const [broken, setBroken] = useState(false);
+  const ref = useCallback((img: HTMLImageElement | null) => {
+    if (img && img.complete && img.naturalWidth === 0) setBroken(true);
+  }, []);
+  return { broken, ref, onError: () => setBroken(true) };
+}
+
 /** A reference photo that quietly disappears (no broken-image box, no orphaned caption) when this item has no file yet. */
 function Photo({ name, photo, className }: { name: string; photo: string | null; className: string }) {
-  const [broken, setBroken] = useState(false);
+  const { broken, ref, onError } = useBrokenPhoto();
   if (broken) return null;
   // plain <img>: the iPad's offline cache holds these exact files (next/image would route through the optimiser instead)
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={barPhotoSrc(name, photo)} alt="" className={className} onError={() => setBroken(true)} />;
+  return <img ref={ref} src={barPhotoSrc(name, photo)} alt="" className={className} onError={onError} />;
 }
 
 function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
-  const [broken, setBroken] = useState(false);
+  const { broken, ref, onError } = useBrokenPhoto();
   if (broken) return null;
   return (
     <div className="w-full text-center sm:w-[260px] sm:shrink-0">
       {/* object-contain on the photos' own 3:4 shape: the whole glass, drink and garnish always show, nothing is cropped */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={ref}
         src={barPhotoSrc(name, photo)}
         alt=""
         className="mx-auto aspect-[3/4] w-[240px] rounded-[14px] border-[0.5px] border-white/10 bg-[#161618] object-contain sm:w-full"
-        onError={() => setBroken(true)}
+        onError={onError}
       />
       <p className="mt-[6px] text-[12px] text-[#8E8C85]">Drink should look similar to this once finished</p>
     </div>
@@ -35,7 +48,7 @@ function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
 }
 
 /**
- * The cocktail station: one venue's cocktails on an iPad behind the bar, glanceable from about a metre away.
+ * The drinks station: one venue's cocktails, mocktails and cold drinks on an iPad behind the bar, glanceable from about a metre away.
  * A port of the approved prototype (grid → one recipe full screen). No login; the iPad stays on this page,
  * so it refreshes its data in the background and drops back to the grid when left on a recipe.
  */
@@ -55,13 +68,6 @@ export const IDLE_MS = 120_000; // back to the grid after 2 minutes untouched on
 export const REFRESH_MS = 5 * 60_000; // fetch the latest recipes every 5 minutes
 export const RETRY_MS = 30_000; // ...or every 30 seconds while the first load is failing
 
-const CATS = [
-  { key: "all", label: "All" },
-  { key: "Cocktail", label: "Cocktails" },
-  { key: "Mocktail", label: "Mocktails" },
-] as const;
-type CatKey = (typeof CATS)[number]["key"];
-
 export const CARD = "rounded-2xl border-[0.5px] border-white/[0.08] bg-[#1C1C1F]";
 export const ROW = "border-t-[0.5px] border-white/[0.07]";
 export const HEADING = "text-[15px] font-medium tracking-[0.5px] text-[#9B9890]";
@@ -71,7 +77,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   // how many pre-mix bottles the venue has; the "Pre-Mix Bottles" row shows only when there is at least one
   const [premixCount, setPremixCount] = useState(initialPremixCount);
   const [view, setView] = useState<"grid" | "detail">("grid");
-  const [activeCategory, setActiveCategory] = useState<CatKey>("all");
+  const [pickedCategory, setPickedCategory] = useState<"all" | BarCategory>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   // starts at the copy's own timestamp so the server HTML and the first client render agree (a page cached hours ago would otherwise
@@ -120,7 +126,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   const selected = items.find((c) => c.id === selectedId) ?? null;
 
   // ---------- views ----------
-  const openCocktail = (id: string) => {
+  const openDrink = (id: string) => {
     (document.activeElement as HTMLElement | null)?.blur?.(); // put the iPad keyboard away
     setSelectedId(id);
     setView("detail");
@@ -155,6 +161,9 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   // ---------- grid filtering (search covers every category and hides the chips) ----------
   const query = searchQuery.trim().toLowerCase();
   const hasSearch = query.length > 0;
+  // only the categories this venue has get a chip; a chip whose last drink went inactive in a refresh falls back to All
+  const chips = useMemo(() => barChips(items), [items]);
+  const activeCategory = chips.some((c) => c.key === pickedCategory) ? pickedCategory : "all";
   const tiles = hasSearch ? items.filter((c) => c.name.toLowerCase().includes(query)) : activeCategory === "all" ? items : items.filter((c) => c.category === activeCategory);
 
   return (
@@ -179,7 +188,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                 </p>
               ) : null}
             </div>
-            <p className="mt-[2px] text-[16px] text-[#9B9890]">Cocktail Station</p>
+            <p className="mt-[2px] text-[16px] text-[#9B9890]">Drinks Station</p>
 
             {premixCount > 0 ? (
               <Link
@@ -211,8 +220,8 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                     onKeyDown={(e) => {
                       if (e.key === "Enter") e.currentTarget.blur();
                     }}
-                    placeholder="Search cocktails"
-                    aria-label="Search Cocktails"
+                    placeholder="Search drinks"
+                    aria-label="Search Drinks"
                     enterKeyHint="search"
                     autoComplete="off"
                     autoCorrect="off"
@@ -232,16 +241,16 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                   ) : null}
                 </div>
 
-                {!hasSearch ? (
+                {!hasSearch && chips.length ? (
                   <div className="mt-[14px] flex flex-wrap gap-2" role="group" aria-label="Category">
-                    {CATS.map((cat) => {
+                    {chips.map((cat) => {
                       const on = cat.key === activeCategory;
                       return (
                         <button
                           key={cat.key}
                           type="button"
                           aria-pressed={on}
-                          onClick={() => setActiveCategory(cat.key)}
+                          onClick={() => setPickedCategory(cat.key)}
                           className={cx(
                             "min-h-[40px] rounded-full px-[17px] py-[10px] text-[15px] font-medium leading-[20px]",
                             on ? "bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" : "border-[0.5px] border-white/[0.18] bg-transparent text-[#F5F3EE]",
@@ -261,20 +270,17 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
             {!menu ? (
               <EmptyState title="Can’t Load Recipes" body="Check the iPad’s Wi-Fi. This screen tries again every 30 seconds." action={{ label: "Try Again", onClick: () => void refresh() }} />
             ) : !items.length ? (
-              <EmptyState title="No Cocktails On This Screen Yet" body="A drink shows here once it has a glass and a method in Precinct Costing. Drinks that are still being built out are not displayed." />
+              <EmptyState title="No Drinks On This Screen Yet" body="A drink shows here once it has a glass and a method in Precinct Costing. Drinks that are still being built out are not displayed." />
             ) : !tiles.length ? (
-              hasSearch ? (
-                <EmptyState title="No Matches" body={`Nothing matches “${searchQuery.trim()}”.`} />
-              ) : (
-                <EmptyState title={activeCategory === "Mocktail" ? "No Mocktails Added Yet" : "No Cocktails Added Yet"} />
-              )
+              // only a search can come up empty: a chip exists only for a category that has drinks
+              <EmptyState title="No Matches" body={`Nothing matches “${searchQuery.trim()}”.`} />
             ) : (
               <div className="grid grid-cols-2 gap-[14px]">
                 {tiles.map((c) => (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => openCocktail(c.id)}
+                    onClick={() => openDrink(c.id)}
                     className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
                   >
                     <Photo name={c.name} photo={c.photo} className="h-[270px] w-full bg-[#161618] object-contain" />
@@ -323,7 +329,7 @@ function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void
         <span aria-hidden className="text-[34px] font-bold leading-none">
           &#8592;
         </span>
-        BACK TO ALL COCKTAILS
+        BACK TO ALL DRINKS
       </button>
       <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
 
@@ -343,7 +349,7 @@ function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void
                 <h2 className={cx(HEADING, "mb-2")}>INGREDIENTS</h2>
                 <ul>
                   {item.lines.map((line, i) => {
-                    const d = ingredientDisplay(line);
+                    const d = ingredientDisplay(line, { shots: usesShots(item.category) });
                     return (
                       <li key={i} className={cx(ROW, "flex items-start gap-[14px] py-[14px]")}>
                         <div className="w-[128px] shrink-0">

@@ -1,9 +1,9 @@
 /**
- * Bar display (the public iPad cocktail station at /bar/<venue>): data shape and pure display helpers.
+ * Bar display (the public iPad drinks station at /bar/<venue>): data shape and pure display helpers.
  * Data comes from the public `cost_bar_menu(slug)` function: display fields only, never prices or notes.
  */
 
-/** Venues with a cocktail station. Gelato Rumba has none. Order = the venue select screen. */
+/** Venues with a drinks station. Gelato Rumba has none. Order = the venue select screen. */
 export const BAR_VENUES = ["drift", "chiobu", "greedy"] as const;
 export type BarVenueSlug = (typeof BAR_VENUES)[number];
 export function isBarVenue(slug: string): slug is BarVenueSlug {
@@ -18,10 +18,30 @@ export function isBarPath(pathname: string): boolean {
   return ["/bar", "/api/bar"].some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-export const BAR_CATEGORIES = ["Cocktail", "Mocktail"] as const;
+/** What the drinks station carries: cocktails, mocktails and Drift's cold drinks (smoothies, iced coffees, frappes, milkshakes, spiders). */
+export const BAR_CATEGORIES = ["Cocktail", "Mocktail", "Cold Drink"] as const;
 export type BarCategory = (typeof BAR_CATEGORIES)[number];
 export function isBarCategory(category: string | null | undefined): category is BarCategory {
   return (BAR_CATEGORIES as readonly string[]).includes(category ?? "");
+}
+
+/** The plural the station's selection chips use for each category. */
+export const BAR_CATEGORY_LABELS: Record<BarCategory, string> = { Cocktail: "Cocktails", Mocktail: "Mocktails", "Cold Drink": "Cold Drinks" };
+
+export interface BarChip {
+  key: "all" | BarCategory;
+  label: string;
+}
+
+/**
+ * The selection chips for a venue: All, then one chip per category that venue actually has on the station (Chiobu and Greedy
+ * have no cold drinks, so they never see a Cold Drinks chip that leads to an empty screen). With fewer than two categories
+ * there is nothing to choose between, so no chips at all.
+ */
+export function barChips(items: readonly { category: string }[]): BarChip[] {
+  const present = BAR_CATEGORIES.filter((c) => items.some((i) => i.category === c));
+  if (present.length < 2) return [];
+  return [{ key: "all", label: "All" }, ...present.map((c) => ({ key: c, label: BAR_CATEGORY_LABELS[c] }))];
 }
 
 export interface BarLine {
@@ -57,7 +77,7 @@ export function textList(v: unknown): string[] {
 }
 
 /**
- * What a cocktail or mocktail still needs before the station shows it: both a glass and at least one method step
+ * What a cocktail, mocktail or cold drink still needs before the station shows it: both a glass and at least one method step
  * (the `cost_bar_menu` function applies the same rule). Photo and garnish are optional.
  */
 export function barMissing(item: { glass?: string | null; method?: unknown }): ("glass" | "method")[] {
@@ -117,14 +137,44 @@ export function shotsFor(qty: number, unit: string): string | null {
   return SHOT_LABELS[ml] ?? null;
 }
 
-/** Compact amount as it reads behind a bar: "60ml", "5g", "2 each". Empty for a zero amount. */
+/**
+ * Counting units that read as words ("2 scoops", "3 pumps"), singular to plural. The costing app's own units are only
+ * g, kg, ml, L and each, but a line can arrive from other data (or a future unit) in these words, so the card reads sensibly.
+ */
+const WORD_UNITS: Record<string, string> = {
+  scoop: "scoops",
+  pump: "pumps",
+  cup: "cups",
+  slice: "slices",
+  shot: "shots",
+  dash: "dashes",
+  drop: "drops",
+  spoon: "spoons",
+  handful: "handfuls",
+  sachet: "sachets",
+  wedge: "wedges",
+  pinch: "pinches",
+};
+
+/** The unit as a word for a count: "scoop" for exactly 1, "scoops" otherwise; null when it is not a counting word. */
+function wordUnit(unit: string, qty: number): string | null {
+  const u = unit.trim().toLowerCase();
+  const plural = Object.prototype.hasOwnProperty.call(WORD_UNITS, u) ? WORD_UNITS[u] : Object.values(WORD_UNITS).includes(u) ? u : null;
+  if (!plural) return null;
+  const singular = Object.keys(WORD_UNITS).find((k) => WORD_UNITS[k] === plural) as string;
+  return qty === 1 ? singular : plural;
+}
+
+/** Compact amount as it reads behind a bar: "60ml", "5g", "2 each", "2 scoops". Empty for a zero amount. */
 export function qtyText(qty: number, unit: string): string {
   if (!qty) return "";
   const ml = toMl(qty, unit);
   const n = ml ?? (unit === "kg" && qty < 1 ? qty * 1000 : qty);
   const u = ml != null ? "ml" : unit === "kg" && qty < 1 ? "g" : unit;
   const s = (Math.round(n * 1000) / 1000).toLocaleString("en-AU", { maximumFractionDigits: 3 });
-  return u === "each" ? `${s} each` : `${s}${u}`;
+  if (u === "each") return `${s} each`;
+  const word = ml == null ? wordUnit(u, qty) : null;
+  return word ? `${s} ${word}` : `${s}${u}`;
 }
 
 /**
@@ -157,21 +207,36 @@ export interface IngredientDisplay {
  * "Top with soda"). The ml on those lines is only a costing estimate, so the note replaces the shots. Any other
  * note is an instruction ("Floated on top") and sits under the ingredient name, keeping the jigger measure.
  */
-const AMOUNT_NOTE = /^(?:a\s+)?(?:splash|dash|dashes|pinch|top|topped|fill|spoon|drizzle|squeeze|rinse)\b|^\d+(?:\.\d+)?\s*(?:dash|dashes|drops?|spoons?|tsp|tbsp|bar\s?spoons?)\b/i;
+const AMOUNT_NOTE =
+  /^(?:a\s+)?(?:splash|dash|dashes|pinch|top|topped|fill|spoon|drizzle|squeeze|rinse|scoop|pump)\b|^\d+(?:\.\d+)?\s*(?:dash|dashes|drops?|spoons?|tsp|tbsp|bar\s?spoons?|scoops?|pumps?|cups?|slices?|handfuls?)\b/i;
 export function isAmountNote(note: string | null): boolean {
   return !!note && AMOUNT_NOTE.test(note.trim());
 }
 
-export function ingredientDisplay(line: BarLine): IngredientDisplay {
-  const shots = isAmountNote(line.note) ? null : shotsFor(line.qty, line.unit);
+/**
+ * `shots: false` is for drinks that are not poured by the jigger (smoothies, frappes, milkshakes): 90 ml of milk reads
+ * "90ml", never "3 shots". A note that is the amount ("2 scoops") still replaces the ml; any other note sits under the name.
+ */
+export function ingredientDisplay(line: BarLine, opts: { shots?: boolean } = {}): IngredientDisplay {
   const qty = qtyText(line.qty, line.unit);
+  const name = barIngredientName(line.name);
+  if (opts.shots === false) {
+    if (isAmountNote(line.note) || !qty) return { shots: null, qty, plain: line.note ?? qty, aside: null, name };
+    return { shots: null, qty, plain: qty, aside: line.note, name };
+  }
+  const shots = isAmountNote(line.note) ? null : shotsFor(line.qty, line.unit);
   return {
     shots,
     qty,
     plain: shots ? "" : line.note ?? qty,
     aside: shots ? line.note : null,
-    name: barIngredientName(line.name),
+    name,
   };
+}
+
+/** Cold drinks are measured in ml, scoops and pumps, not shots: the card turns the jigger measures off for them. */
+export function usesShots(category: string | null | undefined): boolean {
+  return category !== "Cold Drink";
 }
 
 export type GlassType = "martini" | "rocks" | "highball" | "coupe" | "wine";
@@ -229,6 +294,8 @@ export function glassType(glass: string | null | undefined): GlassType {
   if (g.includes("tall") || g.includes("highball") || g.includes("high ball")) return "highball";
   if (g.includes("coupe") || g.includes("margarita")) return "coupe";
   if (g.includes("wine")) return "wine";
+  // the large glasses and cups cold drinks come in (smoothies, shakes, frappes, iced coffees, spiders) draw as a tall glass
+  if (/\b(large|pint|smoothie|iced|spider|cup|tumbler|parfait)\b|shake|frapp/.test(g)) return "highball";
   return "rocks";
 }
 

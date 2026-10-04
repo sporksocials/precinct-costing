@@ -118,7 +118,7 @@ export const RESTORABLE_TABLES = Object.keys(RESTORABLE);
 
 /* ------------------------------------------------------------------ what a record is called */
 
-const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
+const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Cold Drink", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
 export type TrashType = "Drink" | "Dish" | "Gelato Item" | "Menu Item" | "Prep" | "Tap Beer" | "Serve" | "Offer" | "Deal";
 export const TRASH_TYPES: TrashType[] = ["Drink", "Dish", "Gelato Item", "Prep", "Tap Beer", "Serve", "Offer", "Deal"];
 

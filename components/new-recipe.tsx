@@ -172,7 +172,8 @@ const KEYWORDS: [RegExp, string][] = [
   [/\b(stubby|can|bottle of beer|cider|seltzer)\b/i, "Packaged Beer & Cider"],
   [/\b(rtd|premix|cruiser|smirnoff)\b/i, "RTD"],
   [/\b(merlot|shiraz|sauv|sauvignon|pinot|chardonnay|ros[eé]|prosecco|riesling|moscato|cabernet|tempranillo|glass|carafe|bubbles|champagne)\b/i, "Wine"],
-  [/\b(virgin|mocktail|spider|shake|smoothie|lemonade|iced tea|soda)\b/i, "Mocktail"],
+  [/\b(virgin|mocktail|lemonade|iced tea|soda)\b/i, "Mocktail"],
+  [/\b(smoothie|milkshake|shake|frapp[eé]|spider|iced (?:coffee|latte|mocha|chocolate|matcha))(?![a-z])/i, "Cold Drink"],
   [/\b(margarita|spritz|martini|mojito|negroni|sour|daiquiri|colada|mule|paloma|old fashioned|cocktail|punch|highball|bellini|cosmo)\b/i, "Cocktail"],
   [/\b(gelato|sorbet|scoop|cone|affogato)\b/i, "Gelato"],
 ];

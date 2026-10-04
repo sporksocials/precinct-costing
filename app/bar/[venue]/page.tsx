@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const NAMES: Record<string, string> = { drift: "Drift Bar", chiobu: "Chiobu", greedy: "Greedy Gringo's" };
 
 export function generateMetadata({ params }: { params: { venue: string } }): Metadata {
-  return { title: `${NAMES[params.venue] ?? "Bar"} · Cocktail Station` };
+  return { title: `${NAMES[params.venue] ?? "Bar"} · Drinks Station` };
 }
 
 export default async function BarVenuePage({ params }: { params: { venue: string } }) {

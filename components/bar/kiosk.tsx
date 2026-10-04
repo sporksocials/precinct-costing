@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { isBarVenue } from "@/lib/bar";
 
 /**
- * Keeps a cocktail station iPad working through a shift. Renders nothing.
+ * Keeps a drinks station iPad working through a shift. Renders nothing.
  *
  * - Offline copy: registers /bar/sw.js (see app/bar/sw.js/route.ts) and tells it what this page loaded so the very
  *   first visit is saved too, not just later ones (on a venue's station that includes its Pre-Mix Bottles page).

@@ -1,10 +1,10 @@
-/** Web app manifest for the cocktail station: a Home Screen icon opens the venue select, not the costing app. */
+/** Web app manifest for the drinks station: a Home Screen icon opens the venue select, not the costing app. */
 export function GET() {
   return Response.json(
     {
-      name: "Cocktail Station",
-      short_name: "Cocktails",
-      description: "Cocktail recipes for the bar, Caloundra Food Precinct",
+      name: "Drinks Station",
+      short_name: "Drinks",
+      description: "Drink recipes for the bar, Caloundra Food Precinct",
       start_url: "/bar",
       scope: "/bar",
       display: "standalone",

@@ -62,7 +62,7 @@ export interface RecipeTarget {
   alive?(): boolean;
 }
 
-/** Cocktails and mocktails keep their steps in `method`; a dish keeps them in `kitchen_method`. */
+/** Cocktails, mocktails and cold drinks keep their steps in `method`; a dish keeps them in `kitchen_method`. */
 export function methodField(item: Pick<MenuItem, "category">): "method" | "kitchen_method" {
   return item.category === "Food" ? "kitchen_method" : "method";
 }
@@ -562,7 +562,7 @@ export function RecordResearchNotes({ kind, id, editor }: { kind: "item" | "prep
       title="Research Notes"
       className="mt-6"
       trailing={<span className="text-[13px] text-label-2 tnum">{open.length ? `${open.length} open` : "None open"}</span>}
-      footer="Managers only. Never shown on the cocktail station. Approving a note that changes the recipe shows you exactly what will change first, then updates the recipe when you tap Add or Apply. Undo puts it back."
+      footer="Managers only. Never shown on the drinks station. Approving a note that changes the recipe shows you exactly what will change first, then updates the recipe when you tap Add or Apply. Undo puts it back."
     >
       {open.map(card)}
       {done.length ? <DoneToggle count={done.length} open={showDone} onToggle={() => setShowDone((s) => !s)} /> : null}

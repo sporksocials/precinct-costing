@@ -51,7 +51,7 @@ export default function ResearchNotesPage() {
         <Empty title="No Research Notes Yet" body="Suggestions from research show up here once they are added to a recipe, with the cost and GP worked out." />
       ) : (
         <>
-          <p className="px-1 text-[15px] text-label-2">Ideas from research, with the cost and GP effect at the menu price. Managers only: never shown on the cocktail station. Approve shows what will change in the recipe first, then updates it when you tap Add or Apply. Undo puts it back.</p>
+          <p className="px-1 text-[15px] text-label-2">Ideas from research, with the cost and GP effect at the menu price. Managers only: never shown on the drinks station. Approve shows what will change in the recipe first, then updates it when you tap Add or Apply. Undo puts it back.</p>
           <Chips
             ariaLabel="Status"
             className="mt-4"

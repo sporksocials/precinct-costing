@@ -5,7 +5,7 @@ import { parseVirtualItemId } from "./gelato";
 import { parseBeerItemId } from "./beer";
 
 export const FOOD_CATEGORIES = new Set(["Food"]);
-export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
+export const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Cold Drink", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD"]);
 
 /** Kinds of Today-feed entries. 'check_cost' and 'happy_hour' are new; the rest are unchanged. */
 export type FeedKind = "price_rise" | "below_target" | "stale_price" | "catalogue_gap" | "check_cost" | "missing_price" | "happy_hour" | "deal_ending" | "deal_expired";

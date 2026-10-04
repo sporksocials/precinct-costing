@@ -83,7 +83,7 @@ create table if not exists public.cost_menu_items (
   active boolean not null default true,
   source text,
   notes text,
-  -- Bar display (iPad cocktail station): null for everything except cocktails/mocktails that have been built out for it.
+  -- Bar display (iPad drinks station): null for everything except cocktails, mocktails and cold drinks that have been built out for it.
   glass text, -- which glass to serve in, e.g. "Rocks Glass, Salt Rim"
   method jsonb, -- ordered array of short method steps, e.g. ["Shake hard for 12 seconds","Strain into the glass"]
   garnish jsonb, -- ordered array of garnish items, e.g. ["Dehydrated lime wheel"]
@@ -631,10 +631,10 @@ $$;
 revoke all on function public.cost_bar_menu(text) from public;
 grant execute on function public.cost_bar_menu(text) to anon, authenticated;
 
-comment on function public.cost_bar_menu(text) is 'Bar display (public iPad cocktail station): one venue''s active cocktails/mocktails that have BOTH a glass and a method, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';
+comment on function public.cost_bar_menu(text) is 'Bar display (public iPad drinks station): one venue''s active cocktails/mocktails that have BOTH a glass and a method, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';
 
 -- ---- Bar display photos (uploaded from the recipe editor); see supabase/migrations/20261003100000_bar_photos_storage.sql ----
--- Bar display photos uploaded from the recipe editor ("Upload Photo"). Public bucket: the cocktail station iPads have no
+-- Bar display photos uploaded from the recipe editor ("Upload Photo"). Public bucket: the drinks station iPads have no
 -- login, so they read photos by plain URL (through the app's /bar/photo/ rewrite, so the iPad's offline copy can hold them).
 -- Only signed-in allowed users (cost_allowed_users, same gate as every cost_* table) can add, replace or remove files.
 -- Files are small by design: the editor shrinks every photo to a JPEG, 1200px on the long side, before uploading; the
@@ -797,7 +797,7 @@ for each row execute function public.cost_research_notes_touch();
 comment on table public.cost_research_notes is 'Manager-only research suggestions and sheet-vs-classic flags on a recipe (menu item or prep), with a priceable change list. Never exposed publicly.';
 
 -- Bar display Pre-Mix Bottles page (mirrors supabase/migrations/20261004130000_bar_premix.sql)
--- Bar display: the "Pre-Mix Bottles" page on the cocktail station (/bar/<venue>/premix).
+-- Bar display: the "Pre-Mix Bottles" page on the drinks station (/bar/<venue>/premix).
 -- At Drift and Greedy Gringo's the bar makes drink pre-mixes before service in 700 ml bottles labelled with the drink.
 -- Each pre-mix is a cost_preps row with prep_type 'Pre-mix' (venue_id = the venue, yield 0.7 L) whose recipe lines are the
 -- spirits and liqueurs that go in the bottle; a cocktail uses it through a recipe line with component_type 'prep'.
@@ -854,7 +854,7 @@ $$;
 revoke all on function public.cost_bar_premix(text) from public;
 grant execute on function public.cost_bar_premix(text) to anon, authenticated;
 
-comment on function public.cost_bar_premix(text) is 'Bar display (public iPad cocktail station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails/mocktails that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
+comment on function public.cost_bar_premix(text) is 'Bar display (public iPad drinks station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails/mocktails that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
 
 -- ---- Pre-Mix page: only bottles used by an active drink; see supabase/migrations/20261004140000_bar_premix_active.sql ----
 create or replace function public.cost_bar_premix(p_venue text)
@@ -913,7 +913,116 @@ $$;
 revoke all on function public.cost_bar_premix(text) from public;
 grant execute on function public.cost_bar_premix(text) to anon, authenticated;
 
-comment on function public.cost_bar_premix(text) is 'Bar display (public iPad cocktail station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails/mocktails that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
+comment on function public.cost_bar_premix(text) is 'Bar display (public iPad drinks station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails/mocktails that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
+
+-- ---- Drinks Station carries cold drinks too; see supabase/migrations/20261005200000_bar_menu_cold_drinks.sql ----
+-- cost_menu_items.category is plain text with no check constraint, so 'Cold Drink' needs no schema change; only the two public
+-- station functions list the categories they carry. Both are redefined here with 'Cold Drink' added to that list and nothing
+-- else changed (the glass-and-method rule of 20261004210000 and the active-drink rules of 20261004140000 stay as they were).
+create or replace function public.cost_bar_menu(p_venue text)
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select json_build_object(
+    'venue', json_build_object('slug', v.slug, 'name', v.name),
+    'items', coalesce((
+      select json_agg(json_build_object(
+          'id', mi.id,
+          'name', mi.name,
+          'category', mi.category,
+          'glass', mi.glass,
+          'photo', mi.bar_photo,
+          'method', coalesce(mi.method, '[]'::jsonb),
+          'garnish', coalesce(mi.garnish, '[]'::jsonb),
+          'lines', coalesce((
+            select json_agg(json_build_object(
+                'name', coalesce(ing.name, pr.name),
+                'qty', rl.qty,
+                'unit', rl.unit,
+                'note', rl.note
+              ) order by rl.sort nulls last, rl.id)
+            from cost_recipe_lines rl
+            left join cost_ingredients ing on rl.component_type = 'ingredient' and ing.id = rl.component_id
+            left join cost_preps pr on rl.component_type = 'prep' and pr.id = rl.component_id
+            where rl.parent_type = 'item' and rl.parent_id = mi.id
+          ), '[]'::json)
+        ) order by mi.name)
+      from cost_menu_items mi
+      where mi.venue_id = v.id and mi.active and mi.category in ('Cocktail', 'Mocktail', 'Cold Drink')
+        and btrim(coalesce(mi.glass, '')) <> ''
+        and coalesce(mi.method, '[]'::jsonb) <> '[]'::jsonb
+    ), '[]'::json)
+  )
+  from cost_venues v
+  where v.slug = p_venue;
+$$;
+
+revoke all on function public.cost_bar_menu(text) from public;
+grant execute on function public.cost_bar_menu(text) to anon, authenticated;
+
+comment on function public.cost_bar_menu(text) is 'Bar display (public iPad drinks station): one venue''s active cocktails, mocktails and cold drinks that have BOTH a glass and a method, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';
+
+-- Pre-Mix Bottles page: a pre-mix is listed when an active cocktail, mocktail or cold drink uses it.
+create or replace function public.cost_bar_premix(p_venue text)
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select json_build_object(
+    'venue', json_build_object('slug', v.slug, 'name', v.name),
+    'premixes', coalesce((
+      select json_agg(json_build_object(
+          'id', p.id,
+          'name', p.name,
+          'yield_qty', p.yield_qty,
+          'yield_unit', p.yield_unit,
+          'lines', coalesce((
+            select json_agg(json_build_object(
+                'name', coalesce(ing.name, sub.name),
+                'qty', rl.qty,
+                'unit', rl.unit,
+                'sort', rl.sort
+              ) order by rl.sort, rl.id)
+            from cost_recipe_lines rl
+            left join cost_ingredients ing on rl.component_type = 'ingredient' and ing.id = rl.component_id
+            left join cost_preps sub on rl.component_type = 'prep' and sub.id = rl.component_id
+            where rl.parent_type = 'prep' and rl.parent_id = p.id
+          ), '[]'::json),
+          'used_in', coalesce((
+            select json_agg(json_build_object(
+                'drink', mi.name,
+                'qty', ul.qty,
+                'unit', ul.unit
+              ) order by mi.name, ul.id)
+            from cost_recipe_lines ul
+            join cost_menu_items mi on mi.id = ul.parent_id
+            where ul.parent_type = 'item' and ul.component_type = 'prep' and ul.component_id = p.id
+              and mi.venue_id = v.id and mi.active and mi.category in ('Cocktail', 'Mocktail', 'Cold Drink')
+          ), '[]'::json)
+        ) order by p.name)
+      from cost_preps p
+      where p.venue_id = v.id and p.active and lower(p.prep_type) = 'pre-mix'
+        and exists (
+          select 1 from cost_recipe_lines ul
+          join cost_menu_items mi on mi.id = ul.parent_id
+          where ul.parent_type = 'item' and ul.component_type = 'prep' and ul.component_id = p.id
+            and mi.venue_id = v.id and mi.active and mi.category in ('Cocktail', 'Mocktail', 'Cold Drink')
+        )
+    ), '[]'::json)
+  )
+  from cost_venues v
+  where v.slug = p_venue;
+$$;
+
+revoke all on function public.cost_bar_premix(text) from public;
+grant execute on function public.cost_bar_premix(text) to anon, authenticated;
+
+comment on function public.cost_bar_premix(text) is 'Bar display (public iPad drinks station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails, mocktails and cold drinks that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
 
 -- ---- Bar glass and rim lists; see supabase/migrations/20261004150000_bar_options.sql ----
 -- Shared drop-down lists for the recipe editor's Bar Display card: every glass type and every rim used at any venue.

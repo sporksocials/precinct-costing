@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { barUploadPath, fitWithin } from "./bar";
 
 /**
- * Reference photos for the cocktail station, uploaded from the recipe editor. Browser only.
+ * Reference photos for the drinks station, uploaded from the recipe editor. Browser only.
  * Every photo is shrunk to a JPEG (1200px on the long side) before it leaves the device: a 12 MB phone photo becomes
  * about 150 KB, so the iPad loads it instantly and the offline copy stays small.
  */

@@ -300,8 +300,8 @@ describe("Active, not Delete: static checks", () => {
       expect(read(f), f).toContain("ShowInactiveButton");
     }
   });
-  it("the cocktail station switch is untouched and no Active switch is added to drinks that have it", () => {
-    expect(read("components/editor/bar-fields.tsx")).toContain("Show On Cocktail Station");
+  it("the drinks station switch is untouched and no Active switch is added to drinks that have it", () => {
+    expect(read("components/editor/bar-fields.tsx")).toContain("Show On Drinks Station");
     expect(read("components/editor/recipe-editor.tsx")).toContain("isBarCategory(item.category)");
   });
 });

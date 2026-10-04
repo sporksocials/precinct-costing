@@ -4,7 +4,7 @@ import { useState } from "react";
 import { isStale, staleAge } from "@/lib/bar";
 import { cx } from "../ui";
 
-/** Pieces shared by the kitchen station's grid and detail screens: the same look as the cocktail station (components/bar/station.tsx). */
+/** Pieces shared by the kitchen station's grid and detail screens: the same look as the drinks station (components/bar/station.tsx). */
 
 export const CARD = "rounded-2xl border-[0.5px] border-white/[0.08] bg-[#1C1C1F]";
 export const ROW = "border-t-[0.5px] border-white/[0.07]";

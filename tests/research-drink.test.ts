@@ -89,7 +89,7 @@ describe("parseRequest", () => {
     expect(parseRequest({ ...GOOD_REQ, category: "Mocktail", garnish: undefined, existingTitles: undefined })).toMatchObject({ category: "Mocktail", garnish: [], existingTitles: [] });
   });
   it("only ever researches a Cocktail or a Mocktail", () => {
-    for (const c of ["Food", "Wine", "Spirits", "Tap Beer", "RTD", "Gelato", "cocktail", "", undefined, 3]) expect(parseRequest({ ...GOOD_REQ, category: c })).toBeNull();
+    for (const c of ["Cold Drink", "Food", "Wine", "Spirits", "Tap Beer", "RTD", "Gelato", "cocktail", "", undefined, 3]) expect(parseRequest({ ...GOOD_REQ, category: c })).toBeNull();
   });
   it("rejects bad shapes and oversized bodies", () => {
     const l = GOOD_REQ.lines[0];
@@ -677,7 +677,7 @@ describe("who is offered Research This Drink", () => {
   it("only a new Cocktail or Mocktail starts 'offered'; everything else starts never offered", () => {
     expect(initialResearchStatus("Cocktail")).toBe("offered");
     expect(initialResearchStatus("Mocktail")).toBe("offered");
-    for (const c of ["Food", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD", "Gelato", "", null, undefined]) expect(initialResearchStatus(c)).toBeNull();
+    for (const c of ["Cold Drink", "Food", "Wine", "Spirits", "Tap Beer", "Packaged Beer & Cider", "RTD", "Gelato", "", null, undefined]) expect(initialResearchStatus(c)).toBeNull();
   });
   it("the New Recipe flow sets it; Duplicate and Save As New Dish start never offered", () => {
     expect(read("components/new-recipe.tsx")).toContain("research_status: initialResearchStatus(category)");

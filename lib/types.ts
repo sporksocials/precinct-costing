@@ -7,6 +7,7 @@ export const MENU_CATEGORIES = [
   "Food",
   "Cocktail",
   "Mocktail",
+  "Cold Drink",
   "Gelato",
   "Tap Beer",
   "Packaged Beer & Cider",

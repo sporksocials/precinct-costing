@@ -83,6 +83,13 @@ describe("validateReply", () => {
     // a replace is only allowed when the note names a step
     expect(v({ ops: [{ op: "replace", index: 1, text: "Add the lime juice well" }] })).toBeNull();
   });
+  it("accepts the JSON inside a code fence or a sentence, and trims the step", () => {
+    const j = '{"ops":[{"op":"insert","index":4,"text":" Strain over ice in the glass "}]}';
+    const want = [{ op: "insert", index: 4, text: "Strain over ice in the glass" }];
+    expect(v("```json\n" + j + "\n```")).toEqual(want);
+    expect(v("Here you go: " + j)).toEqual(want);
+    expect(v(j)).toEqual(want);
+  });
   it("forces a replace of the named step", () => {
     const o = v({ ops: [{ op: "insert", index: 0, text: "Shake hard for 15 seconds" }] }, { replaces: "shake hard" });
     expect(o).toEqual([{ op: "replace", index: 2, text: "Shake hard for 15 seconds" }]);
@@ -156,7 +163,8 @@ describe("assist (AI path and fallback)", () => {
     expect(await reason(vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: { message: "Your credit balance is too low to access the Anthropic API." } }) }))).toBe("credits");
     expect(await reason(vi.fn().mockRejectedValue(new DOMException("timeout", "TimeoutError")))).toBe("timeout");
     expect(await reason(vi.fn().mockRejectedValue(new Error("offline")))).toBe("network");
-    expect(await reason(vi.fn().mockResolvedValue(ok([{ op: "insert", index: 2, text: "Strain — over ice" }])))).toBe("bad_reply");
+    expect(await reason(vi.fn().mockResolvedValue(ok([{ op: "insert", index: 2, text: "Strain — over ice" }])))).toBe("bad_reply_text");
+    expect(await reason(vi.fn().mockResolvedValue(ok([{ op: "insert", index: 99, text: "Strain over ice" }])))).toBe("bad_reply_index");
   });
   it("never puts the key in the answer", async () => {
     const r = await assist(INPUT, { ANTHROPIC_API_KEY: "sk-secret-123" }, vi.fn().mockRejectedValue(new Error("sk-secret-123")) as never);

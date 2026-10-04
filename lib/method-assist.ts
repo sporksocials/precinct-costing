@@ -96,32 +96,53 @@ export function isValidStepText(text: unknown): text is string {
   return true;
 }
 
-/**
- * Parses and validates the model's reply: JSON only, exactly one op, the index inside the method, a valid step text.
- * When the note names a step to replace and it is found, the op is forced to replace that step. Null on any failure.
- */
-export function validateReply(raw: string, input: Pick<TidyInput, "method" | "replaces">): MethodOp[] | null {
-  let json: unknown;
+/** Pulls the JSON object out of a reply, even when the model wrapped it in a code fence or added a sentence around it. */
+export function extractJson(raw: string): unknown {
+  const t = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   try {
-    json = JSON.parse(raw.trim());
+    return JSON.parse(t);
   } catch {
-    return null;
+    const from = t.indexOf("{");
+    const to = t.lastIndexOf("}");
+    if (from < 0 || to <= from) return undefined;
+    try {
+      return JSON.parse(t.slice(from, to + 1));
+    } catch {
+      return undefined;
+    }
   }
-  if (!json || typeof json !== "object") return null;
+}
+
+/**
+ * Parses and validates the model's reply: JSON (a code fence or a sentence around it is tolerated), exactly one op, the
+ * index inside the method (an index just past either end is pulled in), a valid step text. When the note names a step to
+ * replace and it is found, the op is forced to replace that step. `reason` says which check failed.
+ */
+export function validateReplyDetailed(raw: string, input: Pick<TidyInput, "method" | "replaces">): { ops: MethodOp[] } | { reason: string } {
+  const json = extractJson(raw);
+  if (!json || typeof json !== "object") return { reason: "bad_reply_json" };
   const ops = (json as { ops?: unknown }).ops;
-  if (!Array.isArray(ops) || ops.length !== 1) return null;
+  if (!Array.isArray(ops) || ops.length !== 1) return { reason: "bad_reply_ops" };
   const o = ops[0] as Record<string, unknown>;
-  if (!o || (o.op !== "insert" && o.op !== "replace")) return null;
-  if (typeof o.index !== "number" || !Number.isInteger(o.index)) return null;
-  if (!isValidStepText(o.text)) return null;
+  if (!o || (o.op !== "insert" && o.op !== "replace")) return { reason: "bad_reply_op" };
+  if (typeof o.index !== "number" || !Number.isInteger(o.index)) return { reason: "bad_reply_index" };
+  const text = typeof o.text === "string" ? o.text.trim().replace(/^["“]|["”]$/g, "").trim() : o.text;
+  if (!isValidStepText(text)) return { reason: "bad_reply_text" };
   const n = input.method.length;
   const at = findStepIndex(input.method, input.replaces);
   if (at >= 0) {
     // the note names the step it replaces: that is where the new step goes, whatever the model chose
-    return [{ op: "replace", index: at, text: o.text }];
+    return { ops: [{ op: "replace", index: at, text }] };
   }
-  if (o.op !== "insert" || o.index < 0 || o.index > n) return null;
-  return [{ op: "insert", index: o.index, text: o.text }];
+  if (o.op !== "insert") return { reason: "bad_reply_op" };
+  if (o.index < 0 || o.index > n) return { reason: "bad_reply_index" };
+  return { ops: [{ op: "insert", index: o.index, text }] };
+}
+
+/** The validated ops, or null on any failure. */
+export function validateReply(raw: string, input: Pick<TidyInput, "method" | "replaces">): MethodOp[] | null {
+  const r = validateReplyDetailed(raw, input);
+  return "ops" in r ? r.ops : null;
 }
 
 // ---------------------------------------------------------------- the call
@@ -160,8 +181,9 @@ export async function askModelDetailed(input: TidyInput, env: AssistEnv, fetchIm
     }
     const data = (await res.json()) as { content?: { type?: string; text?: string }[] };
     const text = (data.content ?? []).find((c) => c?.type === "text" && typeof c.text === "string")?.text;
-    const ops = text ? validateReply(text, input) : null;
-    return ops ? { ops } : { ops: null, reason: "bad_reply" };
+    if (!text) return { ops: null, reason: "bad_reply_empty" };
+    const r = validateReplyDetailed(text, input);
+    return "ops" in r ? { ops: r.ops } : { ops: null, reason: r.reason };
   } catch (e) {
     return { ops: null, reason: e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError") ? "timeout" : "network" };
   }

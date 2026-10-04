@@ -47,7 +47,7 @@ export function tidyNote(r: Pick<TidyResult, "source" | "fallback">): string {
     : f === "http_401" || f === "http_403" ? "Smart Tidy could not run: the key was refused."
     : f === "timeout" ? "Smart Tidy took too long."
     : f === "network" ? "Smart Tidy could not be reached."
-    : f === "bad_reply" ? "Smart Tidy gave a reply that did not pass the checks."
+    : f.startsWith("bad_reply") ? `Smart Tidy gave a reply that did not pass the checks (${f.slice(10).replace(/^_/, "") || "format"}).`
     : f === "unreachable" ? "The tidy service could not be reached, so this page did it."
     : f.startsWith("http_") ? `Smart Tidy could not run (error ${f.slice(5)}).`
     : "";

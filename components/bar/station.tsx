@@ -242,7 +242,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                 </div>
 
                 {!hasSearch && chips.length ? (
-                  <div className="mt-[14px] flex flex-wrap gap-2" role="group" aria-label="Category">
+                  <div className="mt-[14px] grid grid-cols-2 gap-2 sm:grid-flow-col sm:auto-cols-fr" role="group" aria-label="Category">
                     {chips.map((cat) => {
                       const on = cat.key === activeCategory;
                       return (
@@ -252,7 +252,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                           aria-pressed={on}
                           onClick={() => setPickedCategory(cat.key)}
                           className={cx(
-                            "min-h-[40px] rounded-full px-[17px] py-[10px] text-[15px] font-medium leading-[20px]",
+                            "min-h-[58px] rounded-[14px] px-3 py-3 text-[19px] font-semibold leading-[24px]",
                             on ? "bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" : "border-[0.5px] border-white/[0.18] bg-transparent text-[#F5F3EE]",
                           )}
                         >

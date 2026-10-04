@@ -126,6 +126,17 @@ export function servesPerBottle(bottle: number | null, qty: number, unit: string
   return Math.floor(bottle / serve + 1e-9);
 }
 
+/**
+ * An ingredient line on the bottle card, in whole millilitres, rounded DOWN ("233.3 ml" reads "233 ml"): nobody measures
+ * a third of a ml, and a bottle that is a few drops short still fits in the 700 ml. The tiny addition stops float noise
+ * (149.9999999) from dropping a clean 150. Other units keep their own style.
+ */
+export function bottleLineAmount(qty: number, unit: string): string {
+  const ml = toMl(qty, unit);
+  if (ml == null) return qtyText(qty, unit);
+  return `${Math.floor(ml + 1e-6).toLocaleString("en-AU")} ml`;
+}
+
 export interface PremixLineDisplay {
   name: string;
   /** "150 ml" */
@@ -135,7 +146,7 @@ export interface PremixLineDisplay {
 }
 
 export function premixLineDisplay(l: PremixLine): PremixLineDisplay {
-  return { name: barIngredientName(l.name), amount: premixAmount(l.qty, l.unit), shots: shotsText(l.qty, l.unit) };
+  return { name: barIngredientName(l.name), amount: bottleLineAmount(l.qty, l.unit), shots: shotsText(l.qty, l.unit) };
 }
 
 export interface PremixUseDisplay {

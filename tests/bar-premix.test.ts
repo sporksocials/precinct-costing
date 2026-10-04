@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { shotsFor } from "@/lib/bar";
-import { bottleMl, bottleSizeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
+import { bottleLineAmount, bottleMl, bottleSizeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
 import { stationWorkerSource } from "@/lib/sw-source";
 
 const NOW = "2026-10-04T08:00:00.000Z";
@@ -120,8 +120,12 @@ describe("servesPerBottle", () => {
 describe("display text", () => {
   it("shows ml big with shots secondary only for clean pours", () => {
     expect(premixLineDisplay({ name: "Aperol (700ml)", qty: 180, unit: "ml", sort: 1 })).toEqual({ name: "Aperol", amount: "180 ml", shots: "6 shots" });
-    expect(premixLineDisplay({ name: "Passoa (700ml)", qty: 116.6667, unit: "ml", sort: 2 })).toEqual({ name: "Passoa", amount: "116.7 ml", shots: null });
+    expect(premixLineDisplay({ name: "Passoa (700ml)", qty: 116.6667, unit: "ml", sort: 2 })).toEqual({ name: "Passoa", amount: "116 ml", shots: null });
     expect(premixAmount(0.05, "L")).toBe("50 ml");
+    expect(bottleLineAmount(233.3333, "ml")).toBe("233 ml");
+    expect(bottleLineAmount(149.99999999, "ml")).toBe("150 ml");
+    expect(bottleLineAmount(0.2333, "L")).toBe("233 ml");
+    expect(bottleLineAmount(2, "each")).toBe("2 each");
     expect(premixAmount(2, "each")).toBe("2 each");
   });
   it("words 'used in' with the shots and how many serves a bottle makes", () => {

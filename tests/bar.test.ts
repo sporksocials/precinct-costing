@@ -147,7 +147,7 @@ describe("bar screens text contrast", () => {
     const { readFileSync } = await import("node:fs");
     const worstCard = "#232327"; // a pressed tile
     const found = new Set<string>();
-    for (const f of ["components/bar/station.tsx", "app/bar/page.tsx"]) {
+    for (const f of ["components/bar/station.tsx", "components/bar/premix.tsx", "app/bar/page.tsx"]) {
       for (const m of readFileSync(f, "utf8").matchAll(/(?:text|placeholder:text)-\[(#[0-9a-fA-F]{6})\]/g)) found.add(m[1].toUpperCase());
     }
     const light = [...found].filter((c) => lum(c) > 0.2); // dark text sits on light accent fills, checked by hand

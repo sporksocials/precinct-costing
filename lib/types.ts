@@ -352,3 +352,36 @@ export interface IngredientDeal {
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+export type ResearchKind = "suggestion" | "difference";
+export type ResearchStatus = "open" | "approved" | "dismissed";
+
+/** One recipe change a research note would make. `qty` is a DELTA: positive adds, negative takes off the line already in the recipe. */
+export interface ResearchChange {
+  ingredient_id: string;
+  qty: number;
+  unit: LineUnit;
+}
+
+export interface ResearchSource {
+  label: string;
+  url: string;
+}
+
+/**
+ * A manager-only research note on a recipe (cost_research_notes): a suggestion, or a flag that the venue's sheet differs
+ * from the classic recipe. Never shown on the public bar or kitchen stations. Belongs to a menu item OR a prep.
+ */
+export interface ResearchNote {
+  id: string;
+  item_id: string | null;
+  prep_id: string | null;
+  kind: ResearchKind;
+  title: string;
+  body: string;
+  changes: ResearchChange[];
+  sources: ResearchSource[];
+  status: ResearchStatus;
+  created_at: string;
+  updated_at: string;
+}

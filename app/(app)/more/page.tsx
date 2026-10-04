@@ -1,6 +1,6 @@
 "use client";
 
-import { HeartPulse, History, Settings, Store, Tag, Wheat } from "lucide-react";
+import { HeartPulse, History, Lightbulb, Settings, Store, Tag, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
@@ -10,7 +10,8 @@ function Icon({ children, className }: { children: React.ReactNode; className: s
 }
 
 export default function MorePage() {
-  const { userEmail, signOut } = useStore();
+  const { userEmail, signOut, researchNotes, ready } = useStore();
+  const openNotes = researchNotes.filter((n) => n.status === "open").length;
   const health = useDataHealthSummary();
   const ic = "h-[18px] w-[18px]";
   return (
@@ -19,6 +20,13 @@ export default function MorePage() {
       <Group inset="3.75rem" className="mt-2">
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
         <Row href="/allergens" title="Allergy Matrix" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
+        <Row
+          href="/research-notes"
+          title="Research Notes"
+          leading={<Icon className="bg-[#1f6f7a]"><Lightbulb className={ic} /></Icon>}
+          trailing={ready ? <span className={openNotes ? "text-label" : "text-label-2"}>{openNotes ? `${openNotes} open` : "None open"}</span> : undefined}
+          chevron
+        />
         <Row href="/portal-prices" title="Supplier Prices" leading={<Icon className="bg-[#0A3848]"><Store className={ic} /></Icon>} chevron />
         <Row
           href="/data-health"

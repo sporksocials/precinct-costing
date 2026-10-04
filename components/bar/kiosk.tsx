@@ -2,12 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
+import { isBarVenue } from "@/lib/bar";
 
 /**
  * Keeps a cocktail station iPad working through a shift. Renders nothing.
  *
  * - Offline copy: registers /bar/sw.js (see app/bar/sw.js/route.ts) and tells it what this page loaded so the very
- *   first visit is saved too, not just later ones.
+ *   first visit is saved too, not just later ones (on a venue's station that includes its Pre-Mix Bottles page).
  * - Screen on: asks the browser to keep the screen awake. iPadOS can refuse this (older versions, or a Home Screen app
  *   on some releases), so it is a bonus only: the reliable fix is Auto-Lock "Never" and Guided Access, in /bar/setup.
  */
@@ -29,7 +30,11 @@ export function BarKiosk() {
           .getEntriesByType("resource")
           .map((e) => e.name)
           .filter((n) => n.startsWith(location.origin));
-        target.postMessage({ type: "warm", pages: Array.from(new Set(["/bar", location.pathname + location.search])), assets });
+        // a venue's station and its Pre-Mix Bottles page are saved together (with the pre-mix data), so the page behind the
+        // "Pre-Mix Bottles" row opens offline even if nobody has tapped it yet
+        const venue = location.pathname.match(/^\/bar\/([a-z]+)(?:\/premix)?\/?$/)?.[1];
+        const venuePages = venue && isBarVenue(venue) ? [`/bar/${venue}`, `/bar/${venue}/premix`, `/api/bar/${venue}/premix`] : [];
+        target.postMessage({ type: "warm", pages: Array.from(new Set(["/bar", location.pathname + location.search, ...venuePages])), assets });
       } catch {
         // no service worker (private browsing, older browser): the station still works online
       }

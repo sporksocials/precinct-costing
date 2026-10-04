@@ -87,7 +87,8 @@ export function parseBarMenu(raw: unknown, syncedAt: string): BarMenu | null {
  */
 export const SHOT_LABELS: Record<number, string> = { 15: "½ shot", 30: "1 shot", 45: "1½ shots", 60: "2 shots", 75: "2½ shots", 90: "3 shots", 120: "4 shots" };
 
-function toMl(qty: number, unit: string): number | null {
+/** Volume in ml for an ml or L amount; null for anything else (g, kg, each). */
+export function toMl(qty: number, unit: string): number | null {
   if (unit === "ml") return qty;
   if (unit === "L") return Math.round(qty * 1000 * 1000) / 1000;
   return null;

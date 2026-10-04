@@ -7,6 +7,7 @@
  *   out-of-date banner stay truthful.
  * - Built files (/_next/static), the station's photos, logos and icons: saved on first use, served from the save after that.
  * - The page tells the worker what it has loaded ("warm" message) so even the very first visit is saved, before the worker took over.
+ *   It can also name the station's other pages and refresh API replies to save ahead (the bar's Pre-Mix Bottles page, for one).
  * - Everything else (the costing app, Supabase, other origins, non-GET) is left alone.
  */
 export interface StationWorker {
@@ -39,6 +40,7 @@ self.addEventListener("activate", (event) => {
 });
 
 const isStationPage = (p) => p === SCOPE || p.startsWith(SCOPE + "/");
+const isStationApi = (p) => p.startsWith("/api" + SCOPE + "/");
 const isAsset = (p) => ASSET_PREFIXES.some((prefix) => p.startsWith(prefix));
 
 async function trim(cache) {
@@ -82,7 +84,7 @@ self.addEventListener("fetch", (event) => {
   const p = url.pathname;
   if (p === SCOPE + "/sw.js") return;
   if (request.mode === "navigate" && isStationPage(p)) return event.respondWith(networkFirst(request, 4000));
-  if (p.startsWith("/api" + SCOPE + "/")) return event.respondWith(networkFirst(request, 6000));
+  if (isStationApi(p)) return event.respondWith(networkFirst(request, 6000));
   if (isAsset(p)) return event.respondWith(cacheFirst(request));
 });
 
@@ -94,7 +96,7 @@ self.addEventListener("message", (event) => {
     const pages = await caches.open(PAGES);
     const assets = await caches.open(ASSETS);
     for (const href of data.pages || []) {
-      try { const u = new URL(href, origin); if (u.origin === origin && isStationPage(u.pathname)) await pages.add(u.pathname + u.search); } catch (e) {}
+      try { const u = new URL(href, origin); if (u.origin === origin && (isStationPage(u.pathname) || isStationApi(u.pathname))) await pages.add(u.pathname + u.search); } catch (e) {}
     }
     for (const href of data.assets || []) {
       try { const u = new URL(href, origin); if (u.origin === origin && isAsset(u.pathname) && !(await assets.match(u.href))) await assets.add(u.href); } catch (e) {}

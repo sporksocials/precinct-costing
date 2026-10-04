@@ -31,6 +31,8 @@ import {
   type PortalPrice,
   type Prep,
   type PriceLog,
+  type ResearchNote,
+  type ResearchStatus,
   type SellPriceLog,
   type RecipeLine,
   type Setting,
@@ -196,6 +198,8 @@ export interface StoreData {
   offerLines: OfferLine[];
   /** supplier deals (cost_ingredient_deals); [] until the deals migration is applied */
   deals: IngredientDeal[];
+  /** manager-only research notes (cost_research_notes); [] until the research notes migration is applied */
+  researchNotes: ResearchNote[];
 }
 
 export interface UsedIn {
@@ -284,6 +288,8 @@ export interface StoreValue extends StoreData {
   addDeal: (deal: Omit<IngredientDeal, "id">) => Promise<string>;
   updateDeal: (id: string, patch: Partial<IngredientDeal>) => Promise<void>;
   deleteDeal: (id: string) => Promise<void>;
+  /** Approve, dismiss or reopen a research note. Saved straight away; the note keeps everything else. */
+  setResearchNoteStatus: (id: string, status: ResearchStatus) => Promise<void>;
 }
 
 /** PostgREST / Postgres error text when cost_offers.assumptions has not been added yet. */
@@ -312,6 +318,7 @@ const empty: StoreData = {
   offers: [],
   offerLines: [],
   deals: [],
+  researchNotes: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -1407,6 +1414,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  // ---- research notes (manager-only; only the status is ever changed from the app, notes are written by SPORK) ----
+  const setResearchNoteStatus = useCallback(
+    async (id: string, status: ResearchStatus) => {
+      const { data: rows, error } = await sb.from("cost_research_notes").update({ status }).eq("id", id).select("*");
+      if (error) throw new Error(error.message);
+      assertSaved(rows);
+      const fresh = rows?.[0] as ResearchNote | undefined;
+      setData((d) => ({ ...d, researchNotes: d.researchNotes.map((n) => (n.id === id ? (fresh ?? { ...n, status }) : n)) }));
+    },
+    [sb, setData],
+  );
+
   const value: StoreValue = {
     ...data,
     today,
@@ -1472,6 +1491,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     addDeal,
     updateDeal,
     deleteDeal,
+    setResearchNoteStatus,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

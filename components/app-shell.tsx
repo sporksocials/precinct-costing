@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense, useEffect, useRef } from "react";
-import { BookOpen, Carrot, Ellipsis, HeartPulse, History, House, LogOut, Search, Settings, Store, Tag, Wheat } from "lucide-react";
+import { BookOpen, Carrot, Ellipsis, HeartPulse, History, House, Lightbulb, LogOut, Search, Settings, Store, Tag, Wheat } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -19,6 +19,7 @@ const MAIN = [
   { href: "/specials", label: "Specials", icon: Tag },
 ];
 const MORE = [
+  { href: "/research-notes", label: "Research Notes", icon: Lightbulb },
   { href: "/portal-prices", label: "Supplier Prices", icon: Store },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
   { href: "/change-log", label: "Change Log", icon: History },

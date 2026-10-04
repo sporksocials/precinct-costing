@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, type BarItem, type BarMenu } from "@/lib/bar";
+import { premixCountText, type BarPremix } from "@/lib/bar-premix";
 import { cx } from "../ui";
-import { GlassIcon } from "./glass-icon";
+import { BottleIcon, GlassIcon } from "./glass-icon";
 
 /** A reference photo that quietly disappears (no broken-image box, no orphaned caption) when this item has no file yet. */
 function Photo({ name, photo, className }: { name: string; photo: string | null; className: string }) {
@@ -40,19 +41,19 @@ function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
  */
 
 /** Shown only when the recipes on screen are 15+ minutes old (Wi-Fi down, server unreachable). Big on purpose: a bartender must know before trusting a measure. */
-function StaleBanner({ menu, now }: { menu: BarMenu | null; now: number }) {
-  if (!menu || !isStale(menu.syncedAt, now)) return null;
+export function StaleBanner({ syncedAt, now }: { syncedAt: string | null; now: number }) {
+  if (!syncedAt || !isStale(syncedAt, now)) return null;
   return (
     <div role="alert" className="border-y-[0.5px] border-[#F2C46D]/40 bg-[#2B2210] px-6 py-4 text-center">
       <p className="text-[20px] font-semibold leading-tight text-[#F2C46D]">Recipes May Be Out Of Date</p>
-      <p className="mt-1 text-[16px] leading-snug text-[#F2C46D]">Last updated {staleAge(menu.syncedAt, now)}. Check the iPad&rsquo;s Wi-Fi. This screen keeps trying.</p>
+      <p className="mt-1 text-[16px] leading-snug text-[#F2C46D]">Last updated {staleAge(syncedAt, now)}. Check the iPad&rsquo;s Wi-Fi. This screen keeps trying.</p>
     </div>
   );
 }
 
-const IDLE_MS = 120_000; // back to the grid after 2 minutes untouched on a recipe
-const REFRESH_MS = 5 * 60_000; // fetch the latest recipes every 5 minutes
-const RETRY_MS = 30_000; // ...or every 30 seconds while the first load is failing
+export const IDLE_MS = 120_000; // back to the grid after 2 minutes untouched on a recipe
+export const REFRESH_MS = 5 * 60_000; // fetch the latest recipes every 5 minutes
+export const RETRY_MS = 30_000; // ...or every 30 seconds while the first load is failing
 
 const CATS = [
   { key: "all", label: "All" },
@@ -61,12 +62,14 @@ const CATS = [
 ] as const;
 type CatKey = (typeof CATS)[number]["key"];
 
-const CARD = "rounded-2xl border-[0.5px] border-white/[0.08] bg-[#1C1C1F]";
-const ROW = "border-t-[0.5px] border-white/[0.07]";
-const HEADING = "text-[15px] font-medium tracking-[0.5px] text-[#9B9890]";
+export const CARD = "rounded-2xl border-[0.5px] border-white/[0.08] bg-[#1C1C1F]";
+export const ROW = "border-t-[0.5px] border-white/[0.07]";
+export const HEADING = "text-[15px] font-medium tracking-[0.5px] text-[#9B9890]";
 
-export function BarStation({ slug, venueName, initial }: { slug: string; venueName: string; initial: BarMenu | null }) {
+export function BarStation({ slug, venueName, initial, premixCount: initialPremixCount = 0 }: { slug: string; venueName: string; initial: BarMenu | null; premixCount?: number }) {
   const [menu, setMenu] = useState<BarMenu | null>(initial);
+  // how many pre-mix bottles the venue has; the "Pre-Mix Bottles" row shows only when there is at least one
+  const [premixCount, setPremixCount] = useState(initialPremixCount);
   const [view, setView] = useState<"grid" | "detail">("grid");
   const [activeCategory, setActiveCategory] = useState<CatKey>("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -85,6 +88,12 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
       setMenu((prev) => (prev && Date.parse(next.syncedAt) < Date.parse(prev.syncedAt) ? prev : next));
     } catch {
       // offline: keep showing what we have; "Synced … ago" tells the truth
+    }
+    try {
+      const res = await fetch(`/api/bar/${slug}/premix`, { cache: "no-store" });
+      if (res.ok) setPremixCount(((await res.json()) as BarPremix).premixes.length);
+    } catch {
+      // the row stays as it was
     }
   }, [slug]);
 
@@ -154,7 +163,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
         <Detail item={selected} onBack={goBack} menu={menu} now={now} />
       ) : (
         <div className="flex w-full flex-col">
-          <StaleBanner menu={menu} now={now} />
+          <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
           <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
             <Link href="/bar" className="inline-flex min-h-[32px] items-center gap-[6px] text-[14px] font-medium text-[color:var(--bar-accent)]">
               <span aria-hidden className="text-[16px] leading-none">
@@ -171,6 +180,22 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
               ) : null}
             </div>
             <p className="mt-[2px] text-[16px] text-[#9B9890]">Cocktail Station</p>
+
+            {premixCount > 0 ? (
+              <Link
+                href={`/bar/${slug}/premix`}
+                className={cx(CARD, "mt-4 flex min-h-[76px] items-center gap-4 px-5 py-3 transition-transform duration-150 active:scale-[0.99] active:bg-[#232327]")}
+              >
+                <BottleIcon className="shrink-0 text-[color:var(--bar-text)]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[24px] font-medium leading-tight">Pre-Mix Bottles</span>
+                  <span className="mt-[2px] block text-[15px] leading-snug text-[#9B9890]">{premixCountText(premixCount)}, made up before service</span>
+                </span>
+                <span aria-hidden className="text-[28px] font-bold leading-none text-[color:var(--bar-text)]">
+                  &#8594;
+                </span>
+              </Link>
+            ) : null}
 
             {items.length ? (
               <>
@@ -273,7 +298,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
   );
 }
 
-function EmptyState({ title, body, action }: { title: string; body?: string; action?: { label: string; onClick: () => void } }) {
+export function EmptyState({ title, body, action }: { title: string; body?: string; action?: { label: string; onClick: () => void } }) {
   return (
     <div className={cx(CARD, "mt-2 px-6 py-14 text-center")}>
       <p className="text-[26px] font-medium leading-[1.2]">{title}</p>
@@ -300,7 +325,7 @@ function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void
         </span>
         BACK TO ALL COCKTAILS
       </button>
-      <StaleBanner menu={menu} now={now} />
+      <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
         <div className="flex flex-col items-start gap-5 sm:flex-row">

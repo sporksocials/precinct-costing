@@ -26,6 +26,7 @@ import { RecipeAllergens } from "../allergen-picker";
 import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
+import { RecordResearchNotes } from "./research-notes";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -522,6 +523,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               <Row onClick={() => setSheet("usedin")} title={`Used in ${usedIn.items.length} ${usedIn.items.length === 1 ? "recipe" : "recipes"}`} sub={usedIn.preps.length ? `and ${usedIn.preps.length} ${usedIn.preps.length === 1 ? "prep" : "preps"}` : undefined} chevron />
             </div>
           ) : null}
+
+          <RecordResearchNotes kind={kind} id={id} />
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
 

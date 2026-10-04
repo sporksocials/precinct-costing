@@ -99,6 +99,8 @@ const HISTORY_KEYS: Record<string, { key: string; parent?: [string, string] }> =
   cost_suppliers: { key: "id" }, cost_specials: { key: "id" }, cost_targets: { key: "venue_id,category" }, cost_settings: { key: "key" },
   cost_bar_options: { key: "id" }, cost_allowed_users: { key: "email" },
 };
+/** Tables whose live created_at column defaults to now() (cost_suppliers has none). */
+const HAS_CREATED_AT = new Set(["cost_menu_items", "cost_preps", "cost_ingredients", "cost_beers", "cost_beer_serves", "cost_gelato_serves", "cost_offers", "cost_ingredient_deals", "cost_specials"]);
 const BOOKKEEPING = new Set(["updated_at", "updated_by", "created_at", "sort"]);
 /** One transaction id per statement (like txid_current()), so rows written by one delete share it. */
 let lastTx = 0;
@@ -263,6 +265,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
       case "insert": {
         const added = this.payload.map((r) => {
           const row: Row = { ...r };
+          if (HAS_CREATED_AT.has(this.table) && row.created_at == null) row.created_at = new Date().toISOString(); // the live column default
           if (row.id == null) row.id = Math.max(0, ...rows.map((x) => Number(x.id) || 0)) + 1;
           if (rows.some((x) => x.id === row.id)) throw new DemoError(`duplicate key value violates unique constraint "${this.table}_pkey"`, "23505");
           const uk = UNIQUE_KEYS[this.table];
@@ -290,8 +293,10 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
             rows[i] = { ...rows[i], ...r };
             logHistory(tables, this.table, "update", before, rows[i]);
           } else {
-            rows.push({ ...r });
-            logHistory(tables, this.table, "insert", null, r);
+            const fresh: Row = { ...r };
+            if (HAS_CREATED_AT.has(this.table) && fresh.created_at == null) fresh.created_at = new Date().toISOString();
+            rows.push(fresh);
+            logHistory(tables, this.table, "insert", null, fresh);
           }
         }
         stampParents(tables, this.table, this.payload, DEMO_USER);

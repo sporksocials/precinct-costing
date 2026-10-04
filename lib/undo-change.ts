@@ -265,14 +265,23 @@ export function summaryOf(row: HistoryRow, e: { title: string; oldValue: string;
   return `Changed ${rest}: ${e.oldValue} to ${e.newValue}`;
 }
 
-/** Display text for a record's history, newest first. `describe` is describeHistoryRow with the page's lookups. */
+/** Display text for a dish's or prep's history, newest first. `describe` is describeHistoryRow with the page's lookups. */
 export function recordEvents(
   rows: readonly HistoryRow[],
   kind: RecordKind,
   id: string,
   describe: (row: HistoryRow) => { id: string; title: string; oldValue: string; newValue: string }[],
 ): RecordEvent[] {
-  const ownTable = RECORD_TABLE[kind];
+  return recordEventsForTable(rows, RECORD_TABLE[kind], id, describe);
+}
+
+/** The same for any record's table: the record's own rows plus rows whose parent is the record (lines, serve prices ...). */
+export function recordEventsForTable(
+  rows: readonly HistoryRow[],
+  ownTable: string,
+  id: string,
+  describe: (row: HistoryRow) => { id: string; title: string; oldValue: string; newValue: string }[],
+): RecordEvent[] {
   const mine = rows.filter((r) => (r.table_name === ownTable && r.row_key === id) || (r.parent_table === ownTable && r.parent_id === id));
   const sorted = [...mine].sort((a, b) => (ms(b.changed_at) - ms(a.changed_at)) || Number(b.id) - Number(a.id));
   const out: RecordEvent[] = [];

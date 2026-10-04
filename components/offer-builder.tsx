@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChevronLeft, X } from "lucide-react";
@@ -329,6 +330,12 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
         <div className="lg:col-span-2 lg:row-start-3">
           <OfferSimulator cost={c} kind={d.kind} gstRate={store.settings.gst_rate} assumptions={d.assumptions} onChange={setAssumptions} unsaved={store.assumptionsUnsaved} />
         </div>
+
+        {offerId ? (
+          <div className="lg:col-span-2 lg:row-start-4">
+            <RecordHistory table="cost_offers" rowKey={offerId} label="offer" refreshKey={`${saved?.updated_at ?? ""}|${saved?.status ?? ""}`} />
+          </div>
+        ) : null}
 
         <div className="lg:col-start-2 lg:row-start-2">
           <div>

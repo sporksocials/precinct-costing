@@ -21,6 +21,7 @@ import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
 import { dateShort, money, movePct, parseDecimal, unitShort } from "@/lib/format";
 import type { DealKind, Ingredient, IngredientDeal } from "@/lib/types";
 import { ReviewSheet } from "@/components/price-review";
+import { RecordHistory } from "@/components/editor/record-history";
 import { ActiveToggle, DeleteRecordSheet, ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, visibleRecords } from "@/lib/active";
 import { Banner, cx, Group, Row, Segmented, Sheet, useToast } from "@/components/ui";
@@ -92,6 +93,13 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
   const [removing, setRemoving] = useState<IngredientDeal | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState<Set<string>>(() => new Set());
+  const toggleHistory = (id: string) =>
+    setHistoryOpen((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const res = resolveDeals(Number(ing.pack_price), deals, today);
   // hide the suggestion once a deal of that kind already exists
   const showSuggestion = suggestion && !deals.some((d) => d.kind === suggestion.kind);
@@ -133,7 +141,11 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
                 <button type="button" className="btn-plain w-full !text-danger" onClick={() => setRemoving(d)}>
                   Delete Deal…
                 </button>
+                <button type="button" className="btn-text mt-1 font-semibold" aria-expanded={historyOpen.has(d.id)} onClick={() => toggleHistory(d.id)}>
+                  {historyOpen.has(d.id) ? "Hide History" : "Show History"}
+                </button>
               </div>
+              {historyOpen.has(d.id) ? <RecordHistory table="cost_ingredient_deals" rowKey={d.id} label="deal" embedded refreshKey={`${d.updated_at ?? ""}|${d.active}`} /> : null}
             </div>
           );
         })}

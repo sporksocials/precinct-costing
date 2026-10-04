@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ChevronLeft, Plus, Trash2 } from "lucide-react";
@@ -212,6 +213,8 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
         </Group>
 
         {serve ? <PriceHistory filter={{ kind: "gelato_serve", serveId: serve.id, limit: 10 }} refreshKey={serve.sell_price_inc} /> : null}
+
+        {serve ? <RecordHistory table="cost_gelato_serves" rowKey={serve.id} label="serve" refreshKey={`${JSON.stringify([serve.name, serve.grams, serve.sell_price_inc, serve.on_menu, serve.active, serve.notes])}|${lines.length}`} /> : null}
 
         {serve ? (
           <div className="mt-6">

@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
@@ -288,6 +289,8 @@ function Detail({ ing }: { ing: Ingredient }) {
               </div>
             </div>
           </Disclosure>
+
+          <RecordHistory table="cost_ingredients" rowKey={ing.id} label="ingredient" refreshKey={`${ing.updated_at ?? ""}|${ing.pack_price}`} />
         </div>
       </div>
 

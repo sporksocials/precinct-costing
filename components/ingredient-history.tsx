@@ -75,7 +75,7 @@ export function IngredientHistory({
   const noOther = audits !== null && audits.length === 0;
 
   return (
-    <Group title="History" className="mt-7" footer={!loading && noOther ? "No other changes recorded yet." : undefined}>
+    <Group title="Price History" className="mt-7" footer={!loading && noOther ? "No other changes recorded yet." : undefined}>
       {loading ? (
         <p className="px-4 py-3 text-[15px] text-label-2">Loading…</p>
       ) : timeline.length === 0 ? (

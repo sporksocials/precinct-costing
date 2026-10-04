@@ -12,6 +12,7 @@ import { parseGpInput, parsePriceInput } from "@/lib/solver";
 import { VenueAccent, VENUE_SHORT } from "@/components/venue";
 import { KegPicker } from "@/components/beer-parts";
 import { PriceHistory } from "@/components/editor/price-history";
+import { RecordHistory } from "@/components/editor/record-history";
 import { SetPriceButton } from "@/components/price-actions";
 import { ActiveToggle, DeleteRecordSheet, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { TAP_ACTIVE_LABEL, TAP_ACTIVE_SUB } from "@/lib/active";
@@ -136,6 +137,13 @@ export default function BeerPage() {
         filter={{ kind: "beer_serve", beerId: beer.id, limit: 30 }}
         refreshKey={store.beer.serves.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}
         serveNames={Object.fromEntries(store.beer.serves.map((s) => [s.id, s.name]))}
+      />
+
+      <RecordHistory
+        table="cost_beers"
+        rowKey={beer.id}
+        label="tap beer"
+        refreshKey={`${JSON.stringify([beer.name, beer.ingredient_id, beer.target_gp, beer.active])}|${store.beer.serves.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}`}
       />
 
       <div className="mt-8">

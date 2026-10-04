@@ -87,7 +87,7 @@ export const CHECKS: Record<string, CheckInfo> = {
   item_no_price: { title: "Menu item with no sell price", severity: "warning", why: "Without a sell price there is no GP, and it drops out of the averages." },
   gp_too_high: { title: "GP above 92%", severity: "warning", why: "A margin this high usually means a missing ingredient or a wrong quantity." },
   gp_negative: { title: "Sold below cost", severity: "warning", why: "The sell price is under the cost, so either the price or the cost is wrong." },
-  inactive_in_use: { title: "Inactive ingredient or prep still in use", severity: "warning", why: "Its price may not be kept up to date, so the recipes that use it drift out of date." },
+  inactive_in_use: { title: "Inactive ingredient or prep still in use", severity: "info", why: "This is allowed: it keeps costing the recipes that use it, but it is not offered for new recipes and its price is not chased. Check its price is still right, or swap it out." },
   duplicate_ingredient: { title: "Possible duplicate ingredient", severity: "warning", why: "Two copies mean one gets price updates and the other goes stale." },
   offer_missing_component: { title: "Special or combo uses a deleted item", severity: "error", why: "The offer cost leaves that item out, so its GP is overstated." },
   setting_gst_unusual: { title: "GST rate is not 10%", severity: "info", why: "Australian GST is 10%. Every price and GP uses this rate." },

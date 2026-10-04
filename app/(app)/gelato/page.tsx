@@ -9,6 +9,8 @@ import { flavourName, resolveGelatoTarget, virtualItemId } from "@/lib/gelato";
 import { gp, money } from "@/lib/format";
 import type { GelatoServe, Prep } from "@/lib/types";
 import { NewFlavourSheet } from "@/components/new-flavour";
+import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, visibleRecords } from "@/lib/active";
 import { AddButton, cx, Dot, Empty, Group, PageHeader, Row, Segmented } from "@/components/ui";
 
 type View = "menu" | "all";
@@ -24,8 +26,8 @@ export default function GelatoPage() {
   const target = venue ? resolveGelatoTarget(null, venue.id, store.targets) : 0.72;
   const onMenu = g.serves.filter((s) => s.on_menu);
   const serves = view === "menu" && onMenu.length ? onMenu : g.serves;
-  const flavours = showInactive ? g.flavours : g.flavours.filter((f) => f.active);
-  const inactiveCount = g.flavours.length - g.flavours.filter((f) => f.active).length;
+  const flavours = visibleRecords(g.flavours, showInactive);
+  const inactiveCount = countInactive(g.flavours);
 
   const cell = (f: Prep, s: GelatoServe): ItemCost | undefined => store.itemCosts.get(virtualItemId(f.id, s.id));
 
@@ -134,11 +136,7 @@ export default function GelatoPage() {
       <section className="mt-7">
         <div className="flex items-end justify-between px-4 pb-1.5">
           <h2 className="text-[13px] font-medium text-label-2">GP by flavour</h2>
-          {inactiveCount ? (
-            <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowInactive((x) => !x)}>
-              {showInactive ? "Hide inactive" : `Show inactive (${inactiveCount})`}
-            </button>
-          ) : null}
+          <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
         </div>
         {flavours.length === 0 ? (
           <Empty
@@ -171,8 +169,8 @@ export default function GelatoPage() {
                   return (
                     <tr key={f.id} className="border-t-[0.5px] border-sep">
                       <td className="sticky left-0 z-10 bg-surface px-4 py-2">
-                        <Link href={`/preps/${f.id}`} className={cx("block max-w-[220px] truncate hover:underline", f.active ? "text-label" : "text-label-3")}>
-                          {flavourName(f)}
+                        <Link href={`/preps/${f.id}`} className="block max-w-[260px] truncate hover:underline">
+                          <TitleWithTag name={flavourName(f)} active={f.active} />
                         </Link>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-right text-label-2">{pc ? money(pc.costPerUnit) : "—"}</td>

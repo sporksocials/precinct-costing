@@ -10,6 +10,8 @@ import type { ItemCost } from "@/lib/costing";
 import type { OfferStatus } from "@/lib/types";
 import { useVenue, venueQuery, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { StatusPill } from "@/components/offers-parts";
+import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, offerIsActive, visibleRecords } from "@/lib/active";
 import { AddButton, Chips, cx, Empty, Group, PageHeader, Row, Segmented } from "@/components/ui";
 
 const ORDER: Record<OfferStatus, number> = { live: 0, draft: 1, retired: 2 };
@@ -20,14 +22,18 @@ export default function SpecialsPage() {
   const { venue } = useVenue();
   const [tab, setTab] = useState<"offers" | "hh">("offers");
   const [status, setStatus] = useState<OfferStatus | "all">("all");
+  const [showInactive, setShowInactive] = useState(false);
   const q = venueQuery(venue);
 
+  // retired offers are the inactive ones (offers carry their state in `status`, not an `active` flag)
+  const inVenue = useMemo(() => store.offers.filter((o) => !venue || o.venue_id === venue.id), [store.offers, venue]);
+  const inactiveCount = status === "all" ? countInactive(inVenue, offerIsActive) : 0;
   const offers = useMemo(
     () =>
-      store.offers
-        .filter((o) => (!venue || o.venue_id === venue.id) && (status === "all" || o.status === status))
+      visibleRecords(inVenue, showInactive, offerIsActive)
+        .filter((o) => status === "all" || o.status === status)
         .sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name)),
-    [store.offers, venue, status],
+    [inVenue, showInactive, status],
   );
   const hh = useMemo(() => {
     const flagged = happyHourRows(store.itemCosts.values(), venue?.id ?? null);
@@ -63,7 +69,13 @@ export default function SpecialsPage() {
               Try A Combo
             </button>
           </div>
-          {store.offers.length > 0 ? <Chips ariaLabel="Status" className="mt-4" value={status} onChange={setStatus} options={[{ value: "all" as const, label: "All" }, ...OFFER_STATUSES.map((s) => ({ value: s.value, label: s.label }))]} /> : null}
+          {store.offers.length > 0 ? <Chips ariaLabel="Status" className="mt-4" value={status} onChange={setStatus} options={[{ value: "all" as const, label: "All" }, ...OFFER_STATUSES.filter((s) => s.value !== "retired").map((s) => ({ value: s.value, label: s.label }))]} /> : null}
+
+          {inactiveCount ? (
+            <div className="flex justify-end px-4 pt-4">
+              <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+            </div>
+          ) : null}
 
           {store.offers.length === 0 ? (
             <Empty title="No Specials Yet" body="Try A Combo to see the GP." />
@@ -80,7 +92,7 @@ export default function SpecialsPage() {
                   <Row
                     key={o.id}
                     href={`/specials/${o.id}`}
-                    title={<span className={cx(o.status === "retired" && "text-label-2")}>{o.name}</span>}
+                    title={<TitleWithTag name={o.name} active={offerIsActive(o)} />}
                     sub={
                       <span className="inline-flex max-w-full items-center gap-1.5">
                         <StatusPill status={o.status} />

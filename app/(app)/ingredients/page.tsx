@@ -13,7 +13,9 @@ import { PrepsList } from "@/components/preps-list";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue } from "@/components/venue";
 import { useRouter, useSearchParams } from "next/navigation";
-import { catalogueGaps, ingredientsInUse, staleIngredients } from "@/lib/insights";
+import { catalogueGaps, ingredientsInActiveUse, ingredientsInUse, staleIngredients } from "@/lib/insights";
+import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, ingredientListPool } from "@/lib/active";
 
 const PAGE = 100;
 
@@ -71,23 +73,27 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
   const [cat, setCat] = useState("all");
   const [limit, setLimit] = useState(PAGE);
   const [showUnused, setShowUnused] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const params = useSearchParams();
   const filter = params.get("filter") as "stale" | "catalogue" | null;
-  useEffect(() => setLimit(PAGE), [q, cat, showUnused, filter]);
+  useEffect(() => setLimit(PAGE), [q, cat, showUnused, showInactive, filter]);
   useEffect(() => {
     if (filter === "catalogue") store.loadPortalPrices();
   }, [filter, store]);
 
   const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
+  // alerts only count ingredients that something ACTIVE uses (lib/active.ts: inactive recipes are left out of alerts)
+  const activeUse = useMemo(() => ingredientsInActiveUse(store.allLines, store.items, store.preps), [store.allLines, store.items, store.preps]);
   const allActive = useMemo(() => store.ingredients.filter((i) => i.active), [store.ingredients]);
   const unusedCount = useMemo(() => allActive.filter((i) => !inUse.has(i.id)).length, [allActive, inUse]);
+  const inactiveCount = useMemo(() => countInactive(store.ingredients), [store.ingredients]);
   const gaps = useMemo(() => (filter === "catalogue" ? catalogueGaps(store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById) : []), [filter, store.ingredients, store.portalPrices, store.settings.gst_rate, store.supplierById]);
   const gapById = useMemo(() => new Map(gaps.map((g) => [g.ingredient.id, g])), [gaps]);
   const active = useMemo(() => {
-    if (filter === "stale") return staleIngredients(store.ingredients, inUse);
+    if (filter === "stale") return staleIngredients(store.ingredients, activeUse);
     if (filter === "catalogue") return gaps.map((g) => g.ingredient);
-    return showUnused || q.trim() ? allActive : allActive.filter((i) => inUse.has(i.id));
-  }, [filter, store.ingredients, inUse, gaps, showUnused, q, allActive]);
+    return ingredientListPool({ ingredients: store.ingredients, inUse, showUnused, showInactive, searching: !!q.trim() });
+  }, [filter, store.ingredients, inUse, activeUse, gaps, showUnused, showInactive, q]);
   const cats = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of active) if (i.category) counts.set(i.category, (counts.get(i.category) ?? 0) + 1);
@@ -130,6 +136,12 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
       <SearchField value={q} onChange={setQ} placeholder="Search ingredients or suppliers" />
       {filter ? null : <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />}
 
+      {rows.length === 0 && !filter && inactiveCount > 0 ? (
+        <div className="flex justify-end px-4 pt-4">
+          <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <Empty
           title={filter ? "All Caught Up" : "No Results"}
@@ -137,15 +149,20 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
         />
       ) : (
         <>
-          <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 pb-1.5 pt-5">
             <p className="text-[13px] text-label-2">
-              {rows.length} {filter ? "to check" : showUnused || q.trim() ? "ingredients" : "in use"}
+              {rows.length} {filter ? "to check" : showUnused || showInactive || q.trim() ? "ingredients" : "in use"}
             </p>
-            {!filter && !q.trim() && unusedCount ? (
-              <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowUnused((x) => !x)}>
-                {showUnused ? "Hide Unused" : `Show Unused (${unusedCount})`}
-              </button>
-            ) : null}
+            {filter ? null : (
+              <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                {!q.trim() && unusedCount ? (
+                  <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowUnused((x) => !x)}>
+                    {showUnused ? "Hide Unused" : `Show Unused (${unusedCount})`}
+                  </button>
+                ) : null}
+                <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+              </span>
+            )}
           </div>
           <div className="hidden lg:block">
             <DataTable
@@ -153,7 +170,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
               rowKey={(i) => i.id}
               href={(i) => `/ingredients/${i.id}`}
               columns={[
-                { key: "name", label: "Ingredient", render: (i) => <span className="font-medium">{i.name}</span>, sort: (i) => i.name },
+                { key: "name", label: "Ingredient", render: (i) => <span className="font-medium"><TitleWithTag name={i.name} active={i.active} /></span>, sort: (i) => i.name },
                 { key: "sup", label: "Supplier", render: (i) => <span className="text-label-2">{store.supplierById.get(i.supplier_id ?? -1)?.name ?? "—"}</span>, sort: (i) => store.supplierById.get(i.supplier_id ?? -1)?.name ?? "" },
                 { key: "pack", label: "Pack", align: "right", render: (i) => <span className="text-label-2">{packLabel(i.pack_size, i.pack_unit)}</span> },
                 { key: "price", label: "Pack Price", align: "right", render: (i) => money(Number(i.pack_price)), sort: (i) => Number(i.pack_price) },
@@ -192,7 +209,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
                 <Row
                   key={i.id}
                   href={`/ingredients/${i.id}`}
-                  title={i.name}
+                  title={<TitleWithTag name={i.name} active={i.active} />}
                   sub={
                     gapById.get(i.id)
                       ? `Catalogue ${money(gapById.get(i.id)!.theirs)}/${unitShort(i.pack_unit)} vs yours ${money(gapById.get(i.id)!.ours)} (${gapById.get(i.id)!.diffPct > 0 ? "+" : ""}${Math.round(gapById.get(i.id)!.diffPct * 100)}%)`

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, CircleDollarSign, Clock, Plus, Store, Tag, TrendingUp } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInUse, missingPriceGroups, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
+import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, gpSummary, happyHourRows, ingredientsInActiveUse, missingPriceGroups, priceIncreases, staleIngredients, underTarget, underTargetRows, type GpSummary, type UnderRow } from "@/lib/insights";
 import { costBreakdown, type ItemCost } from "@/lib/costing";
 import { buildReviewChanges, gelatoServeStats } from "@/lib/price-review";
 import { parseVirtualItemId } from "@/lib/gelato";
@@ -198,7 +198,8 @@ function Today({ venueId }: { venueId: number | null }) {
     () => openRows(priceIncreases(store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, 30, store.itemCosts), priceRiseKey, ignoredKeys),
     [store.priceLogs, store.index.ingredients, store.allLines, itemById, store.settings.alert_pct, venueId, store.itemCosts, ignoredKeys],
   );
-  const inUse = useMemo(() => ingredientsInUse(store.allLines), [store.allLines]);
+  // only ingredients something ACTIVE uses can raise a stale price or deal alert (lib/active.ts)
+  const inUse = useMemo(() => ingredientsInActiveUse(store.allLines, store.items, store.preps), [store.allLines, store.items, store.preps]);
   const stale = useMemo(
     () =>
       openRows(staleIngredients(store.ingredients, inUse), stalePriceKey, ignoredKeys).sort(

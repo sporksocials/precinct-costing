@@ -8,7 +8,9 @@ import { money, packLabel, unitShort } from "@/lib/format";
 import { costPerShot, type PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
-import { Chips, cx, Empty, Row, SearchField, Segmented } from "@/components/ui";
+import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, visibleRecords } from "@/lib/active";
+import { Chips, Empty, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
 const PAGE = 100;
@@ -30,8 +32,9 @@ export function PrepsList() {
     const list = [...store.prepCosts.values()];
     return venue ? list.filter((p) => p.prep.venue_id == null || p.prep.venue_id === venue.id) : list;
   }, [store.prepCosts, venue]);
-  const inactiveCount = useMemo(() => scoped.filter((p) => !p.prep.active).length, [scoped]);
-  const pool = useMemo(() => (showInactive ? scoped : scoped.filter((p) => p.prep.active)), [scoped, showInactive]);
+  const isOn = (p: PrepCost) => p.prep.active;
+  const inactiveCount = useMemo(() => countInactive(scoped, isOn), [scoped]);
+  const pool = useMemo(() => visibleRecords(scoped, showInactive, isOn), [scoped, showInactive]);
   const cats = useMemo(() => [...new Set(pool.map((p) => p.prep.prep_type).filter((x): x is string => !!x))].sort(), [pool]);
   useEffect(() => {
     if (cat !== "all" && !cats.includes(cat)) setCat("all");
@@ -70,6 +73,12 @@ export function PrepsList() {
       </div>
       {cats.length > 1 ? <Chips className="mt-3" ariaLabel="Prep type" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} /> : null}
 
+      {rows.length === 0 && inactiveCount > 0 ? (
+        <div className="flex justify-end px-4 pt-4">
+          <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         q ? (
           <Empty title="No Results" body={`Nothing matches “${q}”.`} />
@@ -90,11 +99,7 @@ export function PrepsList() {
             <p className="text-[13px] text-label-2">
               {rows.length} {rows.length === 1 ? "prep" : "preps"}
             </p>
-            {inactiveCount ? (
-              <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowInactive((x) => !x)}>
-                {showInactive ? "Hide Inactive" : `Show Inactive (${inactiveCount})`}
-              </button>
-            ) : null}
+            <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
           </div>
           <div className="group-list lg:hidden">
             {rows.slice(0, limit).map((p) => (
@@ -118,7 +123,7 @@ export function PrepsList() {
 function PrepTable({ rows }: { rows: PrepCost[] }) {
   const store = useStore();
   const columns: Column<PrepCost>[] = [
-    { key: "name", label: "Prep", render: (p) => <span className={cx("font-medium", !p.prep.active && "text-label-2")}>{p.prep.name}</span>, sort: (p) => p.prep.name },
+    { key: "name", label: "Prep", render: (p) => <span className="font-medium"><TitleWithTag name={p.prep.name} active={p.prep.active} /></span>, sort: (p) => p.prep.name },
     { key: "type", label: "Type", render: (p) => <span className="text-label-2">{p.prep.prep_type ?? "—"}</span>, sort: (p) => p.prep.prep_type ?? "" },
     { key: "venue", label: "Venue", render: (p) => <span className="text-label-2">{p.prep.venue_id == null ? "Shared" : VENUE_SHORT[store.venueById.get(p.prep.venue_id)?.slug ?? ""] ?? ""}</span> },
     { key: "batch", label: "Batch", align: "right", render: (p) => packLabel(p.prep.yield_qty, p.prep.yield_unit), sort: (p) => Number(p.prep.yield_qty) },
@@ -133,8 +138,7 @@ function PrepRow({ p }: { p: PrepCost }) {
   return (
     <Row
       href={`/preps/${p.prep.id}`}
-      title={p.prep.name}
-      titleClassName={!p.prep.active ? "text-label-2" : undefined}
+      title={<TitleWithTag name={p.prep.name} active={p.prep.active} />}
       sub={`Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${costPerShot(p) != null ? `${money(costPerShot(p))} per shot · ` : ""}${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`}
       trailing={<span className="text-label">{money(p.batchCost)}</span>}
     />

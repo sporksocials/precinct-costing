@@ -12,6 +12,7 @@ import { useGuardedRouter, useUnsavedGuard } from "./unsaved-guard";
 import { VenueAccent, VENUE_SHORT } from "./venue";
 import { OfferSimulator, priceBreakEvenLabel, simInputFrom } from "./offer-simulator";
 import { ComponentPicker, StatusPill, type NewOfferLine } from "./offers-parts";
+import { ActiveToggle, DeleteRecordSheet } from "./active-parts";
 import { Banner, Chips, cx, FieldRow, Group, InlineInput, Row, Stepper, useToast } from "./ui";
 
 export interface Draft {
@@ -67,7 +68,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   const [base, setBase] = useState(() => JSON.stringify(initial));
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const setAssumptions = (p: Partial<OfferAssumptions>) => setD((x) => ({ ...x, assumptions: { ...x.assumptions, ...p } }));
@@ -152,6 +153,15 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  /** The Active switch: off retires the offer, on brings it back as a Draft (never straight to Live). Throws so the switch can report a failed save. */
+  async function setActive(on: boolean) {
+    if (!offerId) return;
+    const status: OfferStatus = on ? "draft" : "retired";
+    await store.setOfferStatus(offerId, status);
+    set({ status });
+    setBase((b) => JSON.stringify({ ...JSON.parse(b), status }));
   }
 
   const lineName = (i: number) => c.lines[i]?.name ?? "";
@@ -322,10 +332,27 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
 
         <div className="lg:col-start-2 lg:row-start-2">
           <div>
-            <p className="section-label !px-1 mt-6">Status</p>
-            <Chips ariaLabel="Status" value={d.status} onChange={(s) => void changeStatus(s)} options={OFFER_STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
+            {offerId ? (
+              <div className="group-list mt-6">
+                <ActiveToggle
+                  checked={d.status !== "retired"}
+                  record="offer"
+                  name={d.name.trim() || "this offer"}
+                  impact={{ refs: [], notes: d.status === "live" ? ["It is live now. Retiring it takes it out of the checks on Home."] : [] }}
+                  undo
+                  onChange={setActive}
+                  onError={setError}
+                />
+              </div>
+            ) : null}
+            {d.status !== "retired" ? (
+              <>
+                <p className="section-label !px-1 mt-6">Status</p>
+                <Chips ariaLabel="Status" value={d.status} onChange={(s) => void changeStatus(s)} options={OFFER_STATUSES.filter((s) => s.value !== "retired").map((s) => ({ value: s.value, label: s.label }))} />
+              </>
+            ) : null}
             <p className="px-1 pt-1.5 text-[13px] text-label-2">
-              {d.status === "live" ? "Live offers that slip below target show on Home." : d.status === "retired" ? "Retired offers are kept for reference and never flagged." : "Drafts are private workings. Set Live when it goes on the menu."}
+              {d.status === "live" ? "Live offers that slip below target show on Home." : d.status === "retired" ? "Retired offers are inactive: kept for reference, hidden from the list and never flagged. Turn Active on to bring it back as a Draft." : "Drafts are private workings. Set Live when it goes on the menu."}
               {!offerId && d.status !== "draft" ? " It takes effect when you save." : ""}
             </p>
 
@@ -341,35 +368,32 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
                       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
                   }
                 />
-                {confirmDelete ? (
-                  <div className="space-y-2 p-3">
-                    <p className="px-1 text-center text-[15px] text-label-2">Delete {saved?.name ?? "this offer"}? Menu items and prices are not affected.</p>
-                    <button
-                      className="btn w-full bg-danger-soft text-danger"
-                      onClick={() =>
-                        store
-                          .deleteOffer(offerId)
-                          .then(async () => {
-                            await release();
-                            router.push("/specials");
-                          })
-                          .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-                      }
-                    >
-                      Delete Offer
-                    </button>
-                    <button className="btn-plain w-full" onClick={() => setConfirmDelete(false)}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <Row title={<span className="text-danger">Delete Offer…</span>} onClick={() => setConfirmDelete(true)} />
-                )}
+                <Row title={<span className="text-danger">Delete Offer…</span>} sub="You see what it affects first. Retiring it is usually better." onClick={() => setDeleting(true)} />
               </div>
             ) : null}
           </div>
         </div>
       </div>
+
+      {deleting && offerId ? (
+        <DeleteRecordSheet
+          record="offer"
+          name={saved?.name ?? (d.name.trim() || "this offer")}
+          impact={{ refs: [], notes: ["Menu items and prices are not affected."] }}
+          alreadyInactive={d.status === "retired"}
+          onClose={() => setDeleting(false)}
+          onMakeInactive={async () => {
+            await setActive(false);
+            toast.show({ message: "Offer retired", action: { label: "Undo", onClick: () => void setActive(true).catch((e) => setError(e instanceof Error ? e.message : String(e))) } });
+          }}
+          onDelete={async () => {
+            await store.deleteOffer(offerId);
+            await release();
+            setDeleting(false);
+            router.push("/specials");
+          }}
+        />
+      ) : null}
 
       <ComponentPicker open={picking} onClose={() => setPicking(false)} venueId={d.venueId} onPick={addLine} />
     </div>

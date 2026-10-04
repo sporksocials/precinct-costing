@@ -8,6 +8,7 @@ import { costPerBaseFromIndex, parsePackFromUom } from "@/lib/costing";
 import { gp, money, packLabel, unitShort } from "@/lib/format";
 import { indexDoc, search, type IndexedDoc, type SearchDoc, type SearchKind } from "@/lib/search";
 import { titleCase } from "@/lib/parse-qty";
+import { INACTIVE_TAG } from "@/lib/active";
 import { addRecent, useRecents, type Recent } from "@/lib/recents";
 import { VENUE_SHORT } from "./venue";
 import { cx, Dot, SearchField, Sheet } from "./ui";
@@ -31,7 +32,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
             kind: "item",
             id: c.item.id,
             title: c.item.name,
-            sub: [VENUE_SHORT[v?.slug ?? ""] ?? v?.name, c.gpPct != null ? `GP ${gp(c.gpPct)}` : "No price"].filter(Boolean).join(" · "),
+            sub: [VENUE_SHORT[v?.slug ?? ""] ?? v?.name, c.gpPct != null ? `GP ${gp(c.gpPct)}` : "No price", c.item.active ? null : INACTIVE_TAG].filter(Boolean).join(" · "),
             href: `/items/${c.item.id}`,
             extra: `${c.item.category} ${c.item.section ?? ""} ${v?.name ?? ""}`,
             boost: c.item.active ? 0.02 : -0.2,
@@ -46,7 +47,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
           kind: "prep",
           id: p.prep.id,
           title: p.prep.name,
-          sub: `Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`,
+          sub: `Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}${p.prep.active ? "" : ` · ${INACTIVE_TAG}`}`,
           href: `/preps/${p.prep.id}`,
           extra: `${p.prep.prep_type ?? ""} prep`,
           boost: p.prep.active ? 0 : -0.2,
@@ -60,7 +61,7 @@ export function useSearchDocs(): { core: Doc[]; portal: Doc[] } {
           kind: "ingredient",
           id: i.id,
           title: i.name,
-          sub: [sup, `${money(costPerBaseFromIndex(store.index, i, gst))}/${unitShort(i.pack_unit)}`].filter(Boolean).join(" · "),
+          sub: [sup, `${money(costPerBaseFromIndex(store.index, i, gst))}/${unitShort(i.pack_unit)}`, i.active ? null : INACTIVE_TAG].filter(Boolean).join(" · "),
           href: `/ingredients/${i.id}`,
           extra: `${sup ?? ""} ${i.category ?? ""} ${i.supplier_code ?? ""}`,
           boost: i.active ? 0 : -0.2,

@@ -19,6 +19,7 @@ import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { IngredientHistory } from "@/components/ingredient-history";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
+import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
 /** entered_by marker for alternate prices carried over from the source sheets. */
@@ -80,6 +81,7 @@ function Detail({ ing }: { ing: Ingredient }) {
   }, [ing.id, ing.pack_price, ing.last_price_update, logKey]);
 
   const used = useMemo(() => store.usedIn("ingredient", ing.id), [store, ing.id]);
+  const impact = useRecordImpact("ingredient", ing.id);
   // "Other prices" are alternate prices found for this ingredient in the original costing sheets or supplier
   // portals. They're kept for reference (to pick the right one), not charted as price changes.
   const isAlt = (l: PriceLog) => l.entered_by === ALT_PRICE_TAG;
@@ -157,7 +159,10 @@ function Detail({ ing }: { ing: Ingredient }) {
         </Link>
       </div>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{ing.name}</h1>
-      <p className="mt-1 text-[15px] text-label-2">{[supplier?.name, `${packLabel(ing.pack_size, ing.pack_unit)} pack`, !ing.active ? "Inactive" : null].filter(Boolean).join(" · ")}</p>
+      <p className="mt-1 text-[15px] text-label-2">
+        {[supplier?.name, `${packLabel(ing.pack_size, ing.pack_unit)} pack`].filter(Boolean).join(" · ")}
+        {!ing.active ? <InactiveTag /> : null}
+      </p>
       {error ? <Banner>{error}</Banner> : null}
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-8">
@@ -181,6 +186,10 @@ function Detail({ ing }: { ing: Ingredient }) {
               </button>
             </div>
           </section>
+
+          <div className="group-list mt-4">
+            <ActiveToggle checked={ing.active} record="ingredient" name={ing.name} impact={impact} undo onChange={(v) => store.updateIngredient(ing.id, { active: v })} onError={setError} />
+          </div>
 
           <DealsSection ing={ing} adding={addingDeal} onAddingChange={setAddingDeal} renderImpact={(rows) => <ImpactPreview rows={rows} />} />
 
@@ -268,7 +277,6 @@ function Detail({ ing }: { ing: Ingredient }) {
               </FieldRow>
               <Toggle label="Price Includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
               <Toggle label="GST-free" checked={ing.gst_free} onChange={(v) => patch({ gst_free: v })} />
-              <Toggle label="Active" checked={ing.active} onChange={(v) => patch({ active: v })} />
               <div className="px-4 py-2.5">
                 <textarea
                   rows={2}

@@ -13,16 +13,20 @@ import { VenueAccent, VENUE_SHORT } from "@/components/venue";
 import { KegPicker } from "@/components/beer-parts";
 import { PriceHistory } from "@/components/editor/price-history";
 import { SetPriceButton } from "@/components/price-actions";
-import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, Toggle } from "@/components/ui";
+import { ActiveToggle, DeleteRecordSheet, InactiveTag, useRecordImpact } from "@/components/active-parts";
+import { TAP_ACTIVE_LABEL, TAP_ACTIVE_SUB } from "@/lib/active";
+import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, useToast } from "@/components/ui";
 
 export default function BeerPage() {
   const { id } = useParams<{ id: string }>();
   const store = useStore();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const beer = store.beer.beers.find((b) => b.id === id);
+  const impact = useRecordImpact("beer", beer?.id);
   if (!beer)
     return (
       <Empty
@@ -54,7 +58,8 @@ export default function BeerPage() {
       </Link>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{beer.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">
-        {venue?.name} · Tap Beer{!beer.active ? " · Off" : ""}
+        {venue?.name} · Tap Beer
+        {!beer.active ? <InactiveTag /> : null}
       </p>
       {error ? <Banner>{error}</Banner> : null}
 
@@ -76,7 +81,17 @@ export default function BeerPage() {
             }}
           />
         </FieldRow>
-        <Toggle label="On Tap" sub="Off hides it from averages and alerts" checked={beer.active} onChange={(v) => run(store.updateBeer(beer.id, { active: v }))} />
+        <ActiveToggle
+          label={TAP_ACTIVE_LABEL}
+          sub={TAP_ACTIVE_SUB}
+          record="beer"
+          name={beer.name}
+          impact={impact}
+          undo
+          checked={beer.active}
+          onChange={(v) => store.updateBeer(beer.id, { active: v })}
+          onError={setError}
+        />
       </div>
 
       <Group title="Serves" className="mt-7" footer="Prices include GST. Cost is the serve’s ml of the keg, after the keg’s wastage.">
@@ -124,30 +139,29 @@ export default function BeerPage() {
       />
 
       <div className="mt-8">
-        {confirmDelete ? (
-          <div className="space-y-2">
-            <p className="px-1 text-center text-[15px] text-label-2">Delete {beer.name}? Its prices go too. The keg stays in Ingredients.</p>
-            <button
-              className="btn w-full bg-danger-soft text-danger"
-              onClick={() =>
-                store
-                  .deleteBeer(beer.id)
-                  .then(() => router.push(`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`))
-                  .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-              }
-            >
-              Delete Tap Beer
-            </button>
-            <button className="btn-plain w-full" onClick={() => setConfirmDelete(false)}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button className="btn-plain w-full text-danger" onClick={() => setConfirmDelete(true)}>
-            Delete Tap Beer…
-          </button>
-        )}
+        <button className="btn-plain w-full text-danger" onClick={() => setDeleting(true)}>
+          Delete Tap Beer…
+        </button>
+        <p className="px-1 pt-1.5 text-center text-[13px] text-label-2">You see what uses it first. Making it inactive is usually better.</p>
       </div>
+      {deleting ? (
+        <DeleteRecordSheet
+          record="beer"
+          name={beer.name}
+          impact={{ ...impact, notes: ["Its serve prices go too. The keg stays in Ingredients."] }}
+          alreadyInactive={!beer.active}
+          onClose={() => setDeleting(false)}
+          onMakeInactive={async () => {
+            await store.updateBeer(beer.id, { active: false });
+            toast.show({ message: `${beer.name} is now inactive`, action: { label: "Undo", onClick: () => run(store.updateBeer(beer.id, { active: true })) } });
+          }}
+          onDelete={async () => {
+            await store.deleteBeer(beer.id);
+            setDeleting(false);
+            router.push(`/menu?cat=Tap%20Beer${venue ? `&venue=${venue.slug}` : ""}`);
+          }}
+        />
+      ) : null}
 
       <KegPicker open={picking} onClose={() => setPicking(false)} onPick={(kid) => run(store.updateBeer(beer.id, { ingredient_id: kid }))} initialQuery={beer.name} />
     </div>

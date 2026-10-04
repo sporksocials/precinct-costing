@@ -8,6 +8,7 @@ import {
   daysBetween,
   DEAL_KINDS,
   DEAL_STATUS_LABEL,
+  dealIsLive,
   dealStatus,
   dealSummary,
   parseDealFromText,
@@ -20,7 +21,9 @@ import { reviewChangesFromImpact, type ReviewChange } from "@/lib/price-review";
 import { dateShort, money, movePct, parseDecimal, unitShort } from "@/lib/format";
 import type { DealKind, Ingredient, IngredientDeal } from "@/lib/types";
 import { ReviewSheet } from "@/components/price-review";
-import { Banner, cx, Group, Row, Segmented, Sheet } from "@/components/ui";
+import { ActiveToggle, DeleteRecordSheet, ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, visibleRecords } from "@/lib/active";
+import { Banner, cx, Group, Row, Segmented, Sheet, useToast } from "@/components/ui";
 
 /** Renders the before/after dishes for a change (the ingredient page's own preview, passed in so it is reused, not copied). */
 export type RenderImpact = (rows: ImpactRow[]) => React.ReactNode;
@@ -88,23 +91,18 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
   const [prefill, setPrefill] = useState<SuggestedDeal | null>(null);
   const [removing, setRemoving] = useState<IngredientDeal | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const res = resolveDeals(Number(ing.pack_price), deals, today);
   // hide the suggestion once a deal of that kind already exists
   const showSuggestion = suggestion && !deals.some((d) => d.kind === suggestion.kind);
-  const ordered = [...deals].sort((a, b) => (a.ends_on ?? "9999").localeCompare(b.ends_on ?? "9999"));
-
-  const run = (p: Promise<unknown>) => p.catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  const removeDeal = (d: IngredientDeal) => {
-    // dishes only get dearer when a live deal goes: show them first when any would fall below target
-    const rows = ingredientChangeImpact(ing.id, {}, { ...store, lines: store.allLines, dealsAfter: store.deals.filter((x) => x.id !== d.id) });
-    if (rows.some((r) => r.after.underTarget && !r.before.underTarget)) setRemoving(d);
-    else void run(store.deleteDeal(d.id));
-  };
+  const ordered = visibleRecords(deals, showInactive).sort((a, b) => (a.ends_on ?? "9999").localeCompare(b.ends_on ?? "9999"));
+  const inactiveCount = countInactive(deals);
 
   return (
     <>
       <Group
-        title={deals.length ? `Deals · ${deals.length}` : "Deals"}
+        title={deals.length ? `Deals · ${deals.length - (showInactive ? 0 : inactiveCount)}` : "Deals"}
+        trailing={<ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />}
         className="mt-7"
         footer="The lowest price wins. Deals do not stack, except a standing percent off, which applies first. A deal stops costing on its end date and the base price comes back."
       >
@@ -119,13 +117,21 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
           const sub = [timing, d.note].filter(Boolean).join(" · ") || undefined;
           return (
             <div key={d.id}>
-              <Row title={dealSummary(d)} sub={sub} wrapSub titleClassName="!whitespace-normal" trailing={<StatusChip status={s} />} />
-              <div className="flex gap-2 px-4 pb-3">
-                <button type="button" className="btn-plain flex-1" onClick={() => void run(store.updateDeal(d.id, { active: !d.active }))}>
-                  {d.active ? "Turn Off" : "Turn On"}
-                </button>
-                <button type="button" className="btn-plain flex-1 !text-danger" onClick={() => removeDeal(d)}>
-                  Delete
+              <Row title={<TitleWithTag name={dealSummary(d)} active={d.active} />} sub={sub} wrapSub titleClassName="!whitespace-normal" trailing={<StatusChip status={s} />} />
+              <ActiveToggle
+                checked={d.active}
+                record="deal"
+                name={dealSummary(d)}
+                impact={{ refs: [], notes: dealIsLive(d, today) ? ["This deal is live, so the ingredient goes back to its full pack price."] : [] }}
+                undo
+                onChange={(v) => store.updateDeal(d.id, { active: v })}
+                onError={setError}
+              >
+                <DealImpact ing={ing} deal={d} renderImpact={renderImpact} />
+              </ActiveToggle>
+              <div className="px-4 pb-3">
+                <button type="button" className="btn-plain w-full !text-danger" onClick={() => setRemoving(d)}>
+                  Delete Deal…
                 </button>
               </div>
             </div>
@@ -169,45 +175,50 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
   );
 }
 
-/** Deleting a live deal that would push dishes under target: show them, then offer Review & Apply. */
+/** The dishes a deal moves when it goes (switched off or deleted): the ingredient page's own before/after preview. Only runs while a sheet is open. */
+function DealImpact({ ing, deal, renderImpact }: { ing: Ingredient; deal: IngredientDeal; renderImpact: RenderImpact }) {
+  const store = useStore();
+  const rows = useMemo(
+    () => (dealIsLive(deal, store.today) ? ingredientChangeImpact(ing.id, {}, { ...store, lines: store.allLines, dealsAfter: store.deals.filter((x) => x.id !== deal.id) }) : []),
+    [ing.id, store, deal],
+  );
+  return rows.length ? <div className="text-left">{renderImpact(rows)}</div> : null;
+}
+
+/**
+ * Delete on a deal: the impact sheet every Delete uses. A live deal that goes can push dishes under target: show them,
+ * then offer Review & Apply after the delete. Making it inactive instead is the visible default.
+ */
 function RemoveDealSheet({ ing, deal, onClose, renderImpact }: { ing: Ingredient; deal: IngredientDeal; onClose: () => void; renderImpact: RenderImpact }) {
   const store = useStore();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [changes, setChanges] = useState<ReviewChange[] | null>(null);
+  const live = dealIsLive(deal, store.today);
   const rows = useMemo(
     () => ingredientChangeImpact(ing.id, {}, { ...store, lines: store.allLines, dealsAfter: store.deals.filter((x) => x.id !== deal.id) }),
     [ing.id, store, deal.id],
   );
-  async function remove() {
-    setBusy(true);
-    try {
-      const review = reviewChangesFromImpact(rows.filter((r) => r.after.underTarget), store.itemCosts.values(), store.settings.gst_rate);
-      await store.deleteDeal(deal.id);
-      if (review.length) setChanges(review);
-      else onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  }
   if (changes) return <ReviewSheet changes={changes} onClose={onClose} intro="Removing the deal pushed these dishes below target. Nothing has changed on the menu yet." />;
   return (
-    <Sheet open onClose={onClose} title="Remove Deal" action={{ label: busy ? "Removing…" : "Remove", onClick: () => void remove(), disabled: busy, destructive: true }}>
-      <div className="pb-2 pt-4">
-        {error ? <Banner>{error}</Banner> : null}
-        <p className="text-center text-[15px] text-label-2">{ing.name}</p>
-        <p className="mt-1 text-center text-[15px] font-medium">{dealSummary(deal)}</p>
-        <p className="mt-2 text-center text-[13px] text-label-2">Without this deal the ingredient costs its base price again.</p>
-        {renderImpact(rows)}
-        <button type="button" className="btn-primary mt-5 w-full !bg-danger" disabled={busy} onClick={() => void remove()}>
-          {busy ? "Removing…" : "Remove Deal"}
-        </button>
-        <button type="button" className="btn-text mt-1 w-full justify-center" onClick={onClose}>
-          Keep The Deal
-        </button>
-      </div>
-    </Sheet>
+    <DeleteRecordSheet
+      record="deal"
+      name={dealSummary(deal)}
+      impact={{ refs: [], notes: live ? [`${ing.name} goes back to its full pack price.`] : [`Without this deal ${ing.name} costs its base price again.`] }}
+      alreadyInactive={!deal.active}
+      onClose={onClose}
+      onMakeInactive={async () => {
+        await store.updateDeal(deal.id, { active: false });
+        toast.show({ message: "Deal is now inactive", action: { label: "Undo", onClick: () => void store.updateDeal(deal.id, { active: true }) } });
+      }}
+      onDelete={async () => {
+        const review = reviewChangesFromImpact(rows.filter((r) => r.after.underTarget), store.itemCosts.values(), store.settings.gst_rate);
+        await store.deleteDeal(deal.id);
+        if (review.length) setChanges(review);
+        else onClose();
+      }}
+    >
+      {live ? <div className="text-left">{renderImpact(rows)}</div> : null}
+    </DeleteRecordSheet>
   );
 }
 

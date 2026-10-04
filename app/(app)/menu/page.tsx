@@ -15,6 +15,7 @@ import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
+import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 
@@ -122,8 +123,11 @@ export default function MenuPage() {
   // All view, nothing else chosen: gelato is a single summary row that opens the Gelato venue
   const gelatoSummary = hasGelato && !venue && cat === "all" && !q.trim();
 
+  // how many inactive records "Show Inactive" would add to what the venue and category chips are showing
   const inactiveCount =
-    scoped.filter((c) => !c.item.active).length + beersHere.filter((b) => !b.active).length + (hasGelato && (inGelato || cat === GELATO) ? store.gelato.flavours.filter((f) => !f.active).length : 0);
+    (cat === BEER ? 0 : scoped.filter((c) => !c.item.active && (cat === "all" || c.item.category === cat)).length) +
+    (cat === "all" || cat === BEER ? beersHere.filter((b) => !b.active).length : 0) +
+    (hasGelato && (inGelato || cat === GELATO) && (cat === "all" || cat === GELATO) ? store.gelato.flavours.filter((f) => !f.active).length : 0);
   const rows = items;
   const total = rows.length + flavourRows.length + beerRows.length + (gelatoSummary ? 1 : 0);
 
@@ -156,6 +160,12 @@ export default function MenuPage() {
       </div>
       {cats.length > 1 ? (
         <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />
+      ) : null}
+
+      {inactiveCount ? (
+        <div className="flex justify-end px-4 pt-4">
+          <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+        </div>
       ) : null}
 
       {total === 0 ? (
@@ -215,7 +225,7 @@ export default function MenuPage() {
                   <Row
                     key={b.id}
                     href={`/beers/${b.id}`}
-                    title={<span className={cx(!b.active && "text-label-2")}>{b.name}</span>}
+                    title={<TitleWithTag name={b.name} active={b.active} />}
                     sub={[!venue ? VENUE_SHORT[store.venueById.get(b.venue_id)?.slug ?? ""] : null, cs.map((c) => (c.sellInc != null ? money(c.sellInc) : "—")).join(" · ")].filter(Boolean).join(" · ")}
                     trailing={
                       worst?.gpPct != null ? (
@@ -242,14 +252,9 @@ export default function MenuPage() {
               />
             </div>
           ) : null}
-          {rows.length || inactiveCount ? (
+          {rows.length ? (
             <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
-              <p className="text-[13px] text-label-2">{rows.length ? `${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}` : ""}</p>
-              {inactiveCount ? (
-                <button type="button" className="text-[13px] font-medium text-accent" onClick={() => setShowInactive((x) => !x)}>
-                  {showInactive ? "Hide Inactive" : `Show Inactive (${inactiveCount})`}
-                </button>
-              ) : null}
+              <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
             </div>
           ) : null}
           {rows.length ? (
@@ -303,8 +308,7 @@ function ItemRow({ c, showVenue }: { c: ItemCost; showVenue: boolean }) {
   return (
     <Row
       href={`/items/${c.item.id}`}
-      title={c.item.name}
-      titleClassName={!c.item.active ? "text-label-2" : undefined}
+      title={<TitleWithTag name={c.item.name} active={c.item.active} />}
       sub={itemSub(c, showVenue, VENUE_SHORT[v?.slug ?? ""] ?? v?.name)}
       trailing={<GpCell c={c} />}
     />
@@ -318,7 +322,7 @@ function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: b
     return VENUE_SHORT[v?.slug ?? ""] ?? v?.name ?? "";
   };
   const columns: Column<ItemCost>[] = [
-    { key: "name", label: "Menu Item", render: (c) => <span className={cx("font-medium", !c.item.active && "text-label-2")}>{c.item.name}</span>, sort: (c) => c.item.name },
+    { key: "name", label: "Menu Item", render: (c) => <span className="font-medium"><TitleWithTag name={c.item.name} active={c.item.active} /></span>, sort: (c) => c.item.name },
     ...(showVenue
       ? [{ key: "venue", label: "Venue", render: (c: ItemCost) => <span className={cx(`v-${store.venueById.get(c.item.venue_id)?.slug}`, "inline-flex items-center gap-1.5 text-label-2")}><Dot className="bg-accent-fill" />{vName(c)}</span>, sort: vName }]
       : []),
@@ -352,8 +356,7 @@ function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: Item
   return (
     <Row
       href={`/preps/${f.id}`}
-      title={flavourName(f)}
-      titleClassName={!f.active ? "text-label-2" : undefined}
+      title={<TitleWithTag name={flavourName(f)} active={f.active} />}
       sub={[pc ? `Mix ${money(pc.costPerUnit)}/kg` : null, `lowest of ${serves} serves`].filter(Boolean).join(" · ")}
       trailing={
         worst?.gpPct != null ? (

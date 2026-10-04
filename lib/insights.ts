@@ -362,7 +362,7 @@ export function ingredientChangeImpact(
   const ca = new Map<string, PrepCost>();
   const rows: ImpactRow[] = [];
   for (const it of data.items) {
-    if (!affected.has(it.id)) continue;
+    if (!affected.has(it.id) || it.active === false) continue; // inactive dishes are left out of the impact, like every other alert
     rows.push({ item: it, before: costItem(it, beforeIdx, data.settings, data.targets, cb), after: costItem(it, afterIdx, data.settings, data.targets, ca) });
   }
   return rows.sort((a, b) => (a.after.gpPct ?? 1) - (a.before.gpPct ?? 1) - ((b.after.gpPct ?? 1) - (b.before.gpPct ?? 1)));
@@ -373,6 +373,36 @@ export function ingredientsInUse(lines: RecipeLine[]): Set<string> {
   const s = new Set<string>();
   for (const l of lines) if (l.component_type === "ingredient") s.add(l.component_id);
   return s;
+}
+
+/**
+ * Ids of ingredients used by something ACTIVE: an active menu item or an active prep, directly or through any depth of
+ * preps (an inactive prep that an active recipe still uses keeps counting: it keeps costing). Ingredients that only
+ * inactive recipes use are not "in use", so they do not raise stale price or deal alerts (lib/active.ts: inactive = left out of alerts).
+ */
+export function ingredientsInActiveUse(lines: RecipeLine[], items: readonly Pick<MenuItem, "id" | "active">[], preps: readonly Pick<Prep, "id" | "active">[]): Set<string> {
+  const byParent = new Map<string, RecipeLine[]>();
+  for (const l of lines) {
+    const k = `${l.parent_type}:${l.parent_id}`;
+    const arr = byParent.get(k);
+    if (arr) arr.push(l);
+    else byParent.set(k, [l]);
+  }
+  const out = new Set<string>();
+  const seen = new Set<string>();
+  const stack: string[] = [];
+  for (const i of items) if (i.active !== false) stack.push(`item:${i.id}`);
+  for (const p of preps) if (p.active !== false) stack.push(`prep:${p.id}`);
+  while (stack.length) {
+    const k = stack.pop()!;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    for (const l of byParent.get(k) ?? []) {
+      if (l.component_type === "ingredient") out.add(l.component_id);
+      else stack.push(`prep:${l.component_id}`);
+    }
+  }
+  return out;
 }
 
 /** True when a price was last checked more than `days` ago, or never. */

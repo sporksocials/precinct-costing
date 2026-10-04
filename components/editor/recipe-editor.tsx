@@ -39,6 +39,7 @@ import { useGuardedRouter, useUnsavedGuard } from "../unsaved-guard";
 import { DiscardSheet, SaveBar, type SaveState } from "../save-bar";
 import { usePersonName } from "../use-person-name";
 import { ConflictSheet } from "./conflict-sheet";
+import { ActiveToggle, DeleteRecordSheet, InactiveTag, useRecordImpact } from "../active-parts";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -421,6 +422,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const prepCostPerUnit = prep && prepYield > 0 ? recipe.total / prepYield : 0;
   const venue = store.venueById.get((draft as MenuItem).venue_id ?? -1);
   const usedIn = useMemo(() => (kind === "prep" ? store.usedIn("prep", id) : { items: [], preps: [] }), [kind, store, id]);
+  // what uses this record: preps feed recipes and other preps; a dish can sit in offers (lib/record-usage.ts)
+  const impact = useRecordImpact(kind, id);
 
   // ---------- serves: One Serve | Multiple Serves ----------
   const switchServes = (mode: ServesMode) => {
@@ -491,6 +494,33 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     });
   };
 
+  /**
+   * "Make Inactive Instead" from the delete sheet. The flag is part of the draft like every other field. With nothing else
+   * unsaved it saves straight away (an explicit confirmation, with Undo); with other unsaved edits it only joins them,
+   * so a click here never saves changes the person has not looked at.
+   */
+  const makeInactive = async () => {
+    const wasDirty = dirty;
+    setDraft((d) => ({ ...d, active: false }));
+    if (wasDirty) {
+      toast.show({ message: `${draftRef.current.name} is inactive. Tap Save to keep it.` });
+      return;
+    }
+    const ok = await save();
+    toast.show({
+      message: ok ? `${draftRef.current.name} is now inactive` : "Marked inactive, but it did not save. Tap Save to try again.",
+      action: ok
+        ? {
+            label: "Undo",
+            onClick: () => {
+              setDraft((d) => ({ ...d, active: true }));
+              void save();
+            },
+          }
+        : undefined,
+    });
+  };
+
   // ---------- title ----------
   const titleRef = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -510,10 +540,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const menuItems = [
     ...(kind === "item" ? [{ label: "What If…", onClick: () => setSheet("whatif") }] : []),
     { label: "Duplicate to Venue…", onClick: () => setSheet("duplicate") },
-    { label: draft.active ? "Make Inactive" : "Make Active", onClick: () => setDraft((d) => ({ ...d, active: !d.active })) },
     ...(kind === "prep" ? [{ label: `Used In (${usedIn.items.length + usedIn.preps.length})`, onClick: () => setSheet("usedin") }] : []),
-    "sep" as const,
-    { label: "Delete…", destructive: true, onClick: () => setSheet("delete") },
   ];
 
   return (
@@ -557,7 +584,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             }}
             className="mt-2 block w-full resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-tight tracking-tight outline-none placeholder:text-label-3 lg:text-[32px]"
           />
-          {!draft.active ? <p className="mt-1 text-[13px] font-medium text-label-2">Inactive — hidden from averages</p> : null}
+          {!draft.active ? (
+            <p className="mt-1 text-[13px] font-medium text-label-2">
+              <InactiveTag />
+              <span className="ml-2">Hidden from lists, averages and alerts.</span>
+            </p>
+          ) : null}
           <p className="mt-1 text-[15px] text-label-2">
             {[venue ? venue.name : "Shared prep", item ? item.category : isFlavour ? "Gelato flavour" : "Prep"].join(" · ")}
           </p>
@@ -565,6 +597,9 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           <div className="group-list mt-5">
             <Row onClick={() => setSheet("venue")} title="Venue" trailing={<span className="text-label-2">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "Shared"}</span>} chevron />
             {item ? <Row onClick={() => setSheet("category")} title="Category" trailing={<span className="text-label-2">{item.category}</span>} chevron /> : null}
+            {!(item && isBarCategory(item.category)) ? (
+              <ActiveToggle checked={draft.active} record={kind} name={draft.name || (kind === "item" ? "this menu item" : "this prep")} impact={impact} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
+            ) : null}
             {item ? (
               <>
                 <FieldRow label="Serves">
@@ -763,6 +798,13 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             </div>
           </Disclosure>
           {item ? <PriceHistory filter={{ kind: "item", itemId: item.id }} refreshKey={`${item.sell_price_inc}|${item.hh_price_inc}`} cost={itemCost?.costPerPortion} gst={store.settings.gst_rate} /> : null}
+
+          <div className="mt-8">
+            <button type="button" className="btn-plain w-full text-danger" onClick={() => setSheet("delete")}>
+              {kind === "item" ? "Delete Menu Item…" : "Delete Prep…"}
+            </button>
+            <p className="px-1 pt-1.5 text-center text-[13px] text-label-2">You see what uses it first. Making it inactive is usually better.</p>
+          </div>
         </div>
 
         {/* summary: desktop column */}
@@ -884,7 +926,23 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       />
       <DiscardSheet open={sheet === "discard"} count={changes.count} labels={changes.labels} onConfirm={discard} onClose={() => setSheet(null)} />
       {sheet === "duplicate" ? <DuplicateSheet kind={kind} draft={draft} lines={lines} onClose={() => setSheet(null)} /> : null}
-      {sheet === "delete" ? <DeleteSheet kind={kind} rec={draft} inUse={usedIn.items.length + usedIn.preps.length} onClose={() => setSheet(null)} onDeleted={() => router.push(backHref)} beforeDelete={release} /> : null}
+      {sheet === "delete" ? (
+        <DeleteRecordSheet
+          record={kind}
+          name={draft.name}
+          impact={impact}
+          alreadyInactive={!draft.active}
+          onClose={() => setSheet(null)}
+          onMakeInactive={makeInactive}
+          onDelete={async () => {
+            await release();
+            if (kind === "item") await store.deleteItem(id);
+            else await store.deletePrep(id);
+            setSheet(null);
+            router.push(backHref);
+          }}
+        />
+      ) : null}
       <Sheet open={sheet === "usedin"} onClose={() => setSheet(null)} title="Used In" cancelLabel={null} action={{ label: "Done", onClick: () => setSheet(null) }}>
         {usedIn.items.length + usedIn.preps.length === 0 ? (
           <p className="py-8 text-center text-[15px] text-label-2">Not used in any recipe yet.</p>
@@ -985,45 +1043,3 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
     </Sheet>
   );
 }
-
-function DeleteSheet({ kind, rec, inUse, onClose, onDeleted, beforeDelete }: { kind: Kind; rec: Rec; inUse: number; onClose: () => void; onDeleted: () => void; beforeDelete: () => Promise<void> | void }) {
-  const store = useStore();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const blocked = kind === "prep" && inUse > 0;
-  async function del() {
-    setBusy(true);
-    try {
-      await beforeDelete();
-      if (kind === "item") await store.deleteItem(rec.id);
-      else await store.deletePrep(rec.id);
-      onClose();
-      onDeleted();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  }
-  return (
-    <Sheet open onClose={onClose} hideHeader size="sm">
-      <div className="pb-2 pt-5 text-center">
-        <p className="text-[20px] font-semibold">Delete “{rec.name}”?</p>
-        <p className="mx-auto mt-1.5 max-w-xs text-[15px] text-label-2">
-          {blocked ? `This prep is used in ${inUse} ${inUse === 1 ? "recipe" : "recipes"}. Remove it from those first, or make it inactive instead.` : "This removes the recipe and its ingredient lines. This can’t be undone."}
-        </p>
-        {error ? <Banner>{error}</Banner> : null}
-        <div className="mt-5 space-y-2">
-          {!blocked ? (
-            <button className="btn w-full bg-danger-soft text-danger" disabled={busy} onClick={() => void del()}>
-              {busy ? "Deleting…" : "Delete"}
-            </button>
-          ) : null}
-          <button className="btn-plain w-full" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
-      </div>
-    </Sheet>
-  );
-}
-

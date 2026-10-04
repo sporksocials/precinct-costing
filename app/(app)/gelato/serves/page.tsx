@@ -11,6 +11,9 @@ import { parseGpInput, parsePercentInput } from "@/lib/solver";
 import type { GelatoServe, GelatoServeLine } from "@/lib/types";
 import { PriceHistory } from "@/components/editor/price-history";
 import { SmartAdd } from "@/components/editor/smart-add";
+import { ActiveToggle, DeleteRecordSheet, ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
+import { countInactive, visibleRecords } from "@/lib/active";
+import type { RecordImpact } from "@/lib/record-usage";
 import { Banner, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, Toggle, useToast } from "@/components/ui";
 
 export default function GelatoServesPage() {
@@ -18,11 +21,14 @@ export default function GelatoServesPage() {
   const venue = store.gelato.venue;
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   const serves = useMemo(
     () => (venue ? store.gelatoServes.filter((s) => s.venue_id === venue.id).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name)) : []),
     [store.gelatoServes, venue],
   );
+  const inactiveCount = useMemo(() => countInactive(serves), [serves]);
+  const shown = useMemo(() => visibleRecords(serves, showInactive), [serves, showInactive]);
   const packCost = (serveId: string) => costLines(packagingLines(serveId, store.gelatoServeLines), store.index, store.settings.gst_rate).total;
 
   const run = (p: Promise<void>) => {
@@ -57,15 +63,19 @@ export default function GelatoServesPage() {
         </FieldRow>
       </Group>
 
-      <Group title="Serves" footer="Serves marked “on menu” are the default view on the Price Grid. Every serve counts towards the Gelato Rumba GP.">
-        {serves.map((s) => (
+      <Group
+        title="Serves"
+        trailing={<ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />}
+        footer="Serves marked “on menu” are the default view on the Price Grid. Every active serve counts towards the Gelato Rumba GP."
+      >
+        {shown.map((s) => (
           <Row
             key={s.id}
             onClick={() => setEditing(s.id)}
             title={
               <>
-                {s.name}
-                {!s.active ? <span className="ml-1.5 text-[13px] text-label-3">off</span> : !s.on_menu ? <span className="ml-1.5 text-[13px] text-label-3">not on menu</span> : null}
+                <TitleWithTag name={s.name} active={s.active} />
+                {s.active && !s.on_menu ? <span className="ml-1.5 text-[13px] text-label-3">not on menu</span> : null}
               </>
             }
             sub={`${Number(s.grams)}g gelato · packaging ${money(packCost(s.id))}${s.notes ? ` · ${s.notes}` : ""}`}
@@ -97,8 +107,14 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
   );
   const [lines, setLines] = useState<GelatoServeLine[]>(() => (serve ? store.gelatoServeLines.filter((l) => l.serve_id === serve.id).sort((a, b) => a.sort - b.sort) : []));
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeFlavours = store.gelato.flavours.filter((f) => f.active).length;
+  // saved serves only: every flavour is sold in every active serve, so switching one off or deleting it touches all of them
+  const impact: RecordImpact = {
+    refs: [],
+    notes: serve && activeFlavours > 0 ? [`Every flavour (${activeFlavours}) loses this serve: it leaves the Price Grid, the averages and the alerts. Its prices stay saved.`] : [],
+  };
 
   const costed = useMemo(
     () => costLines(lines.map((l) => ({ id: l.id, parent_type: "item", parent_id: "x", component_type: "ingredient", component_id: l.ingredient_id, qty: l.qty, unit: l.unit, note: null, sort: l.sort })), store.index, store.settings.gst_rate),
@@ -116,18 +132,6 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
       if (id) await store.updateServe(id, clean);
       else id = await store.insertServe(clean);
       await store.saveServeLines(id, lines.map((l) => ({ ...l, serve_id: id! })));
-      onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  }
-
-  async function del() {
-    if (!serve) return;
-    setBusy(true);
-    try {
-      await store.deleteServe(serve.id);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -170,7 +174,7 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
         </div>
         <div className="group-list mt-4">
           <Toggle label="On the Menu" sub="Shown in the default Gelato view" checked={draft.on_menu} onChange={(v) => setDraft((d) => ({ ...d, on_menu: v }))} />
-          <Toggle label="Active" sub="Off hides this serve everywhere" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
+          <ActiveToggle checked={draft.active} record="serve" name={draft.name || "this serve"} impact={impact} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
         </div>
 
         <Group title="Packaging" trailing={<span className="text-[13px] text-label-2 tnum">{money(costed.total)}</span>} footer="Cup or cone, spoon, napkin, sleeve, choc dip — anything that goes with every serve regardless of flavour.">
@@ -211,22 +215,30 @@ function ServeSheet({ serve, venueId, nextSort, onClose }: { serve: GelatoServe 
 
         {serve ? (
           <div className="mt-6">
-            {confirmDelete ? (
-              <div className="space-y-2">
-                <p className="px-1 text-center text-[15px] text-label-2">Delete {serve.name}? Every flavour loses this serve.</p>
-                <button className="btn w-full bg-danger-soft text-danger" disabled={busy} onClick={() => void del()}>
-                  Delete Serve
-                </button>
-                <button className="btn-plain w-full" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button className="btn-plain w-full text-danger" onClick={() => setConfirmDelete(true)}>
-                Delete Serve…
-              </button>
-            )}
+            <button className="btn-plain w-full text-danger" onClick={() => setDeleting(true)}>
+              Delete Serve…
+            </button>
+            <p className="px-1 pt-1.5 text-center text-[13px] text-label-2">You see what it affects first. Making it inactive is usually better.</p>
           </div>
+        ) : null}
+        {serve && deleting ? (
+          <DeleteRecordSheet
+            record="serve"
+            name={serve.name}
+            impact={impact}
+            alreadyInactive={!serve.active}
+            onClose={() => setDeleting(false)}
+            onMakeInactive={async () => {
+              await store.updateServe(serve.id, { active: false });
+              toast.show({ message: `${serve.name} is now inactive`, action: { label: "Undo", onClick: () => void store.updateServe(serve.id, { active: true }) } });
+              onClose();
+            }}
+            onDelete={async () => {
+              await store.deleteServe(serve.id);
+              setDeleting(false);
+              onClose();
+            }}
+          />
         ) : null}
       </div>
     </Sheet>

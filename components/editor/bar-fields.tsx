@@ -6,7 +6,7 @@ import { barPhotoSrc, isBarVenue, isUploadedPhoto, textList } from "@/lib/bar";
 import { uploadBarPhoto } from "@/lib/bar-photo";
 import { DEMO, getSupabaseBrowser } from "@/lib/supabase/client";
 import type { MenuItem } from "@/lib/types";
-import { FieldRow, Group, InlineInput, useToast } from "../ui";
+import { FieldRow, Group, InlineInput, Toggle, useToast } from "../ui";
 
 /**
  * Bar display card for a cocktail or mocktail: the glass, method steps and garnish the venue's cocktail
@@ -28,6 +28,12 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           ) : null
         }
       >
+        <Toggle
+          label="Show On Cocktail Station"
+          sub={item.active ? "Bartenders can see this drink on the station." : "Not active: hidden from the station and from averages. Turn it on when the drink is ready or on the menu."}
+          checked={item.active}
+          onChange={(v) => onPatch({ active: v })}
+        />
         <PhotoField item={item} onPatch={onPatch} />
         <FieldRow label="Glass">
           <InlineInput
@@ -47,7 +53,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         value={item.garnish}
         onChange={(v) => onPatch({ garnish: v })}
         className="mt-4"
-        footer="The cocktail station shows this drink once it has a glass, method or garnish."
+        footer="The cocktail station shows this drink once it has a glass, method or garnish and Show On Cocktail Station is on."
       />
     </>
   );

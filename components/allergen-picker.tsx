@@ -328,7 +328,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
   const rows = marked.filter((a) => r.cells[a.id].state !== "none");
   const cleared = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef === "removed");
   const addable = marked.filter((a) => r.cells[a.id].state === "none" && r.cells[a.id].chef !== "removed");
-  const toReview = model.listsAllergens ? r.unreviewedIngredients : [];
+  const toReview = useMemo(() => (model.listsAllergens ? r.unreviewedIngredients : []), [model.listsAllergens, r.unreviewedIngredients]);
   const unreviewed = useMemo(() => toReview.flatMap((i) => store.index.ingredients.get(i.id) ?? []), [toReview, store.index.ingredients]);
   const shown = showAll ? toReview : toReview.slice(0, 6);
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";

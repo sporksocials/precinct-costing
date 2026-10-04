@@ -29,7 +29,7 @@ const MORE = [
 ];
 
 function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/";
+  if (href === "/") return pathname === "/" || pathname === "/alerts"; // the full alert list is part of Home
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
   if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
   if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps");

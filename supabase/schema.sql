@@ -914,3 +914,43 @@ revoke all on function public.cost_bar_premix(text) from public;
 grant execute on function public.cost_bar_premix(text) to anon, authenticated;
 
 comment on function public.cost_bar_premix(text) is 'Bar display (public iPad cocktail station, Pre-Mix Bottles page): one venue''s active pre-mix preps (prep_type Pre-mix) with yield, ingredient lines and the active cocktails/mocktails that use each. Display fields only, no prices, costs or notes. Null when the venue slug does not exist.';
+
+-- ---- Bar glass and rim lists; see supabase/migrations/20261004150000_bar_options.sql ----
+-- Shared drop-down lists for the recipe editor's Bar Display card: every glass type and every rim used at any venue.
+-- A drink still stores one text value in cost_menu_items.glass ("High Ball Glass, Salt Rim") so the public cocktail
+-- station is unchanged; these rows only feed the editor's Glass and Rim drop-downs and the "add a new one" pop-up.
+create table if not exists public.cost_bar_options (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('glass', 'rim')),
+  name text not null check (length(btrim(name)) > 0),
+  sort int not null default 0,
+  created_at timestamptz not null default now(),
+  unique (kind, name)
+);
+
+alter table public.cost_bar_options enable row level security;
+drop policy if exists cost_allowed_all on public.cost_bar_options;
+create policy cost_allowed_all on public.cost_bar_options for all to authenticated
+  using (public.cost_is_allowed()) with check (public.cost_is_allowed());
+
+insert into public.cost_bar_options (kind, name, sort) values
+  ('glass', 'Coupe Glass', 1), ('glass', 'Rocks Glass', 2), ('glass', 'Short Rocks Glass', 3), ('glass', 'High Ball Glass', 4),
+  ('glass', 'Martini Glass', 5), ('glass', 'Margarita Glass', 6), ('glass', 'Wine Glass', 7), ('glass', 'Poco Glass', 8),
+  ('glass', 'Mason Jar', 9), ('glass', 'Carafe', 10), ('glass', 'Jug', 11), ('glass', 'Fishbowl', 12),
+  ('rim', 'Salt', 1), ('rim', 'Chilli Salt', 2), ('rim', 'Coconut', 3), ('rim', 'Cinnamon Sugar', 4), ('rim', 'Sugar', 5)
+on conflict (kind, name) do nothing;
+
+comment on table public.cost_bar_options is 'Glass types and rims offered in the recipe editor Bar Display drop-downs (all venues). Display lists only; a drink stores its glass as text.';
+
+-- ---- Research notes apply columns; see supabase/migrations/20261004160000_research_notes_apply.sql ----
+-- Research notes that can be applied to the recipe when Approve is tapped.
+--   method_step     a suggested method step to add (the app tidies it into the house style and picks its place)
+--   method_replaces text of an existing step this suggestion replaces (optional)
+--   answer_prompt   when set, the note is a question for the venue: Approve asks for a short typed answer first
+--   applied         what Approve changed, so it can be undone or reopened:
+--                   {"at": ts, "lines": [{"line_id", "before_qty", "after_qty"} or {"created_line_id"}], "method_before": [...], "method_after": [...]}
+alter table public.cost_research_notes
+  add column if not exists method_step text,
+  add column if not exists method_replaces text,
+  add column if not exists answer_prompt text,
+  add column if not exists applied jsonb;

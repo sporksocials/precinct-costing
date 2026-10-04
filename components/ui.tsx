@@ -601,6 +601,8 @@ export function InlineInput({
   width = "w-24",
   align = "right",
   type = "text",
+  ariaLabel,
+  autoFocus,
 }: {
   value: string;
   onCommit: (v: string) => void;
@@ -611,6 +613,9 @@ export function InlineInput({
   width?: string;
   align?: "left" | "right";
   type?: string;
+  ariaLabel?: string;
+  /** focus (and select) the field when it first appears */
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState(value);
   const [focused, setFocused] = useState(false);
@@ -630,6 +635,8 @@ export function InlineInput({
         inputMode={inputMode}
         value={text}
         placeholder={placeholder}
+        aria-label={ariaLabel}
+        autoFocus={autoFocus}
         onFocus={(e) => {
           setFocused(true);
           e.currentTarget.select();

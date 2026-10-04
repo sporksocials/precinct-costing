@@ -54,6 +54,7 @@ export const TABLES: TableSpec[] = [
   { table: "cost_offer_lines", key: "offerLines", order: "sort", pk: ["id"], optional: true, label: "Offer lines" },
   { table: "cost_ingredient_deals", key: "deals", order: "created_at", pk: ["id"], optional: true, label: "Supplier deals" },
   { table: "cost_research_notes", key: "researchNotes", order: "created_at", pk: ["id"], optional: true, label: "Research notes" },
+  { table: "cost_bar_options", key: "barOptions", order: "sort", pk: ["id"], optional: true, label: "Glass and rim lists" },
 ];
 
 const SPEC_BY_TABLE = new Map(TABLES.map((t) => [t.table, t]));

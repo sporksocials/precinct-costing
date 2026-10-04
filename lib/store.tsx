@@ -32,6 +32,8 @@ import {
   type Prep,
   type PriceLog,
   type ResearchNote,
+  type BarOption,
+  type BarOptionKind,
   type ResearchStatus,
   type SellPriceLog,
   type RecipeLine,
@@ -44,6 +46,7 @@ import {
 import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
 import { brisbaneToday, groupDeals } from "./deals";
+import { cleanOptionName, findOption, nextSort } from "./glass-rim";
 import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
 import { DEMO } from "./supabase/client";
 import { costOffer, groupOfferLines, type OfferCost } from "./offers";
@@ -200,6 +203,8 @@ export interface StoreData {
   deals: IngredientDeal[];
   /** manager-only research notes (cost_research_notes); [] until the research notes migration is applied */
   researchNotes: ResearchNote[];
+  /** glass types and rims for the Bar Display pickers (cost_bar_options); [] until the bar options migration is applied */
+  barOptions: BarOption[];
 }
 
 export interface UsedIn {
@@ -290,6 +295,11 @@ export interface StoreValue extends StoreData {
   deleteDeal: (id: string) => Promise<void>;
   /** Approve, dismiss or reopen a research note. Saved straight away; the note keeps everything else. */
   setResearchNoteStatus: (id: string, status: ResearchStatus) => Promise<void>;
+  /**
+   * Adds a glass type or rim to the Bar Display pickers (name tidied, Title Cased). A name already in the list
+   * (any case) is not added twice: the existing option comes back. The local list changes only once the database confirms.
+   */
+  addBarOption: (kind: BarOptionKind, name: string) => Promise<BarOption>;
 }
 
 /** PostgREST / Postgres error text when cost_offers.assumptions has not been added yet. */
@@ -319,6 +329,7 @@ const empty: StoreData = {
   offerLines: [],
   deals: [],
   researchNotes: [],
+  barOptions: [],
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -524,6 +535,30 @@ function insertRow<T extends object>(sb: SupabaseClient, table: string, row: T) 
 
 function insertRows<T extends object>(sb: SupabaseClient, table: string, rows: T[]) {
   return sb.from(table).insert(rows.map(withoutNulls));
+}
+
+/**
+ * Saves one glass type or rim to cost_bar_options (through insertRow, like every insert) and returns the saved row.
+ * Pure of React so it can be tested: `existing` is the list the caller already holds. A name that is already there
+ * (case-insensitive) is returned as is with nothing written. If the database says the name exists (someone added it
+ * a moment ago), that row is fetched and returned instead of failing.
+ */
+export async function insertBarOption(sb: SupabaseClient, existing: readonly BarOption[], kind: BarOptionKind, rawName: string): Promise<{ option: BarOption; created: boolean }> {
+  const name = cleanOptionName(rawName, kind);
+  if (!name) throw new Error(kind === "rim" ? "Type the rim first." : "Type the glass type first.");
+  const dupe = findOption(existing, kind, name);
+  if (dupe) return { option: dupe, created: false };
+  const row = { id: newId(), kind, name, sort: nextSort(existing, kind) };
+  const { data, error } = await insertRow(sb, "cost_bar_options", row).select("*");
+  if (error) {
+    if (error.code === "23505") {
+      const { data: found } = await sb.from("cost_bar_options").select("*").eq("kind", kind).eq("name", name);
+      const there = (found as BarOption[] | null)?.[0];
+      if (there) return { option: there, created: false };
+    }
+    throw new Error(error.message);
+  }
+  return { option: ((data as BarOption[] | null)?.[0] ?? row) as BarOption, created: true };
 }
 
 async function updateOne(sb: SupabaseClient, table: string, col: string, val: string | number, patch: object) {
@@ -1414,6 +1449,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  // ---- glass and rim lists for the Bar Display pickers (local list changes only after the database confirms) ----
+  const addBarOption = useCallback(
+    async (kind: BarOptionKind, name: string) => {
+      const { option, created } = await insertBarOption(sb, dataRef.current.barOptions, kind, name);
+      if (created) setData((d) => (d.barOptions.some((o) => o.id === option.id) ? d : { ...d, barOptions: [...d.barOptions, option] }));
+      return option;
+    },
+    [sb, setData],
+  );
+
   // ---- research notes (manager-only; only the status is ever changed from the app, notes are written by SPORK) ----
   const setResearchNoteStatus = useCallback(
     async (id: string, status: ResearchStatus) => {
@@ -1492,6 +1537,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     updateDeal,
     deleteDeal,
     setResearchNoteStatus,
+    addBarOption,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

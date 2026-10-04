@@ -27,6 +27,8 @@ import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { RecordResearchNotes } from "./research-notes";
+import { ServesCountInput, ServesSegmented } from "../serves-choice";
+import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
 
 type Kind = "item" | "prep";
 type Rec = MenuItem | Prep;
@@ -116,6 +118,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const [addFocused, setAddFocused] = useState(false);
   const [sheet, setSheet] = useState<null | "venue" | "category" | "duplicate" | "delete" | "usedin" | "whatif">(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [focusServes, setFocusServes] = useState(false);
 
   // ---------- autosave (debounced; refs hold the latest values) ----------
   const draftRef = useRef(draft);
@@ -252,6 +255,18 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const venue = store.venueById.get((draft as MenuItem).venue_id ?? -1);
   const usedIn = useMemo(() => (kind === "prep" ? store.usedIn("prep", id) : { items: [], preps: [] }), [kind, store, id]);
 
+  // ---------- serves: One Serve | Multiple Serves ----------
+  const switchServes = (mode: ServesMode) => {
+    if (!item || mode === servesMode(item.portions)) return;
+    const before = item.portions;
+    setDraft((d) => ({ ...d, portions: portionsForMode(mode, before) }));
+    setFocusServes(mode === "multiple");
+    if (mode === "one") {
+      const note = itemCost ? switchToOneNote(itemCost.recipeCost, before) : null;
+      if (note) toast.show({ message: note, action: { label: "Undo", onClick: () => setDraft((d) => ({ ...d, portions: before })) } });
+    }
+  };
+
   // ---------- line ops ----------
   const addLine = (s: AddSpec) => {
     const lid = newId();
@@ -385,9 +400,16 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             <Row onClick={() => setSheet("venue")} title="Venue" trailing={<span className="text-label-2">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "Shared"}</span>} chevron />
             {item ? <Row onClick={() => setSheet("category")} title="Category" trailing={<span className="text-label-2">{item.category}</span>} chevron /> : null}
             {item ? (
-              <FieldRow label="Portions" sub={Number(item.portions) > 1 ? `${money(itemCost?.recipeCost)} for the whole recipe` : undefined}>
-                <Stepper value={Number(item.portions) || 1} min={1} onChange={(v) => setDraft((d) => ({ ...d, portions: v }))} />
-              </FieldRow>
+              <>
+                <FieldRow label="Serves">
+                  <ServesSegmented value={servesMode(item.portions)} onChange={switchServes} size="md" className="w-[250px] sm:w-[240px]" />
+                </FieldRow>
+                {servesMode(item.portions) === "multiple" ? (
+                  <FieldRow label="Serves From This Recipe" sub={`${money(itemCost?.recipeCost)} recipe, ${money(itemCost ? itemCost.costPerPortion : null)} a serve`}>
+                    <ServesCountInput portions={Number(item.portions)} autoFocus={focusServes} onChange={(n) => setDraft((d) => ({ ...d, portions: n }))} />
+                  </FieldRow>
+                ) : null}
+              </>
             ) : prep && isFlavour ? (
               <FieldRow label="Batch Weight" sub="Total of the mix ingredients — updates as you edit">
                 <span className="text-[17px] tnum text-label-2 sm:text-[15px]">{formatQty(batchWeightKg(lines.filter((l) => l.component_id)), "kg")}</span>

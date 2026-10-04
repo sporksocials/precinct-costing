@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
-import { Banner, Chips, Sheet } from "./ui";
+import { parseServeCount, portionsForMode, type ServesMode } from "@/lib/serves";
+import { Banner, Chips, FieldRow, Sheet } from "./ui";
+import { ServesSegmented } from "./serves-choice";
 import { VENUE_SHORT } from "./venue";
 
 type RecipeType = "item" | "prep";
@@ -40,6 +42,10 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
   const type: RecipeType = args.type ?? "item";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One Serve by default; Multiple Serves reveals the number (2 or more)
+  const [servesMode, setServesMode] = useState<ServesMode>("one");
+  // kept as typed and read when Create is pressed, so a number still being typed is never lost
+  const [serveText, setServeText] = useState("2");
 
   // categories: those the venue already uses first, then the rest
   const cats = useMemo(() => {
@@ -65,7 +71,7 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
           venue_id: venueId,
           category,
           section: null,
-          portions: 1,
+          portions: portionsForMode(servesMode, parseServeCount(serveText)),
           sell_price_inc: null,
           target_override: null,
           hh_price_inc: null,
@@ -118,10 +124,34 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
           />
         </div>
         {type === "item" ? (
-          <div>
-            <p className="section-label !px-1">Category{!picked && name.trim() ? <span className="text-label-3"> · guessed from the name</span> : null}</p>
-            <Chips ariaLabel="Category" value={category} onChange={setCategory} options={cats.map((c) => ({ value: c, label: c }))} className="flex-wrap [&>button:not([aria-checked=true])]:bg-fill" />
-          </div>
+          <>
+            <div>
+              <p className="section-label !px-1">Category{!picked && name.trim() ? <span className="text-label-3"> · guessed from the name</span> : null}</p>
+              <Chips ariaLabel="Category" value={category} onChange={setCategory} options={cats.map((c) => ({ value: c, label: c }))} className="flex-wrap [&>button:not([aria-checked=true])]:bg-fill" />
+            </div>
+            <div>
+              <p className="section-label !px-1">Serves</p>
+              <ServesSegmented value={servesMode} onChange={(m) => setServesMode(m)} className="w-full" />
+              {servesMode === "multiple" ? (
+                <div className="group-list mt-2">
+                  <FieldRow label="Serves From This Recipe">
+                    <input
+                      autoFocus
+                      inputMode="decimal"
+                      aria-label="Serves From This Recipe"
+                      value={serveText}
+                      onChange={(e) => setServeText(e.target.value)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onBlur={() => setServeText(String(parseServeCount(serveText) ?? 2))}
+                      className="min-h-[36px] w-20 rounded-lg bg-fill px-2.5 text-right text-[17px] text-label tnum outline-none focus:bg-surface-2 focus:shadow-[inset_0_0_0_1.5px_var(--accent-fill)] sm:min-h-[32px] sm:text-[15px]"
+                    />
+                  </FieldRow>
+                </div>
+              ) : (
+                <p className="px-1 pt-1.5 text-[13px] text-label-2">The ingredients you add make one serve. Choose Multiple Serves for a batch, like a slice tray.</p>
+              )}
+            </div>
+          </>
         ) : (
           <p className="px-1 text-[13px] text-label-2">A prep is a batch recipe (sauce, dough, mix) used inside menu items. It starts as a 1 kg batch; set the yield in the editor.</p>
         )}

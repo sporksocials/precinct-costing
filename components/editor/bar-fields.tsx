@@ -2,11 +2,13 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Camera, Plus, X } from "lucide-react";
+import { composeGlass, cleanOptionName, findOption, optionsOf, parseGlass } from "@/lib/glass-rim";
+import { useStore } from "@/lib/store";
 import { barPhotoSrc, isBarVenue, isUploadedPhoto, textList } from "@/lib/bar";
 import { uploadBarPhoto } from "@/lib/bar-photo";
 import { DEMO, getSupabaseBrowser } from "@/lib/supabase/client";
-import type { MenuItem } from "@/lib/types";
-import { FieldRow, Group, InlineInput, Toggle, useToast } from "../ui";
+import type { BarOptionKind, MenuItem } from "@/lib/types";
+import { Banner, Group, Row, Sheet, Toggle, useToast } from "../ui";
 
 /**
  * Bar display card for a cocktail or mocktail: the glass, method steps and garnish the venue's cocktail
@@ -35,15 +37,7 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           onChange={(v) => onPatch({ active: v })}
         />
         <PhotoField item={item} onPatch={onPatch} />
-        <FieldRow label="Glass">
-          <InlineInput
-            value={item.glass ?? ""}
-            placeholder="e.g. Rocks Glass, Salt Rim"
-            inputMode="text"
-            width="w-[13.5rem] sm:w-72"
-            onCommit={(t) => onPatch({ glass: t.trim() || null })}
-          />
-        </FieldRow>
+        <GlassRimRows item={item} onPatch={onPatch} />
       </Group>
       <OrderedList title="Method" noun="Step" placeholder="e.g. Shake hard for 12 seconds" value={item.method} onChange={(v) => onPatch({ method: v })} className="mt-4" />
       <OrderedList
@@ -56,6 +50,137 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
         footer="The cocktail station shows this drink once it has a glass, method or garnish and Show On Cocktail Station is on."
       />
     </>
+  );
+}
+
+const OPTION_TEXT: Record<BarOptionKind, { row: string; sheet: string; add: string; addTitle: string; noun: string; none: string; placeholder: string }> = {
+  glass: { row: "Glass", sheet: "Glass", add: "Add A New Glass Type", addTitle: "New Glass Type", noun: "glass type", none: "No Glass", placeholder: "e.g. Tiki Mug" },
+  rim: { row: "Rim", sheet: "Rim", add: "Add A New Rim", addTitle: "New Rim", noun: "rim", none: "None", placeholder: "e.g. Tajin" },
+};
+
+/**
+ * Glass and Rim: two visible rows that open a list to choose from, with "Add A New ..." at the bottom of each list.
+ * The drink still stores ONE text value ("High Ball Glass, Salt Rim", see lib/glass-rim.ts) because the cocktail
+ * station reads that text. A stored value that is not in the list (old or hand typed) shows as a one-off entry and is
+ * never lost: it stays until the other picker or this one is changed.
+ */
+function GlassRimRows({ item, onPatch }: { item: MenuItem; onPatch: (p: Partial<MenuItem>) => void }) {
+  const store = useStore();
+  const toast = useToast();
+  const [sheet, setSheet] = useState<null | { kind: BarOptionKind; adding: boolean }>(null);
+  const parts = parseGlass(item.glass);
+  const lists = { glass: optionsOf(store.barOptions, "glass"), rim: optionsOf(store.barOptions, "rim") };
+  const current: Record<BarOptionKind, string> = { glass: parts.glass, rim: parts.rim };
+  // show the list's own spelling when the stored text only differs by case
+  const shown: Record<BarOptionKind, string> = {
+    glass: findOption(store.barOptions, "glass", parts.glass)?.name ?? parts.glass,
+    rim: findOption(store.barOptions, "rim", parts.rim)?.name ?? parts.rim,
+  };
+
+  const choose = (kind: BarOptionKind, name: string) => {
+    onPatch({ glass: kind === "glass" ? composeGlass(name, parts.rim) : composeGlass(parts.glass, name) });
+    setSheet(null);
+  };
+  const close = () => setSheet(null);
+
+  return (
+    <>
+      <Row onClick={() => setSheet({ kind: "glass", adding: false })} title="Glass" trailing={<span className={shown.glass ? "text-label-2" : "text-label-3"}>{shown.glass || "Choose"}</span>} chevron />
+      {parts.glass ? (
+        <Row onClick={() => setSheet({ kind: "rim", adding: false })} title="Rim" trailing={<span className={shown.rim ? "text-label-2" : "text-label-3"}>{shown.rim || "None"}</span>} chevron />
+      ) : (
+        <Row title="Rim" sub="Choose a glass first" trailing={<span className="text-label-3">None</span>} className="opacity-60" />
+      )}
+      {(["glass", "rim"] as const).map((kind) => {
+        const t = OPTION_TEXT[kind];
+        const options = lists[kind];
+        const oneOff = current[kind] && !findOption(store.barOptions, kind, current[kind]) ? current[kind] : null;
+        const sel = current[kind].toLowerCase();
+        return (
+          <React.Fragment key={kind}>
+            <Sheet open={sheet?.kind === kind && !sheet.adding} onClose={close} title={t.sheet} cancelLabel={null} action={{ label: "Done", onClick: close }}>
+              <div className="group-list mt-3">
+                <Row title={t.none} onClick={() => choose(kind, "")} trailing={!current[kind] ? <span className="text-accent">✓</span> : null} />
+                {oneOff ? <Row title={oneOff} sub="One-off entry, not in the list" onClick={() => choose(kind, oneOff)} trailing={<span className="text-accent">✓</span>} /> : null}
+                {options.map((o) => (
+                  <Row key={o.id} title={o.name} onClick={() => choose(kind, o.name)} trailing={o.name.toLowerCase() === sel ? <span className="text-accent">✓</span> : null} />
+                ))}
+                <Row
+                  title={t.add}
+                  titleClassName="!text-accent"
+                  leading={<Plus className="h-5 w-5 text-accent" strokeWidth={2.25} />}
+                  onClick={() => setSheet({ kind, adding: true })}
+                />
+              </div>
+            </Sheet>
+            {sheet?.kind === kind && sheet.adding ? (
+              <AddOptionSheet
+                kind={kind}
+                onBack={() => setSheet({ kind, adding: false })}
+                onAdded={(name, existed) => {
+                  if (existed) toast.show({ message: `${name} is already in the list. Selected it.` });
+                  choose(kind, name);
+                }}
+              />
+            ) : null}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+/** The small pop-up behind "Add A New Glass Type" / "Add A New Rim": one text field and an Add button. */
+function AddOptionSheet({ kind, onBack, onAdded }: { kind: BarOptionKind; onBack: () => void; onAdded: (name: string, existed: boolean) => void }) {
+  const store = useStore();
+  const t = OPTION_TEXT[kind];
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const clean = cleanOptionName(text, kind);
+  const existing = clean ? findOption(store.barOptions, kind, clean) : undefined;
+  const canAdd = clean.length > 0 && !busy;
+
+  async function add() {
+    if (!canAdd) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const option = await store.addBarOption(kind, clean);
+      onAdded(option.name, !!existing);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : `Couldn't add the ${t.noun}. Try again.`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet open onClose={onBack} title={t.addTitle} size="sm" action={{ label: busy ? "Adding…" : "Add", onClick: () => void add(), disabled: !canAdd }}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void add();
+        }}
+        className="space-y-3 pb-2 pt-3"
+      >
+        {error ? <Banner>{error}</Banner> : null}
+        <input autoFocus className="field !py-3.5" placeholder={t.placeholder} value={text} onChange={(e) => setText(e.target.value)} enterKeyHint="done" aria-label={kind === "glass" ? "Glass Type Name" : "Rim Name"} />
+        <p className="min-h-[1.25rem] px-1 text-[13px] text-label-2">
+          {existing
+            ? `${existing.name} is already in the list. Add selects it.`
+            : clean
+              ? kind === "rim"
+                ? `Shows on the station as “${clean} Rim”.`
+                : `Added for every venue as “${clean}”.`
+              : kind === "rim"
+                ? "Just the rim, e.g. Tajin. The station adds the word Rim."
+                : "Every venue can pick it once it is added."}
+        </p>
+        <button type="submit" className="btn-primary w-full" disabled={!canAdd}>
+          {busy ? "Adding…" : "Add"}
+        </button>
+      </form>
+    </Sheet>
   );
 }
 

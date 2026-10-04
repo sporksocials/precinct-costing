@@ -385,3 +385,17 @@ export interface ResearchNote {
   created_at: string;
   updated_at: string;
 }
+
+export type BarOptionKind = "glass" | "rim";
+
+/**
+ * One entry in the recipe editor's Glass or Rim list (cost_bar_options, shared by every venue). Display lists only:
+ * a drink still stores its glass as one text value in cost_menu_items.glass ("High Ball Glass, Salt Rim").
+ */
+export interface BarOption {
+  id: string;
+  kind: BarOptionKind;
+  name: string;
+  sort: number;
+  created_at?: string | null;
+}

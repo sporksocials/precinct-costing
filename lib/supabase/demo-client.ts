@@ -32,6 +32,7 @@ const TABLE_KEYS: Record<string, string> = {
   cost_offer_lines: "offerLines",
   cost_ingredient_deals: "deals", // not in older demo data: empty
   cost_research_notes: "researchNotes", // not in older demo data: empty
+  cost_bar_options: "barOptions", // not in older demo data: empty
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
 };
@@ -171,6 +172,9 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           if (row.id == null) row.id = Math.max(0, ...rows.map((x) => Number(x.id) || 0)) + 1;
           if (this.table === "cost_ingredients" && rows.some((x) => String(x.name).toLowerCase() === String(row.name).toLowerCase())) {
             throw new Error(`duplicate key value violates unique constraint "cost_ingredients_name_key"`);
+          }
+          if (this.table === "cost_bar_options" && rows.some((x) => x.kind === row.kind && x.name === row.name)) {
+            throw new Error(`duplicate key value violates unique constraint "cost_bar_options_kind_name_key"`);
           }
           return row;
         });

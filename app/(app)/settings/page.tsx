@@ -104,7 +104,7 @@ export default function SettingsPage() {
         />
       </Group>
 
-      <Group title="Who Can Sign In" footer={owner ? "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts instead of the email. Only you can set them." : "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts."}>
+      <Group title="Who Can Sign In" footer={owner ? "Only these emails can sign in and see prices. Tap a name box to change it, then tap away or press Enter to save. Names show in the change log, price history and ignored alerts instead of the email. Only you can set them." : "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts."}>
         {store.allowedUsers.map((u) => (
           <PersonRow key={u.email} user={u} you={!!store.userEmail && u.email.toLowerCase() === store.userEmail.toLowerCase()} canName={owner} onName={(n) => run(store.setAllowedUserName(u.email, n))} onRemove={() => setRemoving(u.email)} />
         ))}
@@ -171,11 +171,11 @@ function PersonRow({ user, you, canName, onName, onRemove }: { user: AllowedUser
     if (next !== saved) onName(next || null);
   };
   return (
-    <div className="flex items-center gap-3 px-4 py-2">
+    <div className="flex items-center gap-3 px-4 py-2.5">
       <div className="min-w-0 flex-1">
         {canName ? (
           <input
-            className="block h-9 w-full min-w-0 bg-transparent text-[17px] outline-none placeholder:text-label-3 sm:text-[15px]"
+            className="field block !h-11 w-full min-w-0 !py-0 sm:!h-9"
             placeholder="First name"
             aria-label={`First name for ${user.email}`}
             value={text}
@@ -190,7 +190,7 @@ function PersonRow({ user, you, canName, onName, onRemove }: { user: AllowedUser
         ) : (
           <p className="text-[17px] sm:text-[15px]">{saved || user.email}</p>
         )}
-        <p className="break-all text-[13px] text-label-2">
+        <p className={cx("break-all text-[13px] text-label-2", canName && "mt-1")}>
           {canName || saved ? user.email : ""}
           {you ? `${canName || saved ? " · " : ""}You` : ""}
         </p>

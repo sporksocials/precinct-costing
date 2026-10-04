@@ -4,6 +4,8 @@ import { beerItemId } from "@/lib/beer";
 import { virtualItemId } from "@/lib/gelato";
 import {
   dietTags,
+  isFiningCategory,
+  isFiningRisk,
   isFreeFrom,
   ingredientAllergenState,
   matrixRows,
@@ -274,6 +276,59 @@ describe("diet tags", () => {
   });
   it("honey is not vegan", () => {
     expect(dish([ing("a", "Honey", reviewed({ diet_flags: ["honey"] }))])[1].state).toBe("no");
+  });
+});
+
+describe("diet tags: fining agents in drinks", () => {
+  const dish = (ings: Ingredient[]) => {
+    const index = mk(ings, [], [item("d", "Dish")], ings.map((i) => line("item", "d", "ingredient", i.id)));
+    return rollup({ kind: "item", id: "d" }, index);
+  };
+  const tags = (r: ReturnType<typeof rollup>) => dietTags(r).map((t) => t.state);
+
+  it("knows the drink categories, ignoring case and spacing", () => {
+    for (const c of ["Wine", "Spirits", "Liqueurs", "Beer Keg", "Packaged Beer / Cider / RTD", "packaged  beer / cider / rtd", "Packaged Beer & Cider"]) expect(isFiningCategory(c)).toBe(true);
+    for (const c of ["Food", "Dairy", "Beverage (non-alc)", "Bar consumable", "", null, undefined]) expect(isFiningCategory(c)).toBe(false);
+  });
+
+  it("a reviewed wine with no animal flags is Not Confirmed, never Vegetarian or Vegan", () => {
+    for (const category of ["Wine", "Beer Keg", "Packaged Beer / Cider / RTD", "Spirits", "Liqueurs"]) {
+      const r = dish([ing("a", "Tomato", reviewed()), ing("w", "House Chardonnay", reviewed({ category }))]);
+      expect(tags(r)).toEqual(["maybe", "maybe"]);
+      expect(r.finingRisk).toEqual(["House Chardonnay"]);
+      expect(dietTags(r)[1].because).toEqual(["House Chardonnay"]);
+    }
+  });
+
+  it("an explicit vegan marker in diet_flags lifts the doubt", () => {
+    const r = dish([ing("w", "Vegan Shiraz", reviewed({ category: "Wine", diet_flags: ["vegan"] }))]);
+    expect(tags(r)).toEqual(["yes", "yes"]);
+    expect(r.finingRisk).toEqual([]);
+    expect(isFiningRisk({ name: "Vegan Shiraz", category: "Wine", allergens: [], diet_flags: ["vegan"] })).toBe(false);
+  });
+
+  it("an animal flag on the drink still wins (cream liqueur is not vegan, meat stock is not vegetarian)", () => {
+    const r = dish([ing("l", "Cream Liqueur", reviewed({ category: "Liqueurs", allergens: ["milk"] }))]);
+    expect(tags(r)).toEqual(["maybe", "no"]);
+    const m = dish([ing("l", "Beef Sherry Reduction", reviewed({ category: "Wine", diet_flags: ["meat"] }))]);
+    expect(tags(m)).toEqual(["no", "no"]);
+  });
+
+  it("catches a wine sauce with no category by its alcohol tick or its name (the kitchen feed has no category)", () => {
+    expect(tags(dish([ing("w", "Reduction", reviewed({ allergens: ["alcohol"] }))]))).toEqual(["maybe", "maybe"]);
+    expect(tags(dish([ing("w", "Dry White Wine", reviewed())]))).toEqual(["maybe", "maybe"]);
+    expect(tags(dish([ing("w", "Ginger Beer Syrup", reviewed())]))).toEqual(["yes", "yes"]);
+  });
+
+  it("rolls up through a nested prep", () => {
+    const sauce = prep("p1", "Wine Jus");
+    const index = mk([ing("w", "Red Wine", reviewed({ category: "Wine" })), ing("a", "Tomato", reviewed())], [sauce], [item("d", "Dish")], [line("prep", "p1", "ingredient", "w"), line("item", "d", "prep", "p1"), line("item", "d", "ingredient", "a")]);
+    expect(tags(rollup({ kind: "item", id: "d" }, index))).toEqual(["maybe", "maybe"]);
+  });
+
+  it("an unreviewed recipe stays unknown and plain food is unaffected", () => {
+    expect(tags(dish([ing("w", "Chardonnay", { category: "Wine" })]))).toEqual(["unknown", "unknown"]);
+    expect(tags(dish([ing("a", "Tomato", reviewed())]))).toEqual(["yes", "yes"]);
   });
 });
 

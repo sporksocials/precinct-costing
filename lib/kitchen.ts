@@ -1,4 +1,5 @@
 import { isUploadedPhoto, textList } from "./bar";
+import { DIET_OPTION_IDS, type DietOptionId } from "./diet-legend";
 
 /**
  * Kitchen station (the public iPad recipe screen at /kitchen/<venue>): data shape and pure display helpers.
@@ -39,6 +40,10 @@ export interface KitchenDish {
   allergenAdd: string[];
   allergenRemove: string[];
   allergenNotes: Record<string, string> | null;
+  /** the dish's dietary options (GFO, VO, VGO, DFO), each with the note saying what changes. Only known keys with a non-empty note are kept */
+  dietOptions: Partial<Record<DietOptionId, { note: string }>>;
+  /** the menu wording markets this dish as seafood, so it needs an origin letter */
+  seafoodLabel: boolean;
 }
 
 export interface KitchenPrep {
@@ -63,6 +68,12 @@ export interface KitchenIngredient {
   /** false unless the database says true, so a missing value never reads as "reviewed" */
   reviewed: boolean;
   dietFlags: string[];
+  /** A Australian, I imported; anything else in the feed reads as not set */
+  seafoodOrigin: "A" | "I" | null;
+  /** seafood the origin standard exempts (fish sauce, canned tuna): not counted for the origin letter */
+  seafoodExempt: boolean;
+  /** the ingredient category, when the feed carries it (the wine, beer and spirits fining rule uses it); null today */
+  category: string | null;
 }
 
 export interface KitchenLine {
@@ -115,6 +126,19 @@ function noteMap(v: unknown): Record<string, string> | null {
   return Object.keys(out).length ? out : null;
 }
 
+/** The dietary options: only the four known keys, each needing a non-empty string note (an option without one is not shown). */
+function dietOptionMap(v: unknown): Partial<Record<DietOptionId, { note: string }>> {
+  const o = obj(v);
+  const out: Partial<Record<DietOptionId, { note: string }>> = {};
+  if (!o) return out;
+  for (const id of DIET_OPTION_IDS) {
+    const entry = obj(o[id]);
+    const note = entry && textOrNull(entry.note);
+    if (note) out[id] = { note };
+  }
+  return out;
+}
+
 function parseDish(x: unknown): KitchenDish | null {
   const d = obj(x);
   const id = d && idOf(d.id);
@@ -132,6 +156,8 @@ function parseDish(x: unknown): KitchenDish | null {
     allergenAdd: stringList(d.allergen_add),
     allergenRemove: stringList(d.allergen_remove),
     allergenNotes: noteMap(d.allergen_notes),
+    dietOptions: dietOptionMap(d.diet_options),
+    seafoodLabel: d.seafood_label === true,
   };
 }
 
@@ -160,7 +186,7 @@ function parseIngredient(x: unknown): KitchenIngredient | null {
   const i = obj(x);
   const id = i && idOf(i.id);
   if (!i || !id) return null;
-  return { id, name: textOrNull(i.name) ?? "Unknown ingredient", allergens: stringList(i.allergens), reviewed: i.allergens_reviewed === true, dietFlags: stringList(i.diet_flags) };
+  return { id, name: textOrNull(i.name) ?? "Unknown ingredient", allergens: stringList(i.allergens), reviewed: i.allergens_reviewed === true, dietFlags: stringList(i.diet_flags), seafoodOrigin: i.seafood_origin === "A" || i.seafood_origin === "I" ? i.seafood_origin : null, seafoodExempt: i.seafood_exempt === true, category: textOrNull(i.category) };
 }
 
 function parseLine(x: unknown): KitchenLine | null {

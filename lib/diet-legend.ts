@@ -77,6 +77,25 @@ export const BADGE_LABELS = {
   mayContain: "May Contain (Unconfirmed)",
   seafoodOrigin: "Seafood Origin",
   originNotConfirmed: "Origin Not Confirmed",
+  dietary: "Dietary",
+  options: "Options",
+  whatChanges: "What Changes",
+  /** the Contains tier of a fully reviewed recipe that contains none of the main allergens */
+  noneListed: "None Listed",
+  /** the Contains tier of a recipe with unreviewed ingredients and nothing found yet */
+  nothingFoundSoFar: "Nothing Found So Far",
+  /** a tile with nothing to flag at all (fully reviewed, no allergens, sensitivities, attributes) */
+  noAllergensListed: "No Allergens Listed",
+  /** the small seafood prompt on a kitchen screen: the menu letter is only right while deliveries match it */
+  checkDelivery: "Check Delivery",
+  checkDeliveryDetail: "Check the delivery matches this letter. Tell the chef if the supplier has changed.",
+  originNotConfirmedDetail: "Ask the chef before you plate this dish. Origin is not set on",
+  legend: "Legend",
+  /** the action line under the Not Reviewed banner on the kitchen screens */
+  notReviewedAction: "Check with the chef before you serve it.",
+  notReviewedStillApply: "Anything not listed below may still apply.",
+  notCheckedYet: "Not yet checked",
+  noIngredients: "This recipe has no ingredients yet, so nothing can be confirmed.",
 } as const;
 
 /** The legend a printed menu or screen shows under its dish list. */

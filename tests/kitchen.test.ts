@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { SECTION_ORDER, compareGroups, formatQty, groupItems, isKitchenPath, isKitchenVenue, kitchenPhotoSrc, KITCHEN_VENUES, matchesName, parseKitchenData, qtyParts, scaleLabel, scaleQty, yieldText } from "@/lib/kitchen";
-import { allergenDisplay, buildKitchenModel, componentsOf, dishAllergens, prepAllergens, usedIn } from "@/lib/kitchen-model";
+import { buildKitchenModel, componentsOf, dishBadges, prepBadges, usedIn } from "@/lib/kitchen-model";
+import { badgeModel } from "@/lib/allergen-badges";
+import { BADGE_LABELS } from "@/lib/diet-legend";
+import { CARD_BG, KB } from "@/components/kitchen/palette";
 import { rollup } from "@/lib/allergens";
 import { stationWorkerResponse, stationWorkerSource } from "@/lib/sw-source";
 
@@ -104,6 +107,38 @@ describe("parseKitchenData", () => {
     const d = parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "a", name: "A", portions: 0 }, { id: "b", name: "B", portions: "x" }, { id: "c", name: "C", portions: 4 }], preps: [{ id: "p", name: "P", yield_qty: "abc", yield_unit: "bunch", ready: "yes" }] }, SYNCED)!;
     expect(d.dishes.map((x) => x.portions)).toEqual([1, 1, 4]);
     expect(d.preps[0]).toMatchObject({ yieldQty: 0, yieldUnit: "each", ready: false });
+  });
+});
+
+describe("parseKitchenData: diet options and seafood", () => {
+  const one = (dish: Record<string, unknown>) => parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D", ...dish }] }, SYNCED)!.dishes[0];
+  const ingr = (i: Record<string, unknown>) => parseKitchenData({ venue: { slug: "drift" }, ingredients: [{ id: "i", name: "I", ...i }] }, SYNCED)!.ingredients[0];
+
+  it("keeps the four known options that have a non-empty note, trimmed", () => {
+    expect(one({ diet_options: { gfo: { note: " Swap the bun for the GF roll " }, vo: { note: "No bacon" }, vgo: { note: "x" }, dfo: { note: "No cheese" } } }).dietOptions).toEqual({ gfo: { note: "Swap the bun for the GF roll" }, vo: { note: "No bacon" }, vgo: { note: "x" }, dfo: { note: "No cheese" } });
+  });
+  it("drops unknown keys and options without a usable string note", () => {
+    const bad = { gf: { note: "x" }, gfo: { note: "" }, vo: { note: "   " }, vgo: { note: 4 }, dfo: "No cheese", extra: { note: "y" } };
+    expect(one({ diet_options: bad }).dietOptions).toEqual({});
+    expect(one({ diet_options: { gfo: null, vo: [] } }).dietOptions).toEqual({});
+  });
+  it("treats a missing or malformed diet_options as none", () => {
+    for (const v of [undefined, null, "gfo", 3, [], [{ gfo: { note: "x" } }]]) expect(one({ diet_options: v }).dietOptions).toEqual({});
+  });
+  it("seafood_label is true only for the boolean true", () => {
+    expect(one({ seafood_label: true }).seafoodLabel).toBe(true);
+    for (const v of [undefined, null, false, "true", 1, "yes"]) expect(one({ seafood_label: v }).seafoodLabel).toBe(false);
+  });
+  it("seafood_origin is only A or I, seafood_exempt only a real true", () => {
+    expect(ingr({ seafood_origin: "A" }).seafoodOrigin).toBe("A");
+    expect(ingr({ seafood_origin: "I" }).seafoodOrigin).toBe("I");
+    for (const v of [undefined, null, "NZ", "M", "a", "", 1, true]) expect(ingr({ seafood_origin: v }).seafoodOrigin).toBeNull();
+    expect(ingr({ seafood_exempt: true }).seafoodExempt).toBe(true);
+    for (const v of [undefined, null, false, "true", 1]) expect(ingr({ seafood_exempt: v }).seafoodExempt).toBe(false);
+  });
+  it("reads a category when the feed carries one, else null", () => {
+    expect(ingr({ category: " Wine " }).category).toBe("Wine");
+    expect(ingr({}).category).toBeNull();
   });
 });
 
@@ -210,60 +245,111 @@ describe("kitchen model", () => {
     const m = buildKitchenModel(looped);
     expect(usedIn(m, "b").map((d) => d.id)).toEqual(["d"]);
     expect(usedIn(m, "nowhere")).toEqual([]);
-    expect(dishAllergens(m, "d").notReviewed).toBe(true);
+    expect(dishBadges(m, "d").notReviewed).not.toBeNull();
   });
 
-  it("rolls allergens up with lib/allergens: a fully reviewed dish lists what it contains", () => {
-    const a = dishAllergens(model, "d-toast");
-    expect(a.notReviewed).toBe(false);
-    expect(a.contains).toEqual(["Gluten"]);
-    expect(a.none).toBe(false);
-    expect(a.diet).toEqual(["Vegetarian", "Vegan"]);
+  it("rolls allergens up through the shared badge model: a fully reviewed dish lists what it contains", () => {
+    const m = dishBadges(model, "d-toast");
+    expect(m.notReviewed).toBeNull();
+    expect(m.contains).toEqual(["gluten"]);
+    expect(m.diet).toEqual([{ id: "no_dairy_ingredients", label: "No Dairy Ingredients", state: "is" }, { id: "vegetarian", label: "Vegetarian", state: "is" }, { id: "vegan", label: "Vegan", state: "is" }]);
   });
 
   it("never calls a dish clear while an ingredient is unreviewed, even one buried in a prep", () => {
-    const a = dishAllergens(model, "d-burger");
-    expect(a.notReviewed).toBe(true);
-    expect(a.none).toBe(false);
-    expect(a.unreviewed).toEqual(["Kewpie Mayo"]);
-    expect(a.diet).toEqual([]);
-    expect(a.notes).toEqual([{ label: "Milk", note: "no aioli" }]);
-    expect(prepAllergens(model, "p-aioli").notReviewed).toBe(true);
+    const m = dishBadges(model, "d-burger");
+    expect(m.notReviewed).toEqual({ unreviewedNames: ["Kewpie Mayo"] });
+    expect(m.diet.every((d) => d.state === "not_confirmed")).toBe(true);
+    expect(m.notes).toEqual([]); // the "no aioli" note is on milk, which nothing has confirmed
+    expect(prepBadges(model, "p-aioli").notReviewed).not.toBeNull();
+  });
+
+  it("shows a chef note on an allergen that is shown", () => {
+    const withMilk = parseKitchenData({ ...RAW, ingredients: [...RAW.ingredients, { id: "i-cheese", name: "Cheddar", allergens: ["milk"], allergens_reviewed: true, diet_flags: [] }], lines: [...RAW.lines, { parent_type: "item", parent_id: "d-burger", component_type: "ingredient", component_id: "i-cheese", qty: 20, unit: "g", note: null, sort: 9 }] }, SYNCED)!;
+    expect(dishBadges(buildKitchenModel(withMilk), "d-burger").notes).toEqual([{ id: "milk", label: "Milk", note: "no aioli" }]);
   });
 
   it("rolls a nested prep's allergens into the dish that uses it", () => {
-    const a = dishAllergens(model, "d-tart");
-    expect(a.notReviewed).toBe(false);
-    expect(a.contains).toEqual(["Gluten", "Milk"]);
-    expect(a.diet).toEqual(["Vegetarian"]);
-    expect(prepAllergens(model, "p-pastry").contains).toEqual(["Gluten", "Milk"]);
+    const m = dishBadges(model, "d-tart");
+    expect(m.notReviewed).toBeNull();
+    expect(m.contains).toEqual(["gluten", "milk"]);
+    expect(m.diet.map((d) => d.id)).toEqual(["vegetarian"]);
+    expect(prepBadges(model, "p-pastry").contains).toEqual(["gluten", "milk"]);
   });
 
   it("treats a dish with no recipe lines, or a missing component, as not reviewed", () => {
     const empty = buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D" }, { id: "e", name: "E" }], lines: [{ parent_type: "item", parent_id: "e", component_type: "ingredient", component_id: "gone", qty: 1, unit: "g" }] }, SYNCED)!);
     for (const id of ["d", "e"]) {
-      const a = dishAllergens(empty, id);
-      expect(a.notReviewed).toBe(true);
-      expect(a.none).toBe(false);
-      expect(a.diet).toEqual([]);
+      const m = dishBadges(empty, id);
+      expect(m.notReviewed).not.toBeNull();
+      expect(m.diet.every((d) => d.state === "not_confirmed")).toBe(true);
     }
   });
 
-  it("only says 'no allergens listed' for a fully reviewed dish with nothing in it", () => {
+  it("a fully reviewed dish with nothing in it has no banner, no contains and positive diet badges", () => {
     const m = buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D" }], ingredients: [{ id: "i", name: "Lettuce", allergens: [], allergens_reviewed: true }], lines: [{ parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "i", qty: 50, unit: "g" }] }, SYNCED)!);
-    expect(dishAllergens(m, "d")).toMatchObject({ none: true, notReviewed: false, contains: [] });
+    const b = dishBadges(m, "d");
+    expect(b).toMatchObject({ notReviewed: null, contains: [], mayContain: [], sensitivities: [], attributes: [] });
+    expect(b.diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:is", "vegan:is"]);
   });
 
   it("never claims anything is free from or clear for an unreviewed recipe, whatever the allergens", () => {
     const m = buildKitchenModel(
       parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D" }], ingredients: [{ id: "i", name: "Lettuce", allergens: [], allergens_reviewed: false }, { id: "j", name: "Peanut Sauce", allergens: ["peanuts"], allergens_reviewed: false }], lines: [{ parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "i", qty: 50, unit: "g" }, { parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "j", qty: 5, unit: "g" }] }, SYNCED)!,
     );
-    const a = dishAllergens(m, "d");
-    expect(a).toMatchObject({ notReviewed: true, none: false, diet: [], contains: ["Peanuts"] });
-    // the display is built from the same roll-up the costing app shows
-    const r = rollup({ kind: "item", id: "d" }, m.index);
-    expect(allergenDisplay(r)).toEqual(a);
-    expect(r.reviewed).toBe(false);
+    const b = dishBadges(m, "d");
+    expect(b.notReviewed).not.toBeNull();
+    expect(b.contains).toEqual(["peanuts"]);
+    expect(b.diet.some((d) => d.state === "is")).toBe(false);
+    // the kitchen shows exactly what the costing app's badge model says for the same roll-up
+    expect(b).toEqual(badgeModel(rollup({ kind: "item", id: "d" }, m.index), m.index.items?.get("d")));
+  });
+});
+
+describe("kitchen badges for the new feed fields", () => {
+  const feed = (over: { dishes?: Record<string, unknown>[]; ingredients?: Record<string, unknown>[]; lines?: Record<string, unknown>[] }) =>
+    buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, dishes: over.dishes ?? [], preps: [], ingredients: over.ingredients ?? [], lines: over.lines ?? [] }, SYNCED)!);
+  const rev = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, allergens: [], allergens_reviewed: true, diet_flags: [], ...extra });
+  const ln = (dish: string, ing: string, sort = 1) => ({ parent_type: "item", parent_id: dish, component_type: "ingredient", component_id: ing, qty: 100, unit: "g", note: null, sort });
+
+  it("a wine-only sulphite dish is not 'no allergens': sulphites and alcohol show, and vegan is Not Confirmed", () => {
+    const m = feed({ dishes: [{ id: "d", name: "Wine Jus" }], ingredients: [rev("w", "Red Wine", { allergens: ["sulphites", "alcohol"] })], lines: [ln("d", "w")] });
+    const b = dishBadges(m, "d");
+    expect(b.contains).toEqual([]);
+    expect(b.sensitivities).toEqual(["sulphites"]);
+    expect(b.attributes).toEqual(["alcohol"]);
+    expect(b.diet.filter((d) => d.id === "vegetarian" || d.id === "vegan").every((d) => d.state === "not_confirmed")).toBe(true);
+  });
+
+  it("a wine sauce with only the alcohol tick (no category in the feed) is never Vegan or Vegetarian", () => {
+    const m = feed({ dishes: [{ id: "d", name: "Sauce" }], ingredients: [rev("a", "Stock Concentrate", { allergens: ["alcohol"] })], lines: [ln("d", "a")] });
+    expect(dishBadges(m, "d").diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:not_confirmed", "vegan:not_confirmed"]);
+  });
+
+  it("carries a GFO and a VGO option with their notes", () => {
+    const m = feed({ dishes: [{ id: "d", name: "Burger", diet_options: { gfo: { note: "Use the GF bun" }, vgo: { note: "Plant patty, no aioli" }, vo: { note: "" } } }], ingredients: [rev("b", "Bun", { allergens: ["gluten"] })], lines: [ln("d", "b")] });
+    expect(dishBadges(m, "d").options.map((o) => [o.letter, o.note])).toEqual([["GFO", "Use the GF bun"], ["VGO", "Plant patty, no aioli"]]);
+  });
+
+  it("seafood letters: all A is A, all I is I, both is M, an unset origin is Origin Not Confirmed, an exempt fish sauce is ignored", () => {
+    const sea = (id: string, name: string, origin: string | null, extra: Record<string, unknown> = {}) => rev(id, name, { allergens: ["crustacea"], seafood_origin: origin, ...extra });
+    const m = feed({
+      dishes: ["a", "i", "m", "u", "x"].map((k) => ({ id: k, name: k, seafood_label: true })),
+      ingredients: [sea("pa", "Prawns A", "A"), sea("ps", "Squid I", "I"), sea("pu", "Mussels", null), rev("fs", "Fish Sauce", { allergens: ["fish"], seafood_exempt: true })],
+      lines: [ln("a", "pa"), ln("i", "ps"), ln("m", "pa"), ln("m", "ps", 2), ln("u", "pa"), ln("u", "pu", 2), ln("x", "fs")],
+    });
+    expect(dishBadges(m, "a").seafood).toEqual({ letter: "A", required: true });
+    expect(dishBadges(m, "i").seafood).toEqual({ letter: "I", required: true });
+    expect(dishBadges(m, "m").seafood).toEqual({ letter: "M", required: true });
+    expect(dishBadges(m, "u").seafood).toMatchObject({ state: "origin_not_confirmed", missing: ["Mussels"] });
+    expect(dishBadges(m, "x").seafood).toBeNull();
+    expect(dishBadges(m, "x").contains).toContain("fish"); // exempt from the origin label, still an allergen
+  });
+
+  it("a prep carries no options and no required seafood letter", () => {
+    const m = buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, preps: [{ id: "p", name: "P" }], ingredients: [rev("pa", "Prawns", { allergens: ["crustacea"], seafood_origin: "A" })], lines: [{ parent_type: "prep", parent_id: "p", component_type: "ingredient", component_id: "pa", qty: 1, unit: "kg" }] }, SYNCED)!);
+    const b = prepBadges(m, "p");
+    expect(b.options).toEqual([]);
+    expect(b.seafood).toEqual({ letter: "A", required: false });
   });
 });
 
@@ -326,5 +412,25 @@ describe("kitchen screens text contrast", () => {
   });
   it("keeps the amber warning, contains and diet chips readable on their own tinted backgrounds", () => {
     for (const [text, bg] of [["#F2C46D", "#2B2210"], ["#FFB3BC", "#2E1F23"], ["#8FD9A4", "#172619"]]) expect({ text, ok: ratio(text, bg) >= 4.5 }).toEqual({ text, ok: true });
+  });
+  it("keeps every allergen, dietary and seafood badge text at AA on its fill and on both stripes of a hatched fill", () => {
+    for (const [name, t] of Object.entries(KB)) {
+      const fills = [t.bg, "stripe" in t ? t.stripe : null].filter((c): c is string => !!c);
+      for (const bg of fills) expect({ name, bg, ok: ratio(t.fg, bg) >= 4.5 }).toEqual({ name, bg, ok: true });
+    }
+    // the Contains badge is the loudest thing on the screen: well past AA (7:1, AAA)
+    expect(ratio(KB.contains.fg, KB.contains.bg)).toBeGreaterThanOrEqual(7);
+  });
+  it("keeps every badge outline at 3:1 against the card it sits on (WCAG 1.4.11)", () => {
+    for (const [name, t] of Object.entries(KB)) expect({ name, ok: !t.edge || ratio(t.edge, CARD_BG) >= 3 }).toEqual({ name, ok: true });
+  });
+  it("keeps the extra text greys used by the badge block at AA on the card", () => {
+    for (const c of ["#9B9890", "#D0CCC2", "#EBD9B8", "#F5F3EE", "#F2C46D"]) expect({ c, ok: ratio(c, "#232327") >= 4.5 }).toEqual({ c, ok: true });
+  });
+  it("sets badge wording in one place: no em dashes and no bare Gluten Free claim", () => {
+    for (const text of Object.values(BADGE_LABELS)) {
+      expect(text.includes("—")).toBe(false);
+      expect(/gluten[\s-]?free(?!\s+option)/i.test(text)).toBe(false);
+    }
   });
 });

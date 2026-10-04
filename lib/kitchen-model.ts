@@ -1,4 +1,5 @@
-import { ALLERGEN_IDS, allergenLabel, dietTags, rollup, summarise, type AllergenIndex, type Rollup } from "./allergens";
+import { rollup, type AllergenIndex } from "./allergens";
+import { badgeModel, type BadgeModel } from "./allergen-badges";
 import { barIngredientName } from "./bar";
 import { MAX_PREP_DEPTH, buildIndex, parentKey } from "./costing";
 import type { KitchenData, KitchenDish, KitchenPrep } from "./kitchen";
@@ -6,7 +7,8 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "./types";
 
 /**
  * Kitchen station: what the screens read, built once from a `KitchenData` copy. The allergen answer on screen always comes
- * from lib/allergens.ts (the same roll-up the costing app shows): unreviewed ingredients mean a dish is never shown as clear.
+ * from lib/allergens.ts and lib/allergen-badges.ts (the same roll-up and badge model the costing app shows): unreviewed
+ * ingredients mean a dish is never shown as clear.
  */
 
 export interface KitchenModel {
@@ -21,9 +23,13 @@ export interface KitchenModel {
  * Anything the roll-up doesn't read stays at a neutral value and is never shown.
  */
 export function buildKitchenModel(data: KitchenData): KitchenModel {
-  const ingredients = data.ingredients.map((i) => ({ id: i.id, name: i.name, allergens: i.allergens, allergens_reviewed: i.reviewed, diet_flags: i.dietFlags }) as unknown as Ingredient);
+  const ingredients = data.ingredients.map(
+    (i) => ({ id: i.id, name: i.name, category: i.category ?? "", allergens: i.allergens, allergens_reviewed: i.reviewed, diet_flags: i.dietFlags, seafood_origin: i.seafoodOrigin, seafood_exempt: i.seafoodExempt }) as unknown as Ingredient,
+  );
   const preps = data.preps.map((p) => ({ id: p.id, name: p.name, allergen_add: p.allergenAdd, allergen_remove: p.allergenRemove, allergen_notes: p.allergenNotes }) as unknown as Prep);
-  const items = data.dishes.map((d) => ({ id: d.id, name: d.name, allergen_add: d.allergenAdd, allergen_remove: d.allergenRemove, allergen_notes: d.allergenNotes }) as unknown as MenuItem);
+  const items = data.dishes.map(
+    (d) => ({ id: d.id, name: d.name, allergen_add: d.allergenAdd, allergen_remove: d.allergenRemove, allergen_notes: d.allergenNotes, diet_options: d.dietOptions, seafood_label: d.seafoodLabel }) as unknown as MenuItem,
+  );
   const lines = data.lines.map((l, i) => ({ id: String(i).padStart(6, "0"), parent_type: l.parentType, parent_id: l.parentId, component_type: l.componentType, component_id: l.componentId, qty: l.qty, unit: l.unit, note: l.note, sort: l.sort }) as unknown as RecipeLine);
   const index: AllergenIndex = { ...buildIndex(ingredients, preps, lines), items: new Map(items.map((m) => [m.id, m])) };
   return { data, index, dishes: new Map(data.dishes.map((d) => [d.id, d])), preps: new Map(data.preps.map((p) => [p.id, p])) };
@@ -64,43 +70,14 @@ export function usedIn(model: KitchenModel, prepId: string): KitchenDish[] {
 
 /* ------------------------------------------------------------------ allergens on screen */
 
-export interface AllergenDisplay {
-  /** confirmed allergens, as labels */
-  contains: string[];
-  /** keyword guesses on ingredients nobody has reviewed: shown, but never as fact */
-  may: string[];
-  /** true when ANY ingredient (through every nested prep) is unreviewed, missing or too deep: the screen must say so */
-  notReviewed: boolean;
-  /** the unreviewed ingredients by name, so the chef knows what to check */
-  unreviewed: string[];
-  /** only true for a fully reviewed recipe with nothing contained: the one case "no allergens listed" may be said */
-  none: boolean;
-  /** chef "made without" notes, e.g. "Milk: no aioli" */
-  notes: { label: string; note: string }[];
-  /** "Vegetarian" / "Vegan", only when the roll-up says yes (never for an unreviewed recipe) */
-  diet: string[];
+/**
+ * What the screens print for a dish or prep: the shared badge model (lib/allergen-badges.ts), the same one the costing app
+ * reads, so the kitchen and the editor can never disagree. All the safety rules live there and in lib/allergens.ts.
+ */
+export function dishBadges(model: KitchenModel, dishId: string): BadgeModel {
+  return badgeModel(rollup({ kind: "item", id: dishId }, model.index), model.index.items?.get(dishId));
 }
-
-/** Turns a roll-up into what the screens print. All the rules stay in lib/allergens.ts; this only chooses words. */
-export function allergenDisplay(r: Rollup): AllergenDisplay {
-  const { contains, may } = summarise(r);
-  const notReviewed = !r.reviewed;
-  return {
-    contains: contains.map(allergenLabel),
-    may: may.map(allergenLabel),
-    notReviewed,
-    unreviewed: r.unreviewed,
-    none: !notReviewed && contains.length === 0 && may.length === 0,
-    notes: ALLERGEN_IDS.filter((a) => r.cells[a].note).map((a) => ({ label: allergenLabel(a), note: r.cells[a].note as string })),
-    diet: dietTags(r)
-      .filter((t) => t.state === "yes")
-      .map((t) => t.label),
-  };
-}
-
-export function dishAllergens(model: KitchenModel, dishId: string): AllergenDisplay {
-  return allergenDisplay(rollup({ kind: "item", id: dishId }, model.index));
-}
-export function prepAllergens(model: KitchenModel, prepId: string): AllergenDisplay {
-  return allergenDisplay(rollup({ kind: "prep", id: prepId }, model.index));
+/** A prep's roll-up has no menu fields (options, seafood label), so it carries no options and no required seafood letter. */
+export function prepBadges(model: KitchenModel, prepId: string): BadgeModel {
+  return badgeModel(rollup({ kind: "prep", id: prepId }, model.index));
 }

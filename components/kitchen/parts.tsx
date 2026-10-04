@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AllergenDisplay } from "@/lib/kitchen-model";
 import { isStale, staleAge } from "@/lib/bar";
-import { ALLERGEN_NOTICE } from "@/lib/allergens";
 import { cx } from "../ui";
 
 /** Pieces shared by the kitchen station's grid and detail screens: the same look as the cocktail station (components/bar/station.tsx). */
@@ -85,98 +83,6 @@ export function PhotoColumn({ src }: { src: string | null }) {
       <img src={src} alt="" className="h-[260px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover sm:h-[360px]" onError={() => setBroken(true)} />
       <p className="mt-[6px] text-[14px] text-[#8E8C85]">Plate it to look like this</p>
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ allergens */
-
-const CHIP = "rounded-full border-[0.5px] px-[11px] py-[5px] font-medium";
-const CONTAINS_CHIP = "border-[#FF7A8A]/40 bg-[#2E1F23] text-[#FFB3BC]";
-const AMBER_CHIP = "border-[#F2C46D]/40 bg-[#2B2210] text-[#F2C46D]";
-const DIET_CHIP = "border-[#8FD9A4]/40 bg-[#172619] text-[#8FD9A4]";
-
-/**
- * The allergen line on a grid tile: what the dish contains, or the amber "Allergens Not Reviewed" chip when any ingredient
- * hasn't been checked. A recipe is only ever called clear when every ingredient has been reviewed (see AllergenDisplay.none).
- */
-export function AllergenChips({ a }: { a: AllergenDisplay }) {
-  return (
-    <ul className="flex flex-wrap items-center gap-[6px]" aria-label="Allergens">
-      {a.contains.length ? <li className="mr-[2px] text-[16px] text-[#9B9890]">Contains</li> : null}
-      {a.contains.map((l) => (
-        <li key={l} className={cx(CHIP, CONTAINS_CHIP, "text-[16px] leading-[20px]")}>
-          {l}
-        </li>
-      ))}
-      {a.notReviewed ? <li className={cx(CHIP, AMBER_CHIP, "text-[16px] leading-[20px]")}>Allergens Not Reviewed</li> : null}
-      {a.none ? <li className="text-[16px] text-[#9B9890]">No allergens listed</li> : null}
-    </ul>
-  );
-}
-
-/** The allergen block at the foot of a dish or prep. The notice sits under it every time. */
-export function AllergenCard({ a }: { a: AllergenDisplay }) {
-  return (
-    <section className={cx(CARD, "mt-4 px-[22px] py-5")}>
-      <h2 className={cx(HEADING, "mb-3")}>ALLERGENS</h2>
-
-      {a.notReviewed ? (
-        <div role="note" className="mb-4 rounded-xl border-[0.5px] border-[#F2C46D]/40 bg-[#2B2210] px-4 py-4">
-          <p className="text-[24px] font-semibold leading-tight text-[#F2C46D]">Allergens Not Reviewed &ndash; check with the chef</p>
-          {a.unreviewed.length ? <p className="mt-2 text-[18px] leading-snug text-[#F2C46D]">Not yet checked: {a.unreviewed.join(", ")}.</p> : null}
-        </div>
-      ) : null}
-
-      {a.contains.length ? (
-        <div className="mb-3">
-          <p className="mb-2 text-[18px] font-medium text-[#9B9890]">Contains:</p>
-          <ul className="flex flex-wrap gap-2">
-            {a.contains.map((l) => (
-              <li key={l} className={cx(CHIP, CONTAINS_CHIP, "text-[20px] leading-[26px]")}>
-                {l}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {a.may.length ? (
-        <div className="mb-3">
-          <p className="mb-2 text-[18px] font-medium text-[#9B9890]">May contain (unconfirmed):</p>
-          <ul className="flex flex-wrap gap-2">
-            {a.may.map((l) => (
-              <li key={l} className={cx(CHIP, AMBER_CHIP, "text-[20px] leading-[26px]")}>
-                {l}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {a.none ? <p className="mb-3 text-[22px] leading-snug">No allergens listed</p> : null}
-
-      {a.notes.length ? (
-        <ul className="mb-3 space-y-1">
-          {a.notes.map((n) => (
-            <li key={n.label} className="text-[18px] leading-snug text-[#F5F3EE]">
-              <span className="font-medium">{n.label}:</span> {n.note}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {a.diet.length ? (
-        <ul className="mb-3 flex flex-wrap gap-2" aria-label="Diet">
-          {a.diet.map((l) => (
-            <li key={l} className={cx(CHIP, DIET_CHIP, "text-[20px] leading-[26px]")}>
-              {l}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      <p className="text-[16px] leading-snug text-[#9B9890]">{ALLERGEN_NOTICE}</p>
-    </section>
   );
 }
 

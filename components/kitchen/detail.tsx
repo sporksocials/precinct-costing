@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { SCALES, groupLabel, kitchenPhotoSrc, qtyParts, scaleLabel, scaleQty, yieldText, type KitchenDish, type KitchenPrep } from "@/lib/kitchen";
-import { componentsOf, dishAllergens, prepAllergens, usedIn, type Component, type KitchenModel } from "@/lib/kitchen-model";
+import { componentsOf, dishBadges, prepBadges, usedIn, type Component, type KitchenModel } from "@/lib/kitchen-model";
 import { cx } from "../ui";
-import { AllergenCard, BackBar, CARD, Chevron, HEADING, PhotoColumn, ROW, StaleBanner, Steps } from "./parts";
+import { BadgeBlock, KitchenLegend } from "./badges";
+import { BackBar, CARD, Chevron, HEADING, PhotoColumn, ROW, StaleBanner, Steps } from "./parts";
 
 /** One component row: the amount (grams, ml or a count) on the left, the name on the right with its note small after it. A prep is a button into that prep. */
 function ComponentRow({ c, scale, onOpenPrep }: { c: Component; scale: number; onOpenPrep: (id: string) => void }) {
@@ -41,10 +42,10 @@ function ComponentRow({ c, scale, onOpenPrep }: { c: Component; scale: number; o
   );
 }
 
-function Components({ items, scale = 1, onOpenPrep }: { items: Component[]; scale?: number; onOpenPrep: (id: string) => void }) {
+function Components({ items, scale = 1, onOpenPrep, noTopMargin }: { items: Component[]; scale?: number; onOpenPrep: (id: string) => void; noTopMargin?: boolean }) {
   if (!items.length) return null;
   return (
-    <section className={cx(CARD, "mt-5 px-5 py-[18px]")}>
+    <section className={cx(CARD, noTopMargin ? "" : "mt-5", "px-5 py-[18px]")}>
       <h2 className={cx(HEADING, "mb-2")}>COMPONENTS</h2>
       <ul>
         {items.map((c, i) => (
@@ -68,7 +69,7 @@ interface DetailProps {
 /** One dish, full screen: what goes in it, how it's assembled and plated, and what it contains. */
 export function DishDetail({ model, dish, backLabel, onBack, onOpenPrep, syncedAt, now }: DetailProps & { dish: KitchenDish }) {
   const components = useMemo(() => componentsOf(model, "item", dish.id), [model, dish.id]);
-  const allergens = useMemo(() => dishAllergens(model, dish.id), [model, dish.id]);
+  const badges = useMemo(() => dishBadges(model, dish.id), [model, dish.id]);
   const photo = kitchenPhotoSrc(dish.photo);
   return (
     <div className="flex w-full flex-col">
@@ -83,14 +84,21 @@ export function DishDetail({ model, dish, backLabel, onBack, onOpenPrep, syncedA
               {groupLabel(dish.section)}
               {dish.portions > 1 ? ` · Quantities make ${dish.portions} portions` : ""}
             </p>
-            <Components items={components} onOpenPrep={onOpenPrep} />
+          </div>
+        </div>
+
+        <BadgeBlock m={badges} />
+
+        <div className="mt-5 flex flex-col items-start gap-5 sm:flex-row">
+          <div className="min-w-0 flex-1 self-stretch">
+            <Components items={components} onOpenPrep={onOpenPrep} noTopMargin />
           </div>
           <PhotoColumn src={photo} />
         </div>
 
         <Steps title="ASSEMBLY" steps={dish.method} circle="bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" />
         <Steps title="PLATING" steps={dish.plating} circle="bg-[#D9C3A0] text-[#20191A]" />
-        <AllergenCard a={allergens} />
+        <KitchenLegend />
       </div>
     </div>
   );
@@ -101,7 +109,7 @@ export function PrepDetail({ model, prep, backLabel, onBack, onOpenPrep, onOpenD
   // a new prep starts at ×1 again: the station renders this with key={prep.id}
   const [scale, setScale] = useState<number>(1);
   const components = useMemo(() => componentsOf(model, "prep", prep.id), [model, prep.id]);
-  const allergens = useMemo(() => prepAllergens(model, prep.id), [model, prep.id]);
+  const badges = useMemo(() => prepBadges(model, prep.id), [model, prep.id]);
   const dishes = useMemo(() => usedIn(model, prep.id), [model, prep.id]);
   const makes = yieldText(prep.yieldQty, prep.yieldUnit, scale);
   return (
@@ -112,6 +120,8 @@ export function PrepDetail({ model, prep, backLabel, onBack, onOpenPrep, onOpenD
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
         <h1 className="font-display text-[52px] leading-none tracking-[0.5px]">{prep.name}</h1>
         <p className="mt-[10px] text-[18px] font-medium text-[#D9C3A0]">{prep.prepType ? `${prep.prepType} Prep` : "Prep"}</p>
+
+        <BadgeBlock m={badges} />
 
         <section className={cx(CARD, "mt-5 px-5 py-[18px]")}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -171,8 +181,6 @@ export function PrepDetail({ model, prep, backLabel, onBack, onOpenPrep, onOpenD
             </ul>
           </section>
         ) : null}
-
-        <AllergenCard a={allergens} />
       </div>
     </div>
   );

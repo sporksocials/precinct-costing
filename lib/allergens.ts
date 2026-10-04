@@ -19,6 +19,9 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "./types";
  * ticked explicitly in cost_ingredients.diet_flags, and implied by allergens (milk -> dairy, egg -> egg,
  * fish / crustacea / molluscs -> fish). Vegetarian = no meat or fish flag. Vegan = none of the five flags.
  * Chef add / remove overrides change the allergen columns only; they never change the diet tags.
+ * FINING AGENTS: wine, beer, cider, spirits and liqueurs are often clarified with isinglass (fish), casein, egg or gelatine,
+ * none of which has to be declared. A reviewed drink ingredient with no animal flag therefore reads "maybe" (Not Confirmed)
+ * for Vegetarian and Vegan, never "yes", unless it carries the explicit `vegan` marker in diet_flags (see isFiningRisk).
  *
  * GROUPS: sulphites are a "sensitivity" and alcohol an "attribute", not allergens. Both stay recorded under the same ids
  * and roll up the same way, but summarise() returns them in their own fields and every list of allergens (contains,
@@ -109,6 +112,19 @@ export type AnimalFlag = (typeof ANIMAL_FLAGS)[number];
 export const ANIMAL_LABELS: Record<AnimalFlag, string> = { meat: "Meat", fish: "Fish & Seafood", dairy: "Dairy", egg: "Egg", honey: "Honey" };
 export function isAnimalFlag(id: string): id is AnimalFlag {
   return (ANIMAL_FLAGS as readonly string[]).includes(id);
+}
+
+/** Marker stored in cost_ingredients.diet_flags when a person has confirmed a drink or other fined ingredient is vegan (no UI sets it yet). */
+export const VEGAN_MARKER = "vegan";
+
+/** Ingredient categories whose products may be fined with animal products (lower case; matched ignoring case and spacing). */
+export const FINING_CATEGORIES = ["wine", "spirits", "liqueurs", "beer keg", "packaged beer / cider / rtd", "packaged beer & cider", "rtd"] as const;
+
+function normCategory(c: string | null | undefined): string {
+  return (c ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+export function isFiningCategory(category: string | null | undefined): boolean {
+  return (FINING_CATEGORIES as readonly string[]).includes(normCategory(category));
 }
 
 /** which animal flags an allergen implies */
@@ -282,6 +298,8 @@ export interface IngredientAllergenState {
   confirmedAnimal: AnimalFlag[];
   /** the ones a person explicitly ticked (a subset of confirmedAnimal) */
   tickedAnimal: AnimalFlag[];
+  /** a person marked this ingredient vegan (diet_flags holds "vegan"): lifts the fining-agent doubt on a drink */
+  veganMarked: boolean;
   /** keyword matches not yet confirmed (always empty once reviewed) */
   suggested: Suggestion[];
   suggestedAnimal: DietSuggestion[];
@@ -298,18 +316,20 @@ export function ingredientAllergenState(ing: Pick<Ingredient, "name" | "allergen
   const reviewed = !!ing.allergens_reviewed;
   const confirmed = cleanAllergens(ing.allergens);
   const ticked = cleanAnimal(ing.diet_flags);
+  const veganMarked = (ing.diet_flags ?? []).includes(VEGAN_MARKER);
   const implied = new Set<AnimalFlag>(ticked);
   for (const id of confirmed) {
     const f = IMPLIES[id];
     if (f) implied.add(f);
   }
-  if (reviewed) return { reviewed, confirmed, confirmedAnimal: [...implied], tickedAnimal: ticked, suggested: [], suggestedAnimal: [] };
+  if (reviewed) return { reviewed, confirmed, confirmedAnimal: [...implied], tickedAnimal: ticked, veganMarked, suggested: [], suggestedAnimal: [] };
   const s = scan(`${ing.name} ${supplierDescription ?? ""}`);
   return {
     reviewed,
     confirmed,
     confirmedAnimal: [...implied],
     tickedAnimal: ticked,
+    veganMarked,
     suggested: s.allergens.filter((x) => !confirmed.includes(x.id)),
     suggestedAnimal: s.animal.filter((x) => !implied.has(x.flag)),
   };
@@ -318,6 +338,19 @@ export function ingredientAllergenState(ing: Pick<Ingredient, "name" | "allergen
 /** True when the allergens migration has been applied (the row carries the columns). */
 export function allergensReady(row: object | null | undefined): boolean {
   return !!row && ("allergens" in row || "allergen_add" in row || "allergens_reviewed" in row);
+}
+
+/**
+ * True when this ingredient may have been fined with an animal product, so a dish that uses it can never be Vegetarian or
+ * Vegan until a person says so. It is a drink by category (Wine, Spirits, Liqueurs, Beer Keg, Packaged Beer / Cider / RTD),
+ * or it carries the alcohol allergen tick, or its name reads as an alcoholic ingredient (the kitchen feed has no category,
+ * so the tick and the name keep a wine sauce honest there). An explicit `vegan` marker in diet_flags clears it.
+ */
+export function isFiningRisk(ing: Pick<Ingredient, "name" | "allergens" | "diet_flags"> & { category?: string | null }): boolean {
+  if ((ing.diet_flags ?? []).includes(VEGAN_MARKER)) return false;
+  if (isFiningCategory(ing.category)) return true;
+  if (cleanAllergens(ing.allergens).includes("alcohol")) return true;
+  return scan(ing.name).allergens.some((a) => a.id === "alcohol");
 }
 
 /* ------------------------------------------------------------------ roll-up */
@@ -367,6 +400,11 @@ export interface Rollup {
    * on each (null = not set). Suggested (unreviewed) seafood counts too, so an unset origin is never missed.
    */
   seafood: SeafoodIngredient[];
+  /**
+   * Reviewed ingredients that may have been fined with animal products (wine, beer, spirits and the like) and are not marked
+   * vegan: they keep Vegetarian and Vegan at "maybe" (Not Confirmed) instead of "yes".
+   */
+  finingRisk: string[];
 }
 
 export interface SeafoodIngredient {
@@ -386,13 +424,14 @@ interface Acc {
   removed: Map<string, Set<string>>;
   ingredients: Map<string, { name: string; reviewed: boolean }>;
   seafood: Map<string, SeafoodIngredient>;
+  fining: Map<string, string>;
   problems: Set<"cycle" | "depth" | "missing">;
 }
 const K_A = "a:";
 const K_D = "d:";
 
 function newAcc(): Acc {
-  return { confirmed: new Map(), suggested: new Map(), removed: new Map(), ingredients: new Map(), seafood: new Map(), problems: new Set() };
+  return { confirmed: new Map(), suggested: new Map(), removed: new Map(), ingredients: new Map(), seafood: new Map(), fining: new Map(), problems: new Set() };
 }
 function put(m: Map<string, Set<string>>, key: string, src: string) {
   const s = m.get(key);
@@ -405,6 +444,7 @@ function mergeInto(into: Acc, from: Acc) {
   for (const [k, v] of from.removed) for (const s of v) put(into.removed, k, s);
   for (const [k, v] of from.ingredients) if (!into.ingredients.has(k)) into.ingredients.set(k, v);
   for (const [k, v] of from.seafood) if (!into.seafood.has(k)) into.seafood.set(k, v);
+  for (const [k, v] of from.fining) if (!into.fining.has(k)) into.fining.set(k, v);
   for (const p of from.problems) into.problems.add(p);
 }
 
@@ -416,6 +456,7 @@ function addIngredient(acc: Acc, ing: Ingredient, beerLine: boolean) {
   for (const s of st.suggested) put(acc.suggested, K_A + s.id, ing.name);
   for (const s of st.suggestedAnimal) put(acc.suggested, K_D + s.flag, ing.name);
   const isSeafood = st.confirmed.some(isSeafoodAllergen) || st.suggested.some((x) => isSeafoodAllergen(x.id));
+  if (isFiningRisk(ing)) acc.fining.set(ing.id, ing.name);
   if (isSeafood && !ing.seafood_exempt) acc.seafood.set(ing.id, { id: ing.id, name: ing.name, origin: ing.seafood_origin === "A" || ing.seafood_origin === "I" ? ing.seafood_origin : null });
   if (beerLine && !st.reviewed && !/\b(cider|seltzer|gluten[\s-]?free)\b/i.test(ing.name)) {
     // a tap beer keg: barley and alcohol are suggested even when the keg's name does not say "beer"
@@ -514,17 +555,20 @@ function finish(acc: Acc, notes: Record<string, string> | null | undefined): Rol
     .sort((a, b) => a.name.localeCompare(b.name));
   const ingredientCount = acc.ingredients.size;
   const reviewed = ingredientCount > 0 && unreviewed.length === 0;
-  const diet = dietFrom(animal, reviewed);
+  const finingRisk = [...new Set(acc.fining.values())].sort((a, b) => a.localeCompare(b));
+  const diet = dietFrom(animal, reviewed, finingRisk);
   const seafood = [...acc.seafood.values()].sort((a, b) => a.name.localeCompare(b.name));
-  return { cells, animal, diet, ingredientCount, unreviewed, unreviewedCount: unreviewed.length, unreviewedIngredients, reviewed, problems: [...acc.problems], seafood };
+  return { cells, animal, diet, ingredientCount, unreviewed, unreviewedCount: unreviewed.length, unreviewedIngredients, reviewed, problems: [...acc.problems], seafood, finingRisk };
 }
 
-function dietFrom(animal: Record<AnimalFlag, AnimalCell>, reviewed: boolean): { vegetarian: DietTag; vegan: DietTag } {
+function dietFrom(animal: Record<AnimalFlag, AnimalCell>, reviewed: boolean, finingRisk: string[]): { vegetarian: DietTag; vegan: DietTag } {
   const tag = (id: "vegetarian" | "vegan", label: string, flags: AnimalFlag[]): DietTag => {
     const sure = flags.filter((f) => animal[f].state === "contains");
     if (sure.length) return { id, label, state: "no", because: uniq(sure.flatMap((f) => animal[f].sources)) };
     const maybe = flags.filter((f) => animal[f].state === "may_contain");
     if (maybe.length) return { id, label, state: "maybe", because: uniq(maybe.flatMap((f) => animal[f].sources)) };
+    // reviewed and no animal flag: still only "maybe" while a drink that may be fined sits in the recipe
+    if (reviewed && finingRisk.length) return { id, label, state: "maybe", because: finingRisk };
     return { id, label, state: reviewed ? "yes" : "unknown", because: [] };
   };
   return { vegetarian: tag("vegetarian", "Vegetarian", ["meat", "fish"]), vegan: tag("vegan", "Vegan", [...ANIMAL_FLAGS]) };

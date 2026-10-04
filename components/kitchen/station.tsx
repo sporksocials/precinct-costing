@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { groupItems, groupLabel, kitchenPhotoSrc, matchesName, yieldText, type KitchenData, type KitchenDish, type KitchenPrep } from "@/lib/kitchen";
-import { buildKitchenModel, dishAllergens, type AllergenDisplay, type KitchenModel } from "@/lib/kitchen-model";
+import type { BadgeModel } from "@/lib/allergen-badges";
+import { buildKitchenModel, dishBadges, prepBadges } from "@/lib/kitchen-model";
 import { syncedLabel } from "@/lib/bar";
 import { cx } from "../ui";
 import { DishDetail, PrepDetail } from "./detail";
-import { AllergenChips, CARD, Chevron, EmptyState, StaleBanner, TilePhoto } from "./parts";
+import { BadgeStrip, KitchenLegend } from "./badges";
+import { CARD, Chevron, EmptyState, StaleBanner, TilePhoto } from "./parts";
 
 /**
  * The kitchen station: one venue's signed-off dishes and preps on an iPad at the pass, readable with gloves on from arm's length.
@@ -71,8 +73,9 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
 
   const model = useMemo(() => (data ? buildKitchenModel(data) : null), [data]);
   const dishes = useMemo(() => data?.dishes ?? [], [data]);
-  // the allergen line for every dish on the grid, worked out once per copy of the data (not on every keystroke in the search box)
-  const allergens = useMemo(() => new Map(model ? dishes.map((d) => [d.id, dishAllergens(model, d.id)] as const) : []), [model, dishes]);
+  // the badge strip for every dish and prep on the grid, worked out once per copy of the data (not on every keystroke in the search box)
+  const dishBadgeMap = useMemo(() => new Map(model ? dishes.map((d) => [d.id, dishBadges(model, d.id)] as const) : []), [model, dishes]);
+  const prepBadgeMap = useMemo(() => new Map(model && data ? data.preps.filter((p) => p.ready).map((p) => [p.id, prepBadges(model, p.id)] as const) : []), [model, data]);
 
   // ---------- views ----------
   // a record that disappears in a refresh (un-ticked, deleted) drops out of the trail, so Back never lands on nothing
@@ -259,12 +262,13 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
                 <h2 className="mb-[10px] mt-2 text-[24px] font-semibold leading-tight text-[color:var(--bar-text)]">{g.label}</h2>
                 <div className={cx("grid gap-[14px]", onDishes ? "grid-cols-1 min-[520px]:grid-cols-2 lg:grid-cols-3" : "grid-cols-1 min-[520px]:grid-cols-2")}>
                   {onDishes
-                    ? (g.items as KitchenDish[]).map((d) => <DishTile key={d.id} dish={d} allergens={allergens.get(d.id)} onOpen={() => open({ kind: "dish", id: d.id })} />)
-                    : (g.items as KitchenPrep[]).map((p) => <PrepTile key={p.id} prep={p} onOpen={() => open({ kind: "prep", id: p.id })} />)}
+                    ? (g.items as KitchenDish[]).map((d) => <DishTile key={d.id} dish={d} badges={dishBadgeMap.get(d.id)} onOpen={() => open({ kind: "dish", id: d.id })} />)
+                    : (g.items as KitchenPrep[]).map((p) => <PrepTile key={p.id} prep={p} badges={prepBadgeMap.get(p.id)} onOpen={() => open({ kind: "prep", id: p.id })} />)}
                 </div>
               </section>
             ))
           )}
+          {data && onDishes && total ? <KitchenLegend /> : null}
         </div>
       </div>
     </div>
@@ -273,25 +277,30 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
 
 const TILE = cx(CARD, "flex h-full flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]");
 
-function DishTile({ dish, allergens, onOpen }: { dish: KitchenDish; allergens: AllergenDisplay | undefined; onOpen: () => void }) {
+function DishTile({ dish, badges, onOpen }: { dish: KitchenDish; badges: BadgeModel | undefined; onOpen: () => void }) {
   return (
     <button type="button" onClick={onOpen} className={TILE}>
       <TilePhoto src={kitchenPhotoSrc(dish.photo)} className="h-[200px] w-full shrink-0" />
       <div className="flex flex-1 flex-col gap-3 px-4 pb-[18px] pt-[14px]">
         <span className="text-[24px] font-medium leading-[1.2]">{dish.name}</span>
-        {allergens ? <AllergenChips a={allergens} /> : null}
+        {badges ? <BadgeStrip m={badges} /> : null}
       </div>
     </button>
   );
 }
 
-function PrepTile({ prep, onOpen }: { prep: KitchenPrep; onOpen: () => void }) {
+function PrepTile({ prep, badges, onOpen }: { prep: KitchenPrep; badges: BadgeModel | undefined; onOpen: () => void }) {
   const makes = yieldText(prep.yieldQty, prep.yieldUnit);
   return (
     <button type="button" onClick={onOpen} className={cx(CARD, "flex min-h-[72px] items-center gap-3 px-5 py-4 text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}>
       <span className="min-w-0 flex-1">
         <span className="block text-[24px] font-medium leading-[1.2]">{prep.name}</span>
         {makes ? <span className="mt-1 block text-[18px] text-[#9B9890]">{makes}</span> : null}
+        {badges ? (
+          <span className="mt-3 block">
+            <BadgeStrip m={badges} />
+          </span>
+        ) : null}
       </span>
       <Chevron className="shrink-0 text-[#8E8C85]" />
     </button>

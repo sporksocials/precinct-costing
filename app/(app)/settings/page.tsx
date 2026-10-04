@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { gp, parseDecimal } from "@/lib/format";
 import { parsePercentInput } from "@/lib/solver";
@@ -19,6 +19,8 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
+  const [naming, setNaming] = useState<string | null>(null);
+  const [nameText, setNameText] = useState("");
   const owner = isOwnerEmail(store.userEmail);
 
   const grid = useMemo(
@@ -104,9 +106,19 @@ export default function SettingsPage() {
         />
       </Group>
 
-      <Group title="Who Can Sign In" footer={owner ? "Only these emails can sign in and see prices. Tap a name box to change it, then tap away or press Enter to save. Names show in the change log, price history and ignored alerts instead of the email. Only you can set them." : "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts."}>
+      <Group title="Who Can Sign In" footer={owner ? "Only these emails can sign in and see prices. Tap Edit beside a person to give them a first name. Names show in the change log, price history and ignored alerts instead of the email. Only you can set them." : "Only these emails can sign in and see prices. Names show in the change log, price history and ignored alerts."}>
         {store.allowedUsers.map((u) => (
-          <PersonRow key={u.email} user={u} you={!!store.userEmail && u.email.toLowerCase() === store.userEmail.toLowerCase()} canName={owner} onName={(n) => run(store.setAllowedUserName(u.email, n))} onRemove={() => setRemoving(u.email)} />
+          <PersonRow
+            key={u.email}
+            user={u}
+            you={!!store.userEmail && u.email.toLowerCase() === store.userEmail.toLowerCase()}
+            canName={owner}
+            onEdit={() => {
+              setNameText(cleanName(u.display_name) ?? "");
+              setNaming(u.email);
+            }}
+            onRemove={() => setRemoving(u.email)}
+          />
         ))}
         <form
           className="flex items-center gap-2 px-4 py-1.5"
@@ -131,6 +143,43 @@ export default function SettingsPage() {
       <p className="mt-6 px-4 text-center text-[13px] text-label-3">
         {verifiedAt && (store.health.state === "ok" || store.health.state === "repaired") ? `Data Verified ${verifiedAt}` : "Data Not Verified"}
       </p>
+
+      <Sheet open={!!naming} onClose={() => setNaming(null)} hideHeader size="sm">
+        <form
+          className="pb-2 pt-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (naming) run(store.setAllowedUserName(naming, nameText));
+            setNaming(null);
+          }}
+        >
+          <p className="text-center text-[20px] font-semibold">First Name</p>
+          <p className="mt-1.5 break-all text-center text-[15px] text-label-2">{naming}</p>
+          <input
+            className="field mt-4 w-full"
+            placeholder="First name"
+            aria-label="First name"
+            autoFocus
+            maxLength={NAME_MAX}
+            value={nameText}
+            onChange={(e) => setNameText(e.target.value)}
+          />
+          <p className="mt-2 text-[13px] text-label-2">Shown in the change log, price history and ignored alerts instead of the email.</p>
+          <div className="mt-5 space-y-2">
+            <button type="submit" className="btn-primary w-full">
+              Save
+            </button>
+            {nameText.trim() ? (
+              <button type="button" className="btn-plain w-full" onClick={() => setNameText("")}>
+                Clear Name
+              </button>
+            ) : null}
+            <button type="button" className="btn-plain w-full" onClick={() => setNaming(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      </Sheet>
 
       <Sheet open={!!removing} onClose={() => setRemoving(null)} hideHeader size="sm">
         <div className="pb-2 pt-5 text-center">
@@ -160,41 +209,29 @@ export default function SettingsPage() {
 }
 
 
-/** One person on the sign-in list: their first name (only the owner can edit it) over their email, and Remove. */
-function PersonRow({ user, you, canName, onName, onRemove }: { user: AllowedUser; you: boolean; canName: boolean; onName: (name: string | null) => void; onRemove: () => void }) {
-  const saved = cleanName(user.display_name) ?? "";
-  const [text, setText] = useState(saved);
-  useEffect(() => setText(saved), [saved]);
-  const commit = () => {
-    const next = cleanName(text) ?? "";
-    setText(next);
-    if (next !== saved) onName(next || null);
-  };
+/** One person on the sign-in list: their first name (or "No name set") over their email, an Edit button for the owner, and Remove. */
+function PersonRow({ user, you, canName, onEdit, onRemove }: { user: AllowedUser; you: boolean; canName: boolean; onEdit: () => void; onRemove: () => void }) {
+  const saved = cleanName(user.display_name);
   return (
     <div className="flex items-center gap-3 px-4 py-2.5">
       <div className="min-w-0 flex-1">
-        {canName ? (
-          <input
-            className="field block !h-11 w-full min-w-0 !py-0 sm:!h-9"
-            placeholder="First name"
-            aria-label={`First name for ${user.email}`}
-            value={text}
-            maxLength={NAME_MAX}
-            enterKeyHint="done"
-            onChange={(e) => setText(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-          />
+        {saved ? (
+          <p className="text-[17px] sm:text-[15px]">{saved}</p>
+        ) : canName ? (
+          <p className="text-[17px] text-label-3 sm:text-[15px]">No name set</p>
         ) : (
-          <p className="text-[17px] sm:text-[15px]">{saved || user.email}</p>
+          <p className="break-all text-[17px] sm:text-[15px]">{user.email}</p>
         )}
-        <p className={cx("break-all text-[13px] text-label-2", canName && "mt-1")}>
-          {canName || saved ? user.email : ""}
-          {you ? `${canName || saved ? " · " : ""}You` : ""}
+        <p className="break-all text-[13px] text-label-2">
+          {saved || canName ? user.email : ""}
+          {you ? `${saved || canName ? " · " : ""}You` : ""}
         </p>
       </div>
+      {canName ? (
+        <button type="button" className="btn-tinted !min-h-[44px] shrink-0 !px-4 !text-[15px] sm:!min-h-[34px] sm:!text-[14px]" onClick={onEdit} aria-label={`Edit name for ${user.email}`}>
+          Edit
+        </button>
+      ) : null}
       <button type="button" className="shrink-0 text-[15px] text-danger" onClick={onRemove}>
         Remove
       </button>

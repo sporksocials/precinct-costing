@@ -35,8 +35,9 @@ export function BarDisplayFields({ item, venueSlug, onPatch }: { item: MenuItem;
           <div className="flex min-h-[44px] items-center gap-3 px-4 py-2" role="status">
             <span className="min-w-0 flex-1">
               <span className="block text-[17px] sm:text-[15px]">Show On Cocktail Station</span>
-              <span className="block text-[13px] font-medium text-warn">{barMissingText(missing)}</span>
-              <span className="block text-[13px] text-label-2">Add {missing.join(" and ")} below. The station shows this drink once it has both a glass and a method.</span>
+              <span className="block text-[13px] font-medium text-warn">Won’t be displayed on the bar screen yet</span>
+              <span className="block text-[13px] text-warn">{barMissingText(missing)}</span>
+              <span className="block text-[13px] text-label-2">Add {missing.join(" and ")} below and it appears on the bar screen. A drink needs both a glass and a method.</span>
             </span>
             <span className="shrink-0 rounded-full bg-fill px-3 py-1 text-[13px] font-medium text-label-2">Not Showing</span>
           </div>

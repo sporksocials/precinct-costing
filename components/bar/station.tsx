@@ -261,7 +261,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
             {!menu ? (
               <EmptyState title="Can’t Load Recipes" body="Check the iPad’s Wi-Fi. This screen tries again every 30 seconds." action={{ label: "Try Again", onClick: () => void refresh() }} />
             ) : !items.length ? (
-              <EmptyState title="No Cocktails Added Yet" body="A cocktail shows here once it has a glass, method or garnish in Precinct Costing." />
+              <EmptyState title="No Cocktails On This Screen Yet" body="A drink shows here once it has a glass and a method in Precinct Costing. Drinks that are still being built out are not displayed." />
             ) : !tiles.length ? (
               hasSearch ? (
                 <EmptyState title="No Matches" body={`Nothing matches “${searchQuery.trim()}”.`} />

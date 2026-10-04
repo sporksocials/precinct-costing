@@ -7,7 +7,7 @@
  * Nothing here writes anything, and unknown tables or columns fall back to readable text instead of throwing.
  */
 
-export type ChangeKind = "target" | "setting" | "access" | "sell_price" | "ingredient_price" | "ingredient_detail" | "override";
+export type ChangeKind = "target" | "setting" | "access" | "sell_price" | "ingredient_price" | "ingredient_detail" | "override" | "recipe" | "method" | "other";
 export type Direction = "up" | "down" | "none";
 /** good = green, bad = red, none = neutral (a cost going up is bad, a sell price or target going up is good) */
 export type Tone = "good" | "bad" | "none";
@@ -27,6 +27,17 @@ export interface ChangeEvent {
   refHref?: string;
   direction: Direction;
   tone: Tone;
+  /** a whole record was deleted (shown in red and under the Deleted filter) */
+  deleted?: boolean;
+  /** from cost_change_history: the history row, so a later Undo can act on it */
+  historyId?: number | string;
+  table?: string;
+  rowKey?: string;
+  op?: "insert" | "update" | "delete";
+  /** history rows with no signed-in person (direct database work) */
+  system?: boolean;
+  /** history only: an older log (audit, sell price or price log) already reports this change, so the feed hides it */
+  covered?: boolean;
 }
 
 export interface AuditRow {
@@ -332,20 +343,27 @@ export function ingredientPriceEvent(r: PriceLogRow, lk: Lookups = NO_LOOKUPS): 
 /** All three sources into one list, newest first (ties broken by id so the order never jumps). */
 export function buildChangeLog(src: { audit?: AuditRow[] | null; sell?: SellPriceRow[] | null; prices?: PriceLogRow[] | null }, lk: Lookups = NO_LOOKUPS): ChangeEvent[] {
   const out: ChangeEvent[] = [];
-  for (const r of src.audit ?? []) out.push(auditEvent(r, lk));
+  for (const r of src.audit ?? []) {
+    const e = auditEvent(r, lk);
+    out.push(r.op === "delete" ? { ...e, deleted: true } : e);
+  }
   for (const r of src.sell ?? []) out.push(...sellPriceEvents(r, lk));
   for (const r of src.prices ?? []) out.push(ingredientPriceEvent(r, lk));
   return out.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 }
 
-export type ChangeFilter = "all" | "targets" | "prices" | "ingredients" | "settings" | "access";
+export type ChangeFilter = "all" | "recipes" | "methods" | "prices" | "deleted" | "targets" | "ingredients" | "settings" | "access" | "other";
 export const FILTERS: { value: ChangeFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "targets", label: "Targets" },
+  { value: "recipes", label: "Recipes" },
+  { value: "methods", label: "Methods And Bar Display" },
   { value: "prices", label: "Prices" },
+  { value: "deleted", label: "Deleted" },
+  { value: "targets", label: "Targets" },
   { value: "ingredients", label: "Ingredients" },
   { value: "settings", label: "Settings" },
-  { value: "access", label: "Access" },
+  { value: "access", label: "Sign-In List" },
+  { value: "other", label: "Other" },
 ];
 
 export function matchesFilter(e: ChangeEvent, f: ChangeFilter): boolean {
@@ -356,6 +374,10 @@ export function matchesFilter(e: ChangeEvent, f: ChangeFilter): boolean {
     case "ingredients": return e.kind === "ingredient_price" || e.kind === "ingredient_detail";
     case "settings": return e.kind === "setting";
     case "access": return e.kind === "access";
+    case "recipes": return e.kind === "recipe";
+    case "methods": return e.kind === "method";
+    case "deleted": return e.deleted === true;
+    case "other": return e.kind === "other";
   }
 }
 

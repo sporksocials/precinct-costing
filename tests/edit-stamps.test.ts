@@ -64,9 +64,11 @@ describe("edit stamps migration", () => {
     expect(schema).toContain("mirrors supabase/migrations/20261004230000_edit_stamps.sql");
   });
 
-  it("is the newest migration, so it applies after the ones it builds on", () => {
+  it("applies after the ones it builds on, and the change history migration applies after it", () => {
     const names = readdirSync("supabase/migrations").sort();
-    expect(names[names.length - 1]).toBe("20261004230000_edit_stamps.sql");
+    const at = (n: string) => names.indexOf(n);
+    expect(at("20261004230000_edit_stamps.sql")).toBeGreaterThan(at("20261004225900_lock_down_owner_checks.sql"));
+    expect(at("20261004240000_change_history.sql")).toBeGreaterThan(at("20261004230000_edit_stamps.sql"));
   });
 });
 

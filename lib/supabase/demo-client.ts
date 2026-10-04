@@ -36,6 +36,7 @@ const TABLE_KEYS: Record<string, string> = {
   cost_ignored_alerts: "ignoredAlerts", // not in older demo data: empty
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
+  cost_change_history: "changeHistory", // not in demo data: filled in memory by logHistory below
 };
 
 let tablesPromise: Promise<Tables> | null = null;
@@ -84,6 +85,56 @@ function stampParents(tables: Tables, table: string, changed: Row[], by: string)
     touch("cost_menu_items", new Set(changed.filter((r) => r.parent_type === "item").map((r) => r.parent_id)));
     touch("cost_preps", new Set(changed.filter((r) => r.parent_type === "prep").map((r) => r.parent_id)));
   }
+}
+
+/**
+ * DEMO ONLY: mimics the cost_history_log() trigger (migration 20261004240000) for the tracked tables, so the Change Log can be
+ * checked without a database. Bookkeeping columns never count; an update that changes only those writes nothing.
+ */
+const HISTORY_KEYS: Record<string, { key: string; parent?: [string, string] }> = {
+  cost_menu_items: { key: "id" }, cost_preps: { key: "id" }, cost_recipe_lines: { key: "id" }, cost_ingredients: { key: "id" },
+  cost_beers: { key: "id" }, cost_beer_serves: { key: "id" }, cost_beer_prices: { key: "id", parent: ["cost_beers", "beer_id"] },
+  cost_gelato_serves: { key: "id" }, cost_gelato_serve_lines: { key: "id", parent: ["cost_gelato_serves", "serve_id"] },
+  cost_offers: { key: "id" }, cost_offer_lines: { key: "id", parent: ["cost_offers", "offer_id"] }, cost_ingredient_deals: { key: "id" },
+  cost_suppliers: { key: "id" }, cost_specials: { key: "id" }, cost_targets: { key: "venue_id,category" }, cost_settings: { key: "key" },
+  cost_bar_options: { key: "id" }, cost_allowed_users: { key: "email" },
+};
+const BOOKKEEPING = new Set(["updated_at", "updated_by", "created_at", "sort"]);
+function logHistory(tables: Tables, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null) {
+  const spec = HISTORY_KEYS[table];
+  if (!spec) return;
+  const old = before ? (JSON.parse(JSON.stringify(before)) as Row) : null;
+  const next = after ? (JSON.parse(JSON.stringify(after)) as Row) : null;
+  const r = (next ?? old) as Row;
+  let changed: string[] = [];
+  if (op === "update" && old && next) {
+    changed = Object.keys(next).filter((k) => !BOOKKEEPING.has(k) && JSON.stringify(old[k] ?? null) !== JSON.stringify(next[k] ?? null)).sort();
+    if (!changed.length) return;
+  }
+  let pt: string | null = null;
+  let pid: string | null = null;
+  if (table === "cost_recipe_lines") {
+    pt = r.parent_type === "item" ? "cost_menu_items" : r.parent_type === "prep" ? "cost_preps" : null;
+    pid = pt ? String(r.parent_id) : null;
+  } else if (spec.parent) {
+    pt = spec.parent[0];
+    pid = String(r[spec.parent[1]]);
+  }
+  const log = (tables.cost_change_history ??= []);
+  log.push({
+    id: Math.max(0, ...log.map((l) => Number(l.id) || 0)) + 1,
+    tx_id: Date.now(),
+    table_name: table,
+    row_key: spec.key.split(",").map((c) => String(r[c.trim()] ?? "")).join("|"),
+    op,
+    old_row: old,
+    new_row: next,
+    changed_fields: changed,
+    parent_table: pt,
+    parent_id: pid,
+    changed_by: DEMO_USER,
+    changed_at: new Date().toISOString(),
+  });
 }
 
 type Filter = (r: Row) => boolean;
@@ -135,6 +186,10 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
   in(col: string, vs: unknown[]): this {
     const s = new Set(vs);
     this.filters.push((r) => s.has(r[col]));
+    return this;
+  }
+  lt(col: string, v: unknown): this {
+    this.filters.push((r) => String(r[col] ?? "") < String(v));
     return this;
   }
   gte(col: string, v: unknown): this {
@@ -198,14 +253,21 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           return row;
         });
         rows.push(...added);
+        for (const a of added) logHistory(tables, this.table, "insert", null, a);
         stampParents(tables, this.table, added, DEMO_USER);
         return { data: clone(added), error: null };
       }
       case "upsert": {
         for (const r of this.payload) {
           const i = rows.findIndex((x) => this.conflict.every((c) => x[c] === r[c]));
-          if (i >= 0) rows[i] = { ...rows[i], ...r };
-          else rows.push({ ...r });
+          if (i >= 0) {
+            const before = rows[i];
+            rows[i] = { ...rows[i], ...r };
+            logHistory(tables, this.table, "update", before, rows[i]);
+          } else {
+            rows.push({ ...r });
+            logHistory(tables, this.table, "insert", null, r);
+          }
         }
         stampParents(tables, this.table, this.payload, DEMO_USER);
         return { data: clone(this.payload), error: null };
@@ -233,6 +295,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
             });
           }
           rows[i] = next;
+          logHistory(tables, this.table, "update", before, next);
           out.push(next);
         }
         stampParents(tables, this.table, out, DEMO_USER);
@@ -242,6 +305,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
         const keep = rows.filter((r) => !match(r));
         const gone = rows.filter(match);
         tables[this.table] = keep;
+        for (const g of gone) logHistory(tables, this.table, "delete", g, null);
         stampParents(tables, this.table, gone, DEMO_USER);
         return { data: clone(gone), error: null };
       }

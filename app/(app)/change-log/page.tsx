@@ -9,7 +9,6 @@ import {
   FILTERS,
   brisbaneDayLabel,
   brisbaneTime,
-  buildChangeLog,
   changeLogReportText,
   groupByDay,
   isMissingTable,
@@ -18,16 +17,18 @@ import {
   type AuditRow,
   type ChangeEvent,
   type ChangeFilter,
-  type Lookups,
   type PriceLogRow,
   type SellPriceRow,
 } from "@/lib/change-log";
+import { HISTORY_PAGE, buildFullChangeLog, fetchChangeHistory, pageOf, type HistoryLookups, type HistoryRow } from "@/lib/change-history";
 import { DataTable, type Column } from "@/components/table";
 import { VenueFilter, VENUE_SHORT, useVenue } from "@/components/venue";
 import { Chips, Empty, ListSkeleton, PageHeader, SearchField, cx } from "@/components/ui";
 import { usePersonName } from "@/components/use-person-name";
 
 const LIMIT = 500;
+/** events shown per page before "Show Older Changes" */
+const PAGE = 100;
 
 const CSS = `
 @media print {
@@ -49,6 +50,9 @@ interface Raw {
   audit: AuditRow[];
   sell: SellPriceRow[];
   prices: PriceLogRow[];
+  /** cost_change_history rows loaded so far (newest first); empty before the migration is applied */
+  history: HistoryRow[];
+  historyMore: boolean;
   notes: string[];
 }
 
@@ -69,15 +73,21 @@ async function fetchAll(): Promise<Raw> {
       return [];
     }
   };
-  const [audit, sell, prices] = await Promise.all([
+  const [audit, sell, prices, hist] = await Promise.all([
     pull<AuditRow>("cost_audit_log", "Targets, settings and access changes"),
     pull<SellPriceRow>("cost_sell_price_log", "Sell price changes"),
     pull<PriceLogRow>("cost_price_log", "Ingredient price changes"),
+    fetchChangeHistory(sb, { limit: HISTORY_PAGE }),
   ]);
-  return { audit, sell, prices, notes };
+  if (hist.error) notes.push(`Full change history could not be loaded (${hist.error}).`);
+  return { audit, sell, prices, history: hist.rows, historyMore: hist.hasMore, notes };
 }
 
 const TONE = { good: "text-good", bad: "text-danger", none: "text-label" } as const;
+
+function DeletedTag() {
+  return <span className="mr-1.5 inline-block rounded-md bg-danger-soft px-1.5 py-px align-[1px] text-[11px] font-semibold uppercase tracking-wide text-danger">Deleted</span>;
+}
 
 function Change({ e, className }: { e: ChangeEvent; className?: string }) {
   return (
@@ -91,28 +101,39 @@ function Change({ e, className }: { e: ChangeEvent; className?: string }) {
 }
 
 export default function ChangeLogPage() {
-  const { venues, storedItems, beers, beerServes, gelatoServes, ingredients } = useStore();
+  const { venues, storedItems, preps, suppliers, offers, beers, beerServes, gelatoServes, ingredients } = useStore();
   const nameOf = usePersonName();
   const { venue, slug } = useVenue();
   const [raw, setRaw] = useState<Raw | null>(null);
   const [filter, setFilter] = useState<ChangeFilter>("all");
   const [q, setQ] = useState("");
   const [copied, setCopied] = useState(false);
+  const [pages, setPages] = useState(1);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const load = useCallback(() => {
     setRaw(null);
+    setPages(1);
     void fetchAll().then(setRaw);
   }, []);
   useEffect(load, [load]);
 
-  const lookups = useMemo<Lookups>(() => {
+  const lookups = useMemo<HistoryLookups>(() => {
     const vShort = new Map(venues.map((v) => [v.id, VENUE_SHORT[v.slug] ?? v.name]));
     const items = new Map(storedItems.map((i) => [i.id, { name: i.name, venueId: i.venue_id }]));
     const beerMap = new Map(beers.map((b) => [b.id, { name: b.name, venueId: b.venue_id }]));
     const serves = new Map(beerServes.map((s) => [s.id, s.name]));
     const gel = new Map(gelatoServes.map((s) => [s.id, { name: s.name, venueId: s.venue_id }]));
     const ing = new Map(ingredients.map((i) => [i.id, i.name]));
+    const prepMap = new Map(preps.map((p) => [p.id, { name: p.name, venueId: p.venue_id }]));
+    const supMap = new Map(suppliers.map((x) => [x.id, x.name]));
+    const offerMap = new Map(offers.map((o) => [o.id, { name: o.name, venueId: o.venue_id }]));
     return {
+      prepName: (id) => prepMap.get(id),
+      supplierName: (id) => supMap.get(id),
+      offerName: (id) => offerMap.get(id),
+      recordName: () => undefined,
+      personName: (email) => nameOf(email),
       venueName: (id) => vShort.get(id),
       itemName: (id) => items.get(id),
       beerName: (id) => beerMap.get(id),
@@ -120,14 +141,27 @@ export default function ChangeLogPage() {
       gelatoServeName: (id) => gel.get(id),
       ingredientName: (id) => ing.get(id),
     };
-  }, [venues, storedItems, beers, beerServes, gelatoServes, ingredients]);
+  }, [venues, storedItems, preps, suppliers, offers, beers, beerServes, gelatoServes, ingredients, nameOf]);
 
-  const all = useMemo(() => (raw ? buildChangeLog(raw, lookups).map((e) => ({ ...e, who: nameOf(e.who) })) : []), [raw, lookups, nameOf]);
+  // changes made straight in the database (no signed-in person) read "System", never blank
+  const all = useMemo(() => (raw ? buildFullChangeLog(raw, lookups).map((e) => ({ ...e, who: e.system ? "System" : nameOf(e.who) })) : []), [raw, lookups, nameOf]);
   const shown = useMemo(
     () => all.filter((e) => matchesFilter(e, filter) && matchesSearch(e, q) && (!venue || e.venueId == null || e.venueId === venue.id)),
     [all, filter, q, venue],
   );
-  const groups = useMemo(() => groupByDay(shown), [shown]);
+  const paged = useMemo(() => pageOf(shown, pages, PAGE), [shown, pages]);
+  const groups = useMemo(() => groupByDay(paged.shown), [paged]);
+  const canLoadOlder = !paged.more && !!raw?.historyMore;
+  const showOlder = async () => {
+    if (paged.more) return setPages((p) => p + 1);
+    if (!raw?.historyMore) return;
+    setLoadingOlder(true);
+    const next = await fetchChangeHistory(getSupabaseBrowser(), { limit: HISTORY_PAGE, offset: raw.history.length });
+    setLoadingOlder(false);
+    setRaw((r) => (r ? { ...r, history: [...r.history, ...next.rows], historyMore: next.hasMore, notes: next.error ? [...r.notes, `Older history could not be loaded (${next.error}).`] : r.notes } : r));
+    setPages((p) => p + 1);
+  };
+  useEffect(() => setPages(1), [filter, q, slug]);
   const venueName = venue ? VENUE_SHORT[venue.slug] ?? venue.name : "All venues";
   const filtering = filter !== "all" || q.trim() !== "" || slug !== "all";
 
@@ -163,7 +197,7 @@ export default function ChangeLogPage() {
         </span>
       ),
     },
-    { key: "who", label: "Who", sort: (e) => e.who ?? "Unknown", render: (e) => <span className={cx("text-[13px]", !e.who && "text-label-2")}>{e.who ?? "Unknown"}</span> },
+    { key: "who", label: "Who", sort: (e) => e.who ?? "Unknown", render: (e) => <span className={cx("text-[13px]", (!e.who || e.system) && "text-label-2")}>{e.who ?? "Unknown"}</span> },
     {
       key: "change",
       label: "Change",
@@ -171,7 +205,10 @@ export default function ChangeLogPage() {
       className: "!whitespace-normal min-w-[16rem]",
       render: (e) => (
         <span className="block">
-          <span className="block font-medium">{e.title}</span>
+          <span className={cx("block font-medium", e.deleted && "text-danger")}>
+            {e.deleted ? <DeletedTag /> : null}
+            {e.title}
+          </span>
           {e.detail ? <span className="block text-[12px] text-label-2">{e.detail}</span> : null}
         </span>
       ),
@@ -238,7 +275,10 @@ export default function ChangeLogPage() {
                     const body = (
                       <>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[17px] leading-snug text-label">{e.title}</span>
+                          <span className={cx("block break-words text-[17px] leading-snug", e.deleted ? "text-danger" : "text-label")}>
+                            {e.deleted ? <DeletedTag /> : null}
+                            {e.title}
+                          </span>
                           <Change e={e} className="mt-0.5 text-[15px]" />
                           <span className="mt-0.5 block break-words text-[13px] leading-snug text-label-2">
                             {brisbaneTime(e.at)} · {e.who ?? "Unknown"}
@@ -248,7 +288,7 @@ export default function ChangeLogPage() {
                         {e.refHref ? <ChevronRight className="-mr-1 h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} aria-hidden /> : null}
                       </>
                     );
-                    const cls = "flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left";
+                    const cls = cx("flex min-h-[48px] w-full items-center gap-3 px-4 py-2.5 text-left", e.deleted && "bg-danger-soft");
                     return e.refHref ? (
                       <Link key={e.id} href={e.refHref} className={cx(cls, "active:bg-fill hover:bg-[color:var(--fill)]")}>
                         {body}
@@ -266,11 +306,18 @@ export default function ChangeLogPage() {
 
           {/* desktop and print: one table, newest first */}
           <div className="mt-6 hidden lg:block print:block">
-            <DataTable rows={shown} columns={columns} rowKey={(e) => e.id} href={(e) => e.refHref ?? ""} initialSort={{ key: "when", dir: "desc" }} />
+            <DataTable rows={paged.shown} columns={columns} rowKey={(e) => e.id} href={(e) => e.refHref ?? ""} initialSort={{ key: "when", dir: "desc" }} rowClassName={(e) => (e.deleted ? "bg-danger-soft" : "")} />
             <p className="mt-2 text-[13px] text-label-2">
-              {shown.length} {shown.length === 1 ? "change" : "changes"} at {venueName}. Shows the latest {LIMIT} from each list.
+              Showing {paged.shown.length} of {shown.length} {shown.length === 1 ? "change" : "changes"} at {venueName}.
             </p>
           </div>
+          {paged.more || canLoadOlder ? (
+            <div className="mt-4 flex justify-center print:hidden">
+              <button type="button" className="btn-plain" onClick={() => void showOlder()} disabled={loadingOlder}>
+                {loadingOlder ? "Loading..." : "Show Older Changes"}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
     </div>

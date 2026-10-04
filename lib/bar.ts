@@ -113,10 +113,14 @@ export function qtyText(qty: number, unit: string): string {
 /**
  * Ingredient names in the costing app carry the pack size they're bought in ("Aperol (700ml)",
  * "Petes Pure Prosecco (bottle 750ml)"). On the bar that reads like a pour size, so it's dropped.
- * Other brackets ("House Pre-Mix (TBC)") stay.
+ * A bare "(L)" is a pack unit too, and frozen-fruit lines drop the "IQF" and the supplier ("Strawberries IQF (Caterers Choice)"
+ * reads "Strawberries"). Other brackets ("House Pre-Mix (TBC)") stay.
  */
 export function barIngredientName(name: string): string {
-  return name.replace(/\s*\((?:[a-z]+\s+)?\d+(?:\.\d+)?\s*(?:ml|l|g|kg)\)\s*$/i, "").trim() || name.trim();
+  let n = name;
+  if (/\bIQF\b/i.test(n)) n = n.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+IQF\b/i, "");
+  n = n.replace(/\s*\((?:[a-z]+\s+)?\d+(?:\.\d+)?\s*(?:ml|l|g|kg)\)\s*$/i, "").replace(/\s*\(L\)\s*$/, "");
+  return n.trim() || name.trim();
 }
 
 export interface IngredientDisplay {
@@ -205,8 +209,8 @@ export function glassType(glass: string | null | undefined): GlassType {
   const g = (glass ?? "").toLowerCase();
   if (g.includes("martini")) return "martini";
   if (g.includes("rocks")) return "rocks";
-  if (g.includes("tall") || g.includes("highball")) return "highball";
-  if (g.includes("coupe")) return "coupe";
+  if (g.includes("tall") || g.includes("highball") || g.includes("high ball")) return "highball";
+  if (g.includes("coupe") || g.includes("margarita")) return "coupe";
   if (g.includes("wine")) return "wine";
   return "rocks";
 }

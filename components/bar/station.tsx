@@ -19,12 +19,13 @@ function PhotoColumn({ name, photo }: { name: string; photo: string | null }) {
   const [broken, setBroken] = useState(false);
   if (broken) return null;
   return (
-    <div className="w-full text-center sm:w-[216px] sm:shrink-0">
+    <div className="w-full text-center sm:w-[260px] sm:shrink-0">
+      {/* object-contain on the photos' own 3:4 shape: the whole glass, drink and garnish always show, nothing is cropped */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={barPhotoSrc(name, photo)}
         alt=""
-        className="h-[260px] w-full rounded-[14px] border-[0.5px] border-white/10 object-cover sm:h-[460px]"
+        className="mx-auto aspect-[3/4] w-[240px] rounded-[14px] border-[0.5px] border-white/10 bg-[#161618] object-contain sm:w-full"
         onError={() => setBroken(true)}
       />
       <p className="mt-[6px] text-[12px] text-[#8E8C85]">Drink should look similar to this once finished</p>
@@ -251,7 +252,7 @@ export function BarStation({ slug, venueName, initial }: { slug: string; venueNa
                     onClick={() => openCocktail(c.id)}
                     className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
                   >
-                    <Photo name={c.name} photo={c.photo} className="h-[230px] w-full object-cover" />
+                    <Photo name={c.name} photo={c.photo} className="h-[270px] w-full bg-[#161618] object-contain" />
                     <div className="px-4 pb-[18px] pt-[14px]">
                       <span className="text-[26px] font-medium leading-[1.2]">{c.name}</span>
                       {c.glass ? (
@@ -320,14 +321,14 @@ function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void
                     const d = ingredientDisplay(line);
                     return (
                       <li key={i} className={cx(ROW, "flex items-start gap-[14px] py-[14px]")}>
-                        <div className="w-[112px] shrink-0">
+                        <div className="w-[128px] shrink-0">
                           {d.shots ? (
                             <>
                               <p className="text-[30px] font-medium leading-[1.1] text-[#D9C3A0]">{d.shots}</p>
                               <p className="mt-[2px] text-[13px] text-[#8E8C85]">{d.qty}</p>
                             </>
                           ) : (
-                            <p className="text-[27px] font-medium leading-[1.15] text-[#D9C3A0]">{d.plain}</p>
+                            <p className={cx("font-medium text-[#D9C3A0] [overflow-wrap:anywhere]", d.plain.length > 9 ? "text-[20px] leading-[1.2]" : "text-[27px] leading-[1.15]")}>{d.plain}</p>
                           )}
                         </div>
                         <div className="min-w-0">

@@ -59,7 +59,9 @@ describe("barIngredientName", () => {
     expect(barIngredientName("Petes Pure Prosecco (bottle 750ml)")).toBe("Petes Pure Prosecco");
     expect(barIngredientName("Lime Juice (2L)")).toBe("Lime Juice");
     expect(barIngredientName("House Pre-Mix (TBC)")).toBe("House Pre-Mix (TBC)");
-    expect(barIngredientName("Lime Juice (L)")).toBe("Lime Juice (L)");
+    expect(barIngredientName("Lime Juice (L)")).toBe("Lime Juice");
+    expect(barIngredientName("Strawberries IQF (Caterers Choice)")).toBe("Strawberries");
+    expect(barIngredientName("Mango Chunks IQF (Entyce)")).toBe("Mango Chunks");
     expect(barIngredientName("Dried Chilli (Each)")).toBe("Dried Chilli (Each)");
   });
 });
@@ -70,6 +72,8 @@ describe("glassType", () => {
     expect(glassType("Rocks Glass, Salt Rim")).toBe("rocks");
     expect(glassType("Tall Glass")).toBe("highball");
     expect(glassType("Highball Glass")).toBe("highball");
+    expect(glassType("High Ball Glass, Salt Rim")).toBe("highball");
+    expect(glassType("Margarita Glass, Coconut Rim")).toBe("coupe");
     expect(glassType("Coupe Glass")).toBe("coupe");
     expect(glassType("Wine Glass")).toBe("wine");
     expect(glassType("Poco Glass, Coconut Rim")).toBe("rocks");

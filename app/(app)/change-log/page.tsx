@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, ChevronRight, Copy, Printer, RefreshCw } from "lucide-react";
-import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import {
   FILTERS,
@@ -20,11 +19,12 @@ import {
   type PriceLogRow,
   type SellPriceRow,
 } from "@/lib/change-log";
-import { HISTORY_PAGE, buildFullChangeLog, fetchChangeHistory, pageOf, type HistoryLookups, type HistoryRow } from "@/lib/change-history";
+import { HISTORY_PAGE, buildFullChangeLog, fetchChangeHistory, pageOf, type HistoryRow } from "@/lib/change-history";
 import { DataTable, type Column } from "@/components/table";
 import { VenueFilter, VENUE_SHORT, useVenue } from "@/components/venue";
 import { Chips, Empty, ListSkeleton, PageHeader, SearchField, cx } from "@/components/ui";
 import { usePersonName } from "@/components/use-person-name";
+import { useHistoryLookups } from "@/components/use-history-lookups";
 
 const LIMIT = 500;
 /** events shown per page before "Show Older Changes" */
@@ -101,7 +101,6 @@ function Change({ e, className }: { e: ChangeEvent; className?: string }) {
 }
 
 export default function ChangeLogPage() {
-  const { venues, storedItems, preps, suppliers, offers, beers, beerServes, gelatoServes, ingredients } = useStore();
   const nameOf = usePersonName();
   const { venue, slug } = useVenue();
   const [raw, setRaw] = useState<Raw | null>(null);
@@ -118,30 +117,7 @@ export default function ChangeLogPage() {
   }, []);
   useEffect(load, [load]);
 
-  const lookups = useMemo<HistoryLookups>(() => {
-    const vShort = new Map(venues.map((v) => [v.id, VENUE_SHORT[v.slug] ?? v.name]));
-    const items = new Map(storedItems.map((i) => [i.id, { name: i.name, venueId: i.venue_id }]));
-    const beerMap = new Map(beers.map((b) => [b.id, { name: b.name, venueId: b.venue_id }]));
-    const serves = new Map(beerServes.map((s) => [s.id, s.name]));
-    const gel = new Map(gelatoServes.map((s) => [s.id, { name: s.name, venueId: s.venue_id }]));
-    const ing = new Map(ingredients.map((i) => [i.id, i.name]));
-    const prepMap = new Map(preps.map((p) => [p.id, { name: p.name, venueId: p.venue_id }]));
-    const supMap = new Map(suppliers.map((x) => [x.id, x.name]));
-    const offerMap = new Map(offers.map((o) => [o.id, { name: o.name, venueId: o.venue_id }]));
-    return {
-      prepName: (id) => prepMap.get(id),
-      supplierName: (id) => supMap.get(id),
-      offerName: (id) => offerMap.get(id),
-      recordName: () => undefined,
-      personName: (email) => nameOf(email),
-      venueName: (id) => vShort.get(id),
-      itemName: (id) => items.get(id),
-      beerName: (id) => beerMap.get(id),
-      beerServeName: (id) => serves.get(id),
-      gelatoServeName: (id) => gel.get(id),
-      ingredientName: (id) => ing.get(id),
-    };
-  }, [venues, storedItems, preps, suppliers, offers, beers, beerServes, gelatoServes, ingredients, nameOf]);
+  const lookups = useHistoryLookups();
 
   // changes made straight in the database (no signed-in person) read "System", never blank
   const all = useMemo(() => (raw ? buildFullChangeLog(raw, lookups).map((e) => ({ ...e, who: e.system ? "System" : nameOf(e.who) })) : []), [raw, lookups, nameOf]);
@@ -243,6 +219,15 @@ export default function ChangeLogPage() {
         <SearchField value={q} onChange={setQ} placeholder="Search changes, people or items" />
         <Chips ariaLabel="Type of change" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
+      {filter === "deleted" ? (
+        <p className="mt-3 text-[15px] print:hidden">
+          Deleted something by mistake?{" "}
+          <Link href="/trash" className="font-semibold text-accent underline-offset-2 hover:underline">
+            Open Trash
+          </Link>{" "}
+          to restore it.
+        </p>
+      ) : null}
       <p className="hidden pt-1 text-[13px] print:block">
         {venueName} · {FILTERS.find((f) => f.value === filter)?.label} · {shown.length} changes
       </p>

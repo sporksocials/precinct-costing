@@ -1,6 +1,6 @@
 "use client";
 
-import { HeartPulse, History, Lightbulb, Settings, Store, Tag, Wheat } from "lucide-react";
+import { HeartPulse, History, Lightbulb, Settings, Store, Tag, Trash2, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
@@ -36,6 +36,7 @@ export default function MorePage() {
           chevron
         />
         <Row href="/change-log" title="Change Log" leading={<Icon className="bg-[#5a4a8a]"><History className={ic} /></Icon>} chevron />
+        <Row href="/trash" title="Trash" leading={<Icon className="bg-[#8a3a3a]"><Trash2 className={ic} /></Icon>} chevron />
         <Row href="/settings" title="Settings" leading={<Icon className="bg-[#3a3a3f]"><Settings className={ic} /></Icon>} chevron />
       </Group>
       <Group title="Signed In As">

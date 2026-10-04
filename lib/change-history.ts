@@ -147,6 +147,8 @@ const LABELS: Record<string, string> = {
   portal_username: "Portal Login",
 };
 const label = (f: string): string => LABELS[f] ?? fieldLabel(f);
+/** The plain label for a column ("Glass", "Kitchen Method"), shared with the per-record History and Undo. */
+export const historyFieldLabel = label;
 
 const isObj = (v: unknown): v is R => !!v && typeof v === "object" && !Array.isArray(v);
 

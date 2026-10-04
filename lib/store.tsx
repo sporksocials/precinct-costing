@@ -4,6 +4,7 @@ import { rebaselineParent } from "@/lib/integrity";
 import type { CommitArgs, Fresh } from "@/lib/edit-conflict";
 import { fetchFreshRecord, guardedUpdate, type RecordKind } from "@/lib/fresh-record";
 import { cleanName } from "@/lib/people";
+import type { PlannedChild, RestorePlan } from "@/lib/trash";
 import { latestPortalRows } from "@/lib/insights";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -347,6 +348,11 @@ export interface StoreValue extends StoreData {
   restoreAlert: (alertKey: string) => Promise<void>;
   /** Re-reads the ignored list, so another person's ignores show up without a reload. Never throws. */
   refreshIgnoredAlerts: () => Promise<void>;
+  /**
+   * Trash > Restore: writes the plan (parent first, then its lines; see restoreFromPlan) and then re-reads the affected
+   * tables so the record appears everywhere. Throws RestoreError with a plain message when nothing could be restored.
+   */
+  restoreDeleted: (plan: RestorePlan) => Promise<RestoreResult>;
 }
 
 /** PostgREST / Postgres error text when cost_offers.assumptions has not been added yet. */
@@ -607,6 +613,52 @@ export async function insertBarOption(sb: SupabaseClient, existing: readonly Bar
     throw new Error(error.message);
   }
   return { option: ((data as BarOption[] | null)?.[0] ?? row) as BarOption, created: true };
+}
+
+/** A restore that wrote nothing (or only said no): the message is plain English for the sheet. */
+export class RestoreError extends Error {}
+
+export interface RestoreResult {
+  /** child rows written */
+  restored: number;
+  /** child rows the database refused (the parent is back; these are listed to the person) */
+  failed: { label: string; reason: string }[];
+}
+
+/**
+ * Trash > Restore, the database half (pure of React so it can be tested with a fake client).
+ * Re-inserts the parent with its ORIGINAL id and values, THEN its children, all through insertRow/insertRows (null keys
+ * are stripped so a column default applies). If the parent insert fails nothing else is written. A name clash is
+ * reported as the plain clash message. Children go in one batch; if the batch is refused each row is tried alone so the
+ * ones that fail can be named and the rest still come back. Nothing is silently half restored.
+ */
+export async function restoreFromPlan(sb: SupabaseClient, plan: RestorePlan): Promise<RestoreResult> {
+  if (plan.blocker) throw new RestoreError(plan.blocker);
+  const { error } = await insertRow(sb, plan.parentTable, plan.parentRow);
+  if (error) {
+    if (error.code === "23505") {
+      const unique = (error.message ?? "").toLowerCase().includes("pkey") || (error.message ?? "").toLowerCase().includes("(id)");
+      throw new RestoreError(unique ? `${plan.entry.name} is already back.` : `A ${plan.entry.type.toLowerCase()} with this name already exists. Rename or remove it first, then restore.`);
+    }
+    throw new RestoreError(`Could not restore ${plan.entry.name}: ${error.message}. Nothing was changed.`);
+  }
+  const byTable = new Map<string, PlannedChild[]>();
+  for (const c of plan.children) byTable.set(c.table, [...(byTable.get(c.table) ?? []), c]);
+  let restored = 0;
+  const failed: RestoreResult["failed"] = [];
+  for (const [table, kids] of byTable) {
+    const { error: e2 } = await insertRows(sb, table, kids.map((k) => k.row));
+    if (!e2) {
+      restored += kids.length;
+      continue;
+    }
+    for (const k of kids) {
+      const { error: e3 } = await insertRow(sb, table, k.row);
+      if (e3) failed.push({ label: k.label, reason: e3.message });
+      else restored += 1;
+    }
+  }
+  return { restored, failed };
 }
 
 /** True when the error just means the cost_ignored_alerts table is not in the database yet. */
@@ -1742,6 +1794,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const applyResearchNote = useCallback((id: string, applied: AppliedRecord) => writeResearchNote(id, { status: "approved", applied }), [writeResearchNote]);
   const undoResearchNote = useCallback((id: string, status: ResearchStatus = "open") => writeResearchNote(id, { status, applied: null }), [writeResearchNote]);
 
+  const restoreDeleted = useCallback(
+    async (plan: RestorePlan) => {
+      let result: RestoreResult;
+      try {
+        result = await restoreFromPlan(sb, plan);
+      } catch (e) {
+        if (!(e instanceof RestoreError)) await resync([plan.parentTable]); // unknown failure: show what the database really holds
+        throw e;
+      }
+      await resync([plan.parentTable, ...new Set(plan.children.map((c) => c.table))]);
+      return result;
+    },
+    [sb, resync],
+  );
+
   const value: StoreValue = {
     ...data,
     today,
@@ -1820,6 +1887,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     ignoreAlert,
     restoreAlert,
     refreshIgnoredAlerts,
+    restoreDeleted,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

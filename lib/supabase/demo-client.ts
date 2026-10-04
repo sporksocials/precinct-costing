@@ -100,7 +100,27 @@ const HISTORY_KEYS: Record<string, { key: string; parent?: [string, string] }> =
   cost_bar_options: { key: "id" }, cost_allowed_users: { key: "email" },
 };
 const BOOKKEEPING = new Set(["updated_at", "updated_by", "created_at", "sort"]);
-function logHistory(tables: Tables, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null) {
+/** One transaction id per statement (like txid_current()), so rows written by one delete share it. */
+let lastTx = 0;
+function nextTx(): number {
+  lastTx = Math.max(lastTx + 1, Date.now() * 1000);
+  return lastTx;
+}
+/** An error that carries a Postgres code (the real client's errors do), e.g. 23505 for a unique clash. */
+class DemoError extends Error {
+  constructor(message: string, public code?: string) {
+    super(message);
+  }
+}
+/** Unique indexes on the restorable tables (live database): a clash is refused with 23505. */
+const UNIQUE_KEYS: Record<string, string[]> = { cost_menu_items: ["name", "venue_id"], cost_preps: ["name", "venue_id"], cost_beers: ["venue_id", "name"], cost_gelato_serves: ["venue_id", "name"], cost_beer_prices: ["beer_id", "serve_id"] };
+/** ON DELETE CASCADE children (delete rows are logged before the parent's, in the same transaction, like the live triggers). */
+const CASCADES: Record<string, { table: string; fk: string }[]> = {
+  cost_beers: [{ table: "cost_beer_prices", fk: "beer_id" }],
+  cost_gelato_serves: [{ table: "cost_gelato_serve_lines", fk: "serve_id" }],
+  cost_offers: [{ table: "cost_offer_lines", fk: "offer_id" }],
+};
+function logHistory(tables: Tables, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null, tx: number = nextTx()) {
   const spec = HISTORY_KEYS[table];
   if (!spec) return;
   const old = before ? (JSON.parse(JSON.stringify(before)) as Row) : null;
@@ -123,7 +143,7 @@ function logHistory(tables: Tables, table: string, op: "insert" | "update" | "de
   const log = (tables.cost_change_history ??= []);
   log.push({
     id: Math.max(0, ...log.map((l) => Number(l.id) || 0)) + 1,
-    tx_id: Date.now(),
+    tx_id: tx,
     table_name: table,
     row_key: spec.key.split(",").map((c) => String(r[c.trim()] ?? "")).join("|"),
     op,
@@ -244,6 +264,11 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
         const added = this.payload.map((r) => {
           const row: Row = { ...r };
           if (row.id == null) row.id = Math.max(0, ...rows.map((x) => Number(x.id) || 0)) + 1;
+          if (rows.some((x) => x.id === row.id)) throw new DemoError(`duplicate key value violates unique constraint "${this.table}_pkey"`, "23505");
+          const uk = UNIQUE_KEYS[this.table];
+          if (uk && uk.every((c) => row[c] != null) && rows.some((x) => uk.every((c) => x[c] === row[c]))) {
+            throw new DemoError(`duplicate key value violates unique constraint "${this.table}_${uk.join("_")}_key"`, "23505");
+          }
           if (this.table === "cost_ingredients" && rows.some((x) => String(x.name).toLowerCase() === String(row.name).toLowerCase())) {
             throw new Error(`duplicate key value violates unique constraint "cost_ingredients_name_key"`);
           }
@@ -305,7 +330,18 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
         const keep = rows.filter((r) => !match(r));
         const gone = rows.filter(match);
         tables[this.table] = keep;
-        for (const g of gone) logHistory(tables, this.table, "delete", g, null);
+        const tx = nextTx(); // every row this statement deletes shares one transaction id
+        for (const c of CASCADES[this.table] ?? []) {
+          const ids = new Set(gone.map((g) => g.id));
+          const kids = (tables[c.table] ??= []).filter((k) => ids.has(k[c.fk]));
+          tables[c.table] = tables[c.table].filter((k) => !ids.has(k[c.fk]));
+          for (const k of kids) logHistory(tables, c.table, "delete", k, null, tx);
+        }
+        if (this.table === "cost_menu_items") {
+          const ids = new Set(gone.map((g) => g.id));
+          if (tables.cost_research_notes) tables.cost_research_notes = tables.cost_research_notes.filter((n) => !ids.has(n.item_id)); // cascades; not tracked in history
+        }
+        for (const g of gone) logHistory(tables, this.table, "delete", g, null, tx);
         stampParents(tables, this.table, gone, DEMO_USER);
         return { data: clone(gone), error: null };
       }
@@ -317,7 +353,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     onrejected?: ((reason: unknown) => B | PromiseLike<B>) | null,
   ): Promise<A | B> {
     return this.run()
-      .catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }))
+      .catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e), ...(e instanceof DemoError && e.code ? { code: e.code } : {}) } }))
       .then(onfulfilled, onrejected);
   }
 }

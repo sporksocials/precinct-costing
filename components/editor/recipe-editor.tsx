@@ -30,6 +30,7 @@ import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { ResearchDrinkCard } from "./research-drink";
+import { RecordHistory } from "./record-history";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
 import { describeChanges, patchOf } from "@/lib/draft-changes";
@@ -749,6 +750,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
 
           {kind === "item" ? <ResearchDrinkCard item={saved as MenuItem} dirty={dirty} /> : null}
           <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
+          <RecordHistory kind={kind} id={id} draft={draft} lines={lines} setDraft={setDraft} setLines={setLines} refreshKey={`${dirty}|${saved.updated_at ?? ""}`} />
 
           <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />
           {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}

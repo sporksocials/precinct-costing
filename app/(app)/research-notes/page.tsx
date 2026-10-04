@@ -9,13 +9,16 @@ import type { ResearchNote, ResearchStatus } from "@/lib/types";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { ResearchNoteCard, useNoteEffects } from "@/components/editor/research-notes";
 import { Chips, cx, Dot, Empty, Group, PageHeader } from "@/components/ui";
+import { useUrlState } from "@/components/use-url-state";
 
 type Filter = ResearchStatus | "all";
 
 export default function ResearchNotesPage() {
   const store = useStore();
   const { venue } = useVenue();
-  const [filter, setFilter] = useState<Filter>("open");
+  const [filterRaw, setFilterRaw] = useUrlState("filter", "open");
+  const filter: Filter = filterRaw === "approved" || filterRaw === "dismissed" || filterRaw === "all" ? filterRaw : "open";
+  const setFilter = (v: Filter) => setFilterRaw(v);
 
   const resolver = useMemo(() => {
     const items = new Map(store.items.map((i) => [i.id, i]));

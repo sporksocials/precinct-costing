@@ -12,14 +12,17 @@ import { NewFlavourSheet } from "@/components/new-flavour";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, visibleRecords } from "@/lib/active";
 import { AddButton, cx, Dot, Empty, Group, PageHeader, Row, Segmented } from "@/components/ui";
+import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 
 type View = "menu" | "all";
 
 export default function GelatoPage() {
   const store = useStore();
   const g = store.gelato;
-  const [view, setView] = useState<View>("menu");
-  const [showInactive, setShowInactive] = useState(false);
+  const [viewRaw, setViewRaw] = useUrlState("view", "menu");
+  const view: View = viewRaw === "all" ? "all" : "menu";
+  const setView = (v: View) => setViewRaw(v);
+  const [showInactive, setShowInactive] = useUrlFlag("inactive");
   const [newOpen, setNewOpen] = useState(false);
 
   const venue = g.venue;

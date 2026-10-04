@@ -7,6 +7,7 @@ import { indexDoc, search } from "@/lib/search";
 import { money, packLabel, unitShort } from "@/lib/format";
 import { costPerShot, type PrepCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
+import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, visibleRecords } from "@/lib/active";
@@ -21,10 +22,12 @@ export function PrepsList() {
   const store = useStore();
   const { venue } = useVenue();
   const newRecipe = useNewRecipe();
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("all");
-  const [sort, setSort] = useState<Sort>("az");
-  const [showInactive, setShowInactive] = useState(false);
+  const [q, setQ] = useUrlState("q");
+  const [cat, setCat] = useUrlState("cat", "all");
+  const [sortRaw, setSortRaw] = useUrlState("sort", "az");
+  const sort: Sort = sortRaw === "cost" ? "cost" : "az";
+  const setSort = (v: Sort) => setSortRaw(v);
+  const [showInactive, setShowInactive] = useUrlFlag("inactive");
   const [limit, setLimit] = useState(PAGE);
   useEffect(() => setLimit(PAGE), [q, cat, sort, venue, showInactive]);
 

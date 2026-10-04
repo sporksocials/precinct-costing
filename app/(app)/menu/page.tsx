@@ -12,6 +12,7 @@ import { indexDoc, search } from "@/lib/search";
 import { gp, money } from "@/lib/format";
 import type { ItemCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
+import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
@@ -34,10 +35,13 @@ export default function MenuPage() {
   const params = useSearchParams();
   const { venue, setVenue } = useVenue();
   const newRecipe = useNewRecipe();
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState(params.get("cat") ?? "all");
-  const [sort, setSort] = useState<Sort>(params.get("sort") === "gp" ? "gp" : "az");
-  const [showInactive, setShowInactive] = useState(false);
+  // filters live in the address bar so Back from a record returns to the same chip, search and sort
+  const [q, setQ] = useUrlState("q");
+  const [cat, setCat] = useUrlState("cat", "all");
+  const [sortRaw, setSortRaw] = useUrlState("sort", "az");
+  const sort: Sort = sortRaw === "gp" || sortRaw === "cost" ? sortRaw : "az";
+  const setSort = (v: Sort) => setSortRaw(v);
+  const [showInactive, setShowInactive] = useUrlFlag("inactive");
   const [limit, setLimit] = useState(PAGE);
   const [sheet, setSheet] = useState<null | "beer" | "beerServes" | "flavour">(null);
 

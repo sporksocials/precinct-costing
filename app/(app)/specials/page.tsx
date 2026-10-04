@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/offers-parts";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, offerIsActive, visibleRecords } from "@/lib/active";
 import { AddButton, Chips, cx, Empty, Group, PageHeader, Row, Segmented } from "@/components/ui";
+import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 
 const ORDER: Record<OfferStatus, number> = { live: 0, draft: 1, retired: 2 };
 
@@ -20,9 +21,13 @@ export default function SpecialsPage() {
   const store = useStore();
   const router = useRouter();
   const { venue } = useVenue();
-  const [tab, setTab] = useState<"offers" | "hh">("offers");
-  const [status, setStatus] = useState<OfferStatus | "all">("all");
-  const [showInactive, setShowInactive] = useState(false);
+  const [tabRaw, setTabRaw] = useUrlState("tab", "offers");
+  const tab: "offers" | "hh" = tabRaw === "hh" ? "hh" : "offers";
+  const setTab = (v: "offers" | "hh") => setTabRaw(v);
+  const [statusRaw, setStatusRaw] = useUrlState("status", "all");
+  const status: OfferStatus | "all" = statusRaw === "live" || statusRaw === "draft" || statusRaw === "retired" ? statusRaw : "all";
+  const setStatus = (v: OfferStatus | "all") => setStatusRaw(v);
+  const [showInactive, setShowInactive] = useUrlFlag("inactive");
   const q = venueQuery(venue);
 
   // retired offers are the inactive ones (offers carry their state in `status`, not an `active` flag)

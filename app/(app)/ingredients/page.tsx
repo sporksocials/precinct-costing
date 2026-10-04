@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { catalogueGaps, ingredientsInActiveUse, ingredientsInUse, staleIngredients } from "@/lib/insights";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, ingredientListPool } from "@/lib/active";
+import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 
 const PAGE = 100;
 
@@ -69,11 +70,11 @@ export default function IngredientsPage() {
 function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v: boolean) => void }) {
   const store = useStore();
   const router = useRouter();
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("all");
+  const [q, setQ] = useUrlState("q");
+  const [cat, setCat] = useUrlState("cat", "all");
   const [limit, setLimit] = useState(PAGE);
-  const [showUnused, setShowUnused] = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
+  const [showUnused, setShowUnused] = useUrlFlag("unused");
+  const [showInactive, setShowInactive] = useUrlFlag("inactive");
   const params = useSearchParams();
   const filter = params.get("filter") as "stale" | "catalogue" | null;
   useEffect(() => setLimit(PAGE), [q, cat, showUnused, showInactive, filter]);

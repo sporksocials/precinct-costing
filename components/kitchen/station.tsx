@@ -125,7 +125,7 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
       : `BACK TO ${(prev.kind === "dish" ? model.dishes.get(prev.id)?.name : model.preps.get(prev.id)?.name)?.toUpperCase() ?? "LAST SCREEN"}`;
     const shared = { model, backLabel, onBack: goBack, onOpenPrep: (id: string) => open({ kind: "prep", id }), onOpenDish: (id: string) => open({ kind: "dish", id }), syncedAt: data?.syncedAt ?? null, now };
     return (
-      <div className={cx(`kitchen-${slug}`, "kitchen-root flex min-h-[100dvh] w-full flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
+      <div role="main" className={cx(`kitchen-${slug}`, "kitchen-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
         {top.kind === "dish" ? <DishDetail key={top.id} dish={model.dishes.get(top.id)!} {...shared} /> : <PrepDetail key={top.id} prep={model.preps.get(top.id)!} {...shared} />}
       </div>
     );
@@ -145,11 +145,11 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
   const groups = onDishes ? groupItems(shownDishes, (d) => d.section) : groupItems(shownPreps, (p) => p.prepType, []);
 
   return (
-    <div className={cx(`kitchen-${slug}`, "kitchen-root flex min-h-[100dvh] w-full flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
+    <div role="main" className={cx(`kitchen-${slug}`, "kitchen-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
       <div className="flex w-full flex-col">
         {stale}
         <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
-          <Link href="/kitchen" className="inline-flex min-h-[40px] items-center gap-[6px] text-[16px] font-medium text-[color:var(--bar-text)]">
+          <Link href="/kitchen" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
             <span aria-hidden className="text-[18px] leading-none">
               &#8592;
             </span>

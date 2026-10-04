@@ -70,7 +70,7 @@ export function BarPremixPage({ slug, venueName, initial }: { slug: string; venu
   const premixes = data?.premixes ?? [];
 
   return (
-    <div className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
+    <div role="main" className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
       <Link
         href={`/bar/${slug}`}
         className="flex min-h-[calc(84px+env(safe-area-inset-top))] w-full items-center justify-center gap-[14px] bg-[color:var(--bar-accent)] px-5 pb-6 pt-[calc(24px+env(safe-area-inset-top))] text-[28px] font-bold leading-tight text-[color:var(--bar-on)] active:opacity-90"

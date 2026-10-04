@@ -39,7 +39,7 @@ export default function BarSetupPage() {
   return (
     <main className="bar-root min-h-[100dvh] w-full bg-[#0E0E10] text-[#F5F3EE]">
       <div className="mx-auto w-full max-w-[760px] px-6 pb-16 pt-[calc(28px+env(safe-area-inset-top))]">
-        <Link href="/bar" className="inline-flex min-h-[32px] items-center gap-[6px] text-[14px] font-medium text-[#B3E3F2]">
+        <Link href="/bar" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[#B3E3F2]">
           <span aria-hidden className="text-[16px] leading-none">
             &#8592;
           </span>

@@ -51,7 +51,7 @@ export default async function KitchenSelectPage() {
 
         <p className="mt-8 text-[16px] text-[#9B9890]">
           Setting up an iPad?{" "}
-          <Link href="/kitchen/setup" className="font-medium text-[#B3E3F2] underline underline-offset-4">
+          <Link href="/kitchen/setup" className="inline-flex min-h-[44px] items-center font-medium text-[#B3E3F2] underline underline-offset-4">
             Read the setup steps
           </Link>
         </p>

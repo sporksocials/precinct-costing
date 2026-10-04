@@ -167,14 +167,14 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   const tiles = hasSearch ? items.filter((c) => c.name.toLowerCase().includes(query)) : activeCategory === "all" ? items : items.filter((c) => c.category === activeCategory);
 
   return (
-    <div className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
+    <div role="main" className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
       {view === "detail" && selected ? (
         <Detail item={selected} onBack={goBack} menu={menu} now={now} />
       ) : (
         <div className="flex w-full flex-col">
           <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
           <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
-            <Link href="/bar" className="inline-flex min-h-[32px] items-center gap-[6px] text-[14px] font-medium text-[color:var(--bar-accent)]">
+            <Link href="/bar" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
               <span aria-hidden className="text-[16px] leading-none">
                 &#8592;
               </span>

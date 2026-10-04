@@ -8,7 +8,6 @@ export function GET() {
       start_url: "/kitchen",
       scope: "/kitchen",
       display: "standalone",
-      orientation: "portrait",
       background_color: "#0E0E10",
       theme_color: "#0E0E10",
       icons: [

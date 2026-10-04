@@ -8,7 +8,6 @@ export function GET() {
       start_url: "/bar",
       scope: "/bar",
       display: "standalone",
-      orientation: "portrait",
       background_color: "#0E0E10",
       theme_color: "#0E0E10",
       icons: [

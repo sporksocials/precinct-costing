@@ -38,6 +38,10 @@ describe("prompt", () => {
       expect(SYSTEM_PROMPT.toLowerCase()).toContain(w.toLowerCase());
     }
   });
+  it("forbids inventing times or amounts that were not typed", () => {
+    expect(SYSTEM_PROMPT).toMatch(/amount or time that is not/);
+    expect(SYSTEM_PROMPT).toMatch(/quick stir/i);
+  });
   it("includes the numbered method, the lines and the typed text", () => {
     const p = buildUserPrompt(INPUT);
     expect(p).toContain("0. Chill the glass");

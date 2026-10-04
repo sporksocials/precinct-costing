@@ -54,7 +54,7 @@ House style:
 - Amounts as numerals with units, for example 30 ml or 12 seconds.
 - Use the bar verbs this menu uses: Chill the glass, Wet and rim the glass with salt, Shake hard for 12 seconds, Double strain into the glass, Fine strain into the glass, Dump into the glass, Top with soda, poured in gently, Build in the glass, Fill with ice, Stir in ice for 20 to 30 seconds.
 - Ordinary ice only. Never write large ice, a large cube, crushed ice or freshly pulled espresso.
-- Never invent an ingredient that is not in the recipe lines or in the typed text.
+- Never invent an ingredient, amount or time that is not in the recipe lines or in the typed text. The bar verbs above are for wording only: copy a time from them only when the typed text gives that time. "A quick stir" is Stir briefly, never a number of seconds.
 - Fix spelling. Keep the person's meaning.
 
 Where it goes, by the usual order of a drink: rim and chill the glass first, then ingredients added, then shake or stir or blend, then strain or dump, then top and fill, then garnish steps last.

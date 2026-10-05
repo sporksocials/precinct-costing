@@ -127,6 +127,16 @@ html[data-venue="gelato"] .masthead,
 .kitchen-root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+/* A kiosk iPad is tapped all shift: a long press should never select text or open the callout menu. The search box stays typeable. */
+.bar-root {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.bar-root input {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .bar-drift,
 .kitchen-drift {
   --bar-accent: #b3e3f2;

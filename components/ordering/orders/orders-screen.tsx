@@ -95,8 +95,13 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
             {session ? (
               <>
                 {finished.length > 1 ? <ChoiceChips label="Choose a finished count" options={countChips(finished)} value={session.id} onChange={setWanted} /> : null}
-                <p className="mt-2 px-1 text-[15px] text-label">
-                  {countLabel(session, nameOf)} <span className="text-label-2">at {brisbaneTime(session.finalised_at ?? session.started_at)}</span>
+                <p className="mt-2 flex flex-wrap items-center gap-x-3 px-1 text-[15px] text-label">
+                  <span>
+                    {countLabel(session, nameOf)} <span className="text-label-2">at {brisbaneTime(session.finalised_at ?? session.started_at)}</span>
+                  </span>
+                  <Link href={`/ordering/${venue.slug}/count?last=1`} className="inline-flex min-h-[44px] items-center text-accent">
+                    Edit Count
+                  </Link>
                 </p>
               </>
             ) : (

@@ -99,8 +99,8 @@ export default function OrderingVenueHome() {
             primary
             href={`${base}/count`}
             icon={<ClipboardCheck className="h-6 w-6" strokeWidth={2} />}
-            title={inProgress ? "Resume Count" : "Start Count"}
-            help={inProgress ? "A count is in progress. Pick it up where it was left." : "Count Store and second place stock, category by category."}
+            title="Count"
+            help={inProgress ? "A count is in progress. Pick it up where it was left." : "Count Store and second place stock, category by category. Finish the count and your orders are ready."}
           />
           <AreaCard
             href={`${base}/orders`}

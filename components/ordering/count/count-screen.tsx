@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -47,6 +48,7 @@ function VenueCount({ venue }: { venue: Venue }) {
   const { userEmail } = useStore();
   const nameOf = usePersonName();
   const c = useCountSession(venue.id, userEmail);
+  const router = useRouter();
   const { setQty, setPar, enter, finalise } = c;
   const venueName = VENUE_SHORT[venue.slug] ?? venue.name;
   const base = `/ordering/${venue.slug}`;
@@ -184,15 +186,41 @@ function VenueCount({ venue }: { venue: Venue }) {
     const r = await finalise();
     setFinalising(false);
     if (r.ok) {
-      setReviewOpen(false);
-      setJustFinalised(true);
-      setEditing(false);
-      setQuery("");
-      setUncountedOnly(false);
-      setPinned(new Set());
-      window.scrollTo({ top: 0 });
+      // the sheet's next step is the order: finishing the count takes you straight to the supplier orders built from it
+      try {
+        window.sessionStorage.setItem(`ordering-just-finished-${venue.id}`, "1");
+      } catch {
+        // storage blocked: Back from Orders may then open a fresh count, which is harmless
+      }
+      router.push(`${base}/orders`);
     } else setFinaliseError(r.message);
   };
+
+  /* No Start step: opening Count goes straight into counting (the count in progress, or a new one). "?last=1" opens the last
+     finished count instead (the Orders screen's Edit Count). The Start panel only shows when this cannot happen (offline
+     with no count on the device, or a failed start) so the person is told why. */
+  const triedAuto = useRef(false);
+  useEffect(() => {
+    if (triedAuto.current || c.phase !== "ready" || counting || lists.total === 0) return;
+    // coming Back from the orders just made must not open a brand new count
+    let justFinished = false;
+    try {
+      justFinished = window.sessionStorage.getItem(`ordering-just-finished-${venue.id}`) === "1";
+      if (justFinished) window.sessionStorage.removeItem(`ordering-just-finished-${venue.id}`);
+    } catch {
+      // ignore
+    }
+    if (justFinished) {
+      triedAuto.current = true;
+      return;
+    }
+    const wantLast = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("last") === "1";
+    const which: "open" | "last" | null = wantLast && c.lastSession ? "last" : c.openSession || c.online ? "open" : null;
+    if (!which) return;
+    triedAuto.current = true;
+    void begin(which);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [c.phase, counting, lists.total, c.openSession, c.lastSession, c.online]);
 
   /* ---------------------------------------------------------------- what to show */
 

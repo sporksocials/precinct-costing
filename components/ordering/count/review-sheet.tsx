@@ -102,14 +102,14 @@ export function ReviewSheet({
           </p>
         ) : null}
         <button type="button" className="btn-primary !min-h-[44px] w-full" disabled={busy || !!blocked} onClick={onFinalise}>
-          {busy ? "Finalising..." : "Finalise Count"}
+          {busy ? "Finishing..." : "Finish And Go To Orders"}
         </button>
         {blocked ? (
           <button type="button" className="btn-plain !min-h-[44px] mt-2 w-full" onClick={onRetry}>
             Try To Sync Now
           </button>
         ) : null}
-        <p className="mt-3 px-1 text-[13px] text-label-2">Finalising marks the count ready to order. You can still edit it afterwards: every edit is logged with who changed it and the old number.</p>
+        <p className="mt-3 px-1 text-[13px] text-label-2">Finishing takes you straight to your orders, made from this count. If you spot a mistake later, Edit Count on the Orders screen opens it again: every change is logged with who made it and the old number.</p>
       </div>
     </Sheet>
   );

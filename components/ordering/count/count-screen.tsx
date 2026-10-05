@@ -45,6 +45,9 @@ export function CountScreen({ slug }: { slug: string }) {
   return <VenueCount venue={venue} />;
 }
 
+/** Cancel Count sits beside Finish Count (top and bottom): the same size, tinted red, never a small text link. */
+const CANCEL_BTN = "inline-flex min-h-[48px] touch-manipulation select-none items-center justify-center rounded-xl bg-danger-soft px-4 text-[16px] font-semibold text-danger transition active:scale-[0.98] active:opacity-80 motion-reduce:transition-none";
+
 function VenueCount({ venue }: { venue: Venue }) {
   const { userEmail } = useStore();
   const nameOf = usePersonName();
@@ -200,6 +203,10 @@ function VenueCount({ venue }: { venue: Venue }) {
     } else setFinaliseError(r.message);
   };
 
+  const openCancel = () => {
+    setCancelError(null);
+    setCancelOpen(true);
+  };
   const doCancel = async () => {
     setCancelling(true);
     setCancelError(null);
@@ -307,9 +314,14 @@ function VenueCount({ venue }: { venue: Venue }) {
       {editing ? "Done Editing" : "Edit Count"}
     </button>
   ) : (
-    <button type="button" className="btn-primary !min-h-[44px]" onClick={() => setReviewOpen(true)}>
-      Finish Count
-    </button>
+    <>
+      <button type="button" className={CANCEL_BTN} onClick={openCancel}>
+        Cancel Count
+      </button>
+      <button type="button" className="btn-primary !min-h-[48px] !px-5" onClick={() => setReviewOpen(true)}>
+        Finish Count
+      </button>
+    </>
   );
 
   return (
@@ -370,14 +382,6 @@ function VenueCount({ venue }: { venue: Venue }) {
             onJump={jumpToCategory}
           />
 
-          {!finalisedView ? (
-            <div className="mt-2 flex justify-end">
-              <button type="button" className="btn-text !min-h-[44px] !text-danger" onClick={() => { setCancelError(null); setCancelOpen(true); }}>
-                Cancel Count
-              </button>
-            </div>
-          ) : null}
-
           {shown.length === 0 ? (
             <Empty
               title={uncountedOnly && !query ? "Everything Is Counted" : "No Products Match"}
@@ -415,9 +419,14 @@ function VenueCount({ venue }: { venue: Venue }) {
           {!finalisedView ? (
             <div className="mt-6">
               <p className="mb-2 text-center text-[13px] text-label-2 tnum">{progressText(lists.counted, lists.total)}</p>
-              <button type="button" className="btn-primary !min-h-[44px] w-full" onClick={() => setReviewOpen(true)}>
-                Finish Count
-              </button>
+              <div className="flex gap-2">
+                <button type="button" className={`${CANCEL_BTN} flex-1`} onClick={openCancel}>
+                  Cancel Count
+                </button>
+                <button type="button" className="btn-primary !min-h-[48px] flex-1" onClick={() => setReviewOpen(true)}>
+                  Finish Count
+                </button>
+              </div>
             </div>
           ) : null}
 

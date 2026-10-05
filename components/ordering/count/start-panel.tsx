@@ -76,7 +76,7 @@ export function StartPanel({
           {starting ? "Opening..." : open ? "Resume Count" : "Start Count"}
         </button>
         {open ? (
-          <button type="button" className="btn-plain !min-h-[44px] mt-2 w-full !text-danger" disabled={starting} onClick={onCancel}>
+          <button type="button" className="mt-2 inline-flex min-h-[48px] w-full touch-manipulation items-center justify-center rounded-xl bg-danger-soft px-4 text-[16px] font-semibold text-danger transition active:opacity-80 disabled:opacity-40" disabled={starting} onClick={onCancel}>
             Cancel Count
           </button>
         ) : null}

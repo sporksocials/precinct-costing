@@ -583,11 +583,11 @@ export function withoutNulls<T extends object>(row: T): T {
 }
 
 // Not async: callers chain .select() (or just await it directly) the same way they would on a plain .insert(...).
-function insertRow<T extends object>(sb: SupabaseClient, table: string, row: T) {
+export function insertRow<T extends object>(sb: SupabaseClient, table: string, row: T) {
   return sb.from(table).insert(withoutNulls(row));
 }
 
-function insertRows<T extends object>(sb: SupabaseClient, table: string, rows: T[]) {
+export function insertRows<T extends object>(sb: SupabaseClient, table: string, rows: T[]) {
   return sb.from(table).insert(rows.map(withoutNulls));
 }
 

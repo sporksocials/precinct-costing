@@ -6,6 +6,7 @@
  * Implements just the query-builder surface the app uses.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { orderingDemoTables } from "../ordering-fixture";
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
@@ -37,6 +38,16 @@ const TABLE_KEYS: Record<string, string> = {
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
   cost_change_history: "changeHistory", // not in demo data: filled in memory by logHistory below
+  // Ordering (migration 20261005300000): not in the demo data files; seeded from lib/ordering-fixture.ts when empty (see loadTables)
+  ordering_suppliers: "orderingSuppliers",
+  ordering_categories: "orderingCategories",
+  ordering_products: "orderingProducts",
+  ordering_count_sessions: "orderingCountSessions",
+  ordering_count_lines: "orderingCountLines",
+  ordering_orders: "orderingOrders",
+  ordering_order_lines: "orderingOrderLines",
+  ordering_price_uploads: "orderingPriceUploads",
+  ordering_price_log: "orderingPriceLog",
 };
 
 let tablesPromise: Promise<Tables> | null = null;
@@ -48,6 +59,8 @@ function loadTables(): Promise<Tables> {
       .then((json: Record<string, Row[]>) => {
         const t: Tables = {};
         for (const [table, key] of Object.entries(TABLE_KEYS)) t[table] = json[key] ?? [];
+        // Ordering example data (Drift and Greedy), only when the demo data has none: invented names and prices, memory only
+        if (!(t.ordering_products ?? []).length) Object.assign(t, orderingDemoTables());
         return t;
       });
   }
@@ -91,13 +104,17 @@ function stampParents(tables: Tables, table: string, changed: Row[], by: string)
  * DEMO ONLY: mimics the cost_history_log() trigger (migration 20261004240000) for the tracked tables, so the Change Log can be
  * checked without a database. Bookkeeping columns never count; an update that changes only those writes nothing.
  */
-const HISTORY_KEYS: Record<string, { key: string; parent?: [string, string] }> = {
+const HISTORY_KEYS: Record<string, { key: string; parent?: [string, string]; guard?: (tables: Tables, row: Row) => boolean }> = {
   cost_menu_items: { key: "id" }, cost_preps: { key: "id" }, cost_recipe_lines: { key: "id" }, cost_ingredients: { key: "id" },
   cost_beers: { key: "id" }, cost_beer_serves: { key: "id" }, cost_beer_prices: { key: "id", parent: ["cost_beers", "beer_id"] },
   cost_gelato_serves: { key: "id" }, cost_gelato_serve_lines: { key: "id", parent: ["cost_gelato_serves", "serve_id"] },
   cost_offers: { key: "id" }, cost_offer_lines: { key: "id", parent: ["cost_offers", "offer_id"] }, cost_ingredient_deals: { key: "id" },
   cost_suppliers: { key: "id" }, cost_specials: { key: "id" }, cost_targets: { key: "venue_id,category" }, cost_settings: { key: "key" },
   cost_bar_options: { key: "id" }, cost_allowed_users: { key: "email" },
+  // Ordering: order lines and the price log are not tracked; count lines only once their session is finalised (see the migration)
+  ordering_suppliers: { key: "id" }, ordering_categories: { key: "id" }, ordering_products: { key: "id" }, ordering_count_sessions: { key: "id" },
+  ordering_count_lines: { key: "id", parent: ["ordering_count_sessions", "session_id"], guard: (t, r) => (t.ordering_count_sessions ?? []).some((x) => x.id === r.session_id && x.status === "finalised") },
+  ordering_orders: { key: "id" }, ordering_price_uploads: { key: "id" },
 };
 /** Tables whose live created_at column defaults to now() (cost_suppliers has none). */
 const HAS_CREATED_AT = new Set(["cost_menu_items", "cost_preps", "cost_ingredients", "cost_beers", "cost_beer_serves", "cost_gelato_serves", "cost_offers", "cost_ingredient_deals", "cost_specials"]);
@@ -115,16 +132,59 @@ class DemoError extends Error {
   }
 }
 /** Unique indexes on the restorable tables (live database): a clash is refused with 23505. */
-const UNIQUE_KEYS: Record<string, string[]> = { cost_menu_items: ["name", "venue_id"], cost_preps: ["name", "venue_id"], cost_beers: ["venue_id", "name"], cost_gelato_serves: ["venue_id", "name"], cost_beer_prices: ["beer_id", "serve_id"] };
+const UNIQUE_KEYS: Record<string, string[]> = { cost_menu_items: ["name", "venue_id"], cost_preps: ["name", "venue_id"], cost_beers: ["venue_id", "name"], cost_gelato_serves: ["venue_id", "name"], cost_beer_prices: ["beer_id", "serve_id"],
+  ordering_suppliers: ["venue_id", "name"], ordering_categories: ["venue_id", "name"], ordering_products: ["venue_id", "category_id", "name"], ordering_count_lines: ["session_id", "product_id"] };
 /** ON DELETE CASCADE children (delete rows are logged before the parent's, in the same transaction, like the live triggers). */
 const CASCADES: Record<string, { table: string; fk: string }[]> = {
   cost_beers: [{ table: "cost_beer_prices", fk: "beer_id" }],
   cost_gelato_serves: [{ table: "cost_gelato_serve_lines", fk: "serve_id" }],
   cost_offers: [{ table: "cost_offer_lines", fk: "offer_id" }],
+  ordering_count_sessions: [{ table: "ordering_count_lines", fk: "session_id" }],
+  ordering_orders: [{ table: "ordering_order_lines", fk: "order_id" }],
 };
+
+/**
+ * DEMO ONLY: what the live ordering_* tables do on write, so screens can be checked without a database: the column defaults
+ * and nulls for omitted keys (callers strip null keys, so the database fills them), a uuid id, created_at, and the edit stamps
+ * (cost_stamp_edit: updated_at and updated_by on insert and update).
+ */
+const ORDERING_DEFAULTS: Record<string, () => Row> = {
+  ordering_suppliers: () => ({ method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null, min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: 0 }),
+  ordering_categories: () => ({ sort: 0, second_location_label: null, unit_name: "carton" }),
+  ordering_products: () => ({ sort: 0, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true }),
+  ordering_count_sessions: () => ({ started_by: null, started_at: new Date().toISOString(), status: "in_progress", finalised_by: null, finalised_at: null, note: null, source: null }),
+  ordering_count_lines: () => ({ store_qty: null, second_qty: null, counted_by: null, counted_at: null, client_uuid: null, product_name: null, par_at_count: null, unit_name: null }),
+  ordering_orders: () => ({ session_id: null, status: "draft", kind: "count", sent_by: null, sent_at: null, method: null, subject: null, body_text: null, warning_text: null, show_prices: false }),
+  ordering_order_lines: () => ({ product_id: null, supplier_item_code: null, unit_name: null, suggested_qty: null, pack_multiple: null, price_inc_gst: null, sort: 0 }),
+  ordering_price_uploads: () => ({ supplier_id: null, uploaded_by: null, uploaded_at: new Date().toISOString(), rows_matched: 0, rows_changed: 0, rows_unmatched: 0, updated_costing: false }),
+  ordering_price_log: () => ({ old_price: null, new_price: null, upload_id: null, changed_by: null, changed_at: new Date().toISOString() }),
+};
+const ORDERING_STAMPED = new Set(["ordering_suppliers", "ordering_categories", "ordering_products", "ordering_count_sessions", "ordering_count_lines", "ordering_orders", "ordering_order_lines", "ordering_price_uploads"]);
+function newUuid(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => ((Math.random() * 16) | (c === "x" ? 0 : 8)).toString(16));
+}
+function orderingNewRow(table: string, r: Row): Row {
+  const now = new Date().toISOString();
+  const row: Row = { id: newUuid(), ...(ORDERING_DEFAULTS[table]?.() ?? {}), ...r };
+  if (ORDERING_STAMPED.has(table)) Object.assign(row, { created_at: row.created_at ?? now, updated_at: now, updated_by: DEMO_USER });
+  return row;
+}
+function orderingStamp(table: string, row: Row): Row {
+  return ORDERING_STAMPED.has(table) ? { ...row, updated_at: new Date().toISOString(), updated_by: DEMO_USER } : row;
+}
+/** The two ordering rules the unique constraints cannot show by column list: one count in progress per venue, and a unique client_uuid. */
+function orderingChecks(table: string, row: Row, rows: Row[]) {
+  if (table === "ordering_count_sessions" && row.status === "in_progress" && rows.some((x) => x.id !== row.id && x.venue_id === row.venue_id && x.status === "in_progress")) {
+    throw new DemoError('duplicate key value violates unique constraint "ordering_count_sessions_one_open_idx"', "23505");
+  }
+  if (table === "ordering_count_lines" && row.client_uuid != null && rows.some((x) => x.id !== row.id && x.client_uuid === row.client_uuid)) {
+    throw new DemoError('duplicate key value violates unique constraint "ordering_count_lines_client_uuid_key"', "23505");
+  }
+}
 function logHistory(tables: Tables, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null, tx: number = nextTx()) {
   const spec = HISTORY_KEYS[table];
   if (!spec) return;
+  if (spec.guard && !spec.guard(tables, (before ?? after) as Row)) return;
   const old = before ? (JSON.parse(JSON.stringify(before)) as Row) : null;
   const next = after ? (JSON.parse(JSON.stringify(after)) as Row) : null;
   const r = (next ?? old) as Row;
@@ -264,7 +324,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
       }
       case "insert": {
         const added = this.payload.map((r) => {
-          const row: Row = { ...r };
+          const row: Row = ORDERING_DEFAULTS[this.table] ? orderingNewRow(this.table, r) : { ...r };
           if (HAS_CREATED_AT.has(this.table) && row.created_at == null) row.created_at = new Date().toISOString(); // the live column default
           if (row.id == null) row.id = Math.max(0, ...rows.map((x) => Number(x.id) || 0)) + 1;
           if (rows.some((x) => x.id === row.id)) throw new DemoError(`duplicate key value violates unique constraint "${this.table}_pkey"`, "23505");
@@ -272,6 +332,7 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
           if (uk && uk.every((c) => row[c] != null) && rows.some((x) => uk.every((c) => x[c] === row[c]))) {
             throw new DemoError(`duplicate key value violates unique constraint "${this.table}_${uk.join("_")}_key"`, "23505");
           }
+          orderingChecks(this.table, row, rows);
           if (this.table === "cost_ingredients" && rows.some((x) => String(x.name).toLowerCase() === String(row.name).toLowerCase())) {
             throw new Error(`duplicate key value violates unique constraint "cost_ingredients_name_key"`);
           }
@@ -286,21 +347,32 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
         return { data: clone(added), error: null };
       }
       case "upsert": {
+        const stored: Row[] = [];
         for (const r of this.payload) {
           const i = rows.findIndex((x) => this.conflict.every((c) => x[c] === r[c]));
           if (i >= 0) {
             const before = rows[i];
-            rows[i] = { ...rows[i], ...r };
+            const next = orderingStamp(this.table, { ...rows[i], ...r });
+            orderingChecks(this.table, next, rows);
+            rows[i] = next;
+            stored.push(next);
             logHistory(tables, this.table, "update", before, rows[i]);
           } else {
-            const fresh: Row = { ...r };
+            const fresh: Row = ORDERING_DEFAULTS[this.table] ? orderingNewRow(this.table, r) : { ...r };
             if (HAS_CREATED_AT.has(this.table) && fresh.created_at == null) fresh.created_at = new Date().toISOString();
+            orderingChecks(this.table, fresh, rows);
+            const uk = UNIQUE_KEYS[this.table];
+            if (uk && uk.every((c) => fresh[c] != null) && rows.some((x) => uk.every((c) => x[c] === fresh[c]))) {
+              throw new DemoError(`duplicate key value violates unique constraint "${this.table}_${uk.join("_")}_key"`, "23505");
+            }
             rows.push(fresh);
+            stored.push(fresh);
             logHistory(tables, this.table, "insert", null, fresh);
           }
         }
         stampParents(tables, this.table, this.payload, DEMO_USER);
-        return { data: clone(this.payload), error: null };
+        // the live database returns the stored rows (with their ids and defaults); the older tables keep returning the payload
+        return { data: clone(ORDERING_DEFAULTS[this.table] ? stored : this.payload), error: null };
       }
       case "update": {
         const out: Row[] = [];
@@ -324,9 +396,11 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
               notes: null,
             });
           }
-          rows[i] = next;
-          logHistory(tables, this.table, "update", before, next);
-          out.push(next);
+          const stamped = orderingStamp(this.table, next);
+          orderingChecks(this.table, stamped, rows);
+          rows[i] = stamped;
+          logHistory(tables, this.table, "update", before, stamped);
+          out.push(stamped);
         }
         stampParents(tables, this.table, out, DEMO_USER);
         return { data: clone(out), error: null };

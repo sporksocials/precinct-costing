@@ -12,6 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NO_LOOKUPS, buildChangeLog, fmtMoney, fmtPercent, humanise, isMissingTable, type AuditRow, type ChangeEvent, type ChangeKind, type Lookups, type PriceLogRow, type SellPriceRow } from "./change-log";
 import { fieldLabel } from "./draft-changes";
 import { cleanGelatoLabels, gelatoLabelText } from "./gelato-labels";
+import { countText, isOrderingTable, orderingFieldLabel, orderingFmt, orderingName, orderingSummary, orderingWord, type OrderingLookups } from "./ordering-history";
 import { formatQty } from "./parse-qty";
 import type { LineUnit } from "./types";
 
@@ -289,8 +290,37 @@ function recordInfo(c: Ctx): { word: string; name: string; venueId?: number; hre
     case "cost_allowed_users":
       return { word: "Sign-In", name: str(r.email) || key, href: "/settings" };
     default:
+      if (isOrderingTable(row.table_name)) return { word: orderingWord(row.table_name), name: orderingName(row.table_name, r, orderingWhen), venueId: venueOf(c) };
       return { word: humanise(row.table_name), name: str(r.name) || key };
   }
+}
+
+/** "Mon 28 Sep" for a count's name (Brisbane time). */
+function orderingWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: "Australia/Brisbane" }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.weekday} ${p.day} ${String(p.month).slice(0, 3)}`; // some ICU versions say "Sept"
+}
+const orderingLk = (lk: HistoryLookups): OrderingLookups => ({ venueName: lk.venueName, ingredientName: lk.ingredientName, recordName: lk.recordName });
+
+/** Stock count entries: only logged once their count is finalised, so every row here is an edit to a finalised count. */
+function describeCountEntry(c: Ctx, make: Make): ChangeEvent[] {
+  const { row, r } = c;
+  const venueId = venueOf(c);
+  const name = `${orderingName("ordering_count_lines", r, orderingWhen)}${venueSuffix(c, venueId)}`;
+  const extra: Partial<ChangeEvent> = { venueId };
+  if (row.op === "insert") return [make("", null, "other", `Count added after finalising: ${name}`, "None", countText(c.n), extra)];
+  if (row.op === "delete") return [make("", null, "other", `Count removed after finalising: ${name}`, countText(c.o), "Removed", { ...extra, deleted: true, tone: "bad" })];
+  // every edit also moves counted_at, counted_by and client_uuid: only the two quantities are worth a line
+  const fields = ["store_qty", "second_qty"].filter((f) => JSON.stringify(c.o[f] ?? null) !== JSON.stringify(c.n[f] ?? null));
+  const multi = fields.length > 1;
+  return fields.map((f) => {
+    const a = numOf(c.o[f]);
+    const b = numOf(c.n[f]);
+    const dir = a != null && b != null && a !== b ? (b > a ? "up" : "down") : "none";
+    return make(multi ? `:${f}` : "", f, "other", `Count edited: ${name}, ${orderingFieldLabel(row.table_name, f)}`, orderingFmt(f, c.o[f], orderingLk(c.lk)), orderingFmt(f, c.n[f], orderingLk(c.lk)), { ...extra, direction: dir });
+  });
 }
 const SETTING_NAMES: Record<string, string> = { gst_rate: "GST rate", round_to: "Round prices up to", alert_pct: "Price alert level", gelato_wastage: "Gelato wastage" };
 
@@ -334,6 +364,7 @@ export function describeHistoryRow(row: HistoryRow, lk: HistoryLookups = NO_HIST
     ...extra,
   });
   try {
+    if (row.table_name === "ordering_count_lines") return describeCountEntry(c, make);
     if (CHILD_TABLES.has(row.table_name)) return describeLine(c, make);
     const info = recordInfo(c);
     const venueId = info.venueId;
@@ -381,6 +412,7 @@ function summary(c: Ctx): string {
       bits.push(humanise(str(r.kind)));
       break;
     default:
+      if (isOrderingTable(c.row.table_name)) bits.push(orderingSummary(c.row.table_name, r, orderingLk(c.lk)));
       break;
   }
   const t = bits.filter(Boolean).join(", ");
@@ -418,6 +450,13 @@ function describeUpdate(c: Ctx, info: { word: string; name: string; href?: strin
     }
     if (t === "cost_bar_options" && f === "name") {
       out.push(make(sfx, f, "method", `${info.word} renamed`, fmtField(f, ov), fmtField(f, nv), extra));
+      continue;
+    }
+    if (isOrderingTable(t)) {
+      const a0 = numOf(ov);
+      const b0 = numOf(nv);
+      const d0 = a0 != null && b0 != null && a0 !== b0 ? (b0 > a0 ? "up" : "down") : "none";
+      out.push(make(sfx, f, "other", `${withVenue}: ${orderingFieldLabel(t, f)}`, orderingFmt(f, ov, orderingLk(c.lk)), orderingFmt(f, nv, orderingLk(c.lk)), { ...extra, direction: d0 }));
       continue;
     }
     const a = numOf(ov);

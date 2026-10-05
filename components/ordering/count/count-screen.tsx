@@ -24,6 +24,7 @@ import { Banner, Empty, ListSkeleton, PageHeader, Skeleton } from "@/components/
 import { usePersonName } from "@/components/use-person-name";
 import type { Venue } from "@/lib/types";
 import { CancelSheet } from "./cancel-sheet";
+import { LeaveSheet } from "./leave-sheet";
 import { CountHeader } from "./count-header";
 import { CountRow } from "./count-row";
 import { OfflineWorker } from "./offline-worker";
@@ -66,6 +67,8 @@ function VenueCount({ venue }: { venue: Venue }) {
   const [finalising, setFinalising] = useState(false);
   const [finaliseError, setFinaliseError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveCancelling, setLeaveCancelling] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -214,18 +217,47 @@ function VenueCount({ venue }: { venue: Venue }) {
     setCancelling(false);
     if (message) setCancelError(message);
     else {
+      autoAttempts.current = 2; // cancelled on purpose: show the Start panel, do not open a new count straight away
       setCancelOpen(false);
       setReviewOpen(false);
       window.scrollTo({ top: 0 });
     }
   };
 
+  /* Back to Ordering in the middle of a count asks: save it for later, cancel it, or keep counting. Nothing counted yet: just go. */
+  const needsLeaveAsk = counting && c.session?.status === "in_progress" && lists.counted > 0;
+  const onBackClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!needsLeaveAsk) return;
+    e.preventDefault();
+    setCancelError(null);
+    setLeaveOpen(true);
+  };
+  const saveAndLeave = () => {
+    c.syncNow(); // the numbers are already on this device; this just pushes them out now if there is signal
+    setLeaveOpen(false);
+    router.push(base);
+  };
+  const cancelAndLeave = async () => {
+    setLeaveCancelling(true);
+    setCancelError(null);
+    const message = await cancel();
+    setLeaveCancelling(false);
+    if (message) setCancelError(message);
+    else {
+      autoAttempts.current = 2;
+      setLeaveOpen(false);
+      router.push(base);
+    }
+  };
+
   /* No Start step: opening Count goes straight into counting (the count in progress, or a new one). "?last=1" opens the last
      finished count instead (the Orders screen's Edit Count). The Start panel only shows when this cannot happen (offline
      with no count on the device, or a failed start) so the person is told why. */
-  const triedAuto = useRef(false);
+  const autoBusy = useRef(false);
+  const autoAttempts = useRef(0);
+  const [autoTick, setAutoTick] = useState(0);
   useEffect(() => {
-    if (triedAuto.current || c.phase !== "ready" || counting || lists.total === 0) return;
+    if (autoBusy.current || autoAttempts.current >= 2 || c.phase !== "ready" || counting || lists.total === 0) return;
     // coming Back from the orders just made must not open a brand new count
     let justFinished = false;
     try {
@@ -235,23 +267,29 @@ function VenueCount({ venue }: { venue: Venue }) {
       // ignore
     }
     if (justFinished) {
-      triedAuto.current = true;
+      autoAttempts.current = 2;
       return;
     }
     const wantLast = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("last") === "1";
     const which: "open" | "last" | null = wantLast && c.lastSession ? "last" : c.openSession || c.online ? "open" : null;
     if (!which) return;
-    triedAuto.current = true;
-    void begin(which);
+    autoBusy.current = true;
+    autoAttempts.current += 1;
+    // a second read of the venue can land just after the count opened and put the screen back on the Start panel: if that
+    // happens the effect runs once more (autoTick) and opens it again, instead of leaving the person on the panel
+    void begin(which).finally(() => {
+      autoBusy.current = false;
+      setAutoTick((t) => t + 1);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c.phase, counting, lists.total, c.openSession, c.lastSession, c.online]);
+  }, [c.phase, counting, lists.total, c.openSession, c.lastSession, c.online, autoTick]);
 
   /* ---------------------------------------------------------------- what to show */
 
   const header = (
     <>
       <VenueAccent slug={venue.slug} />
-      <BackLink path={base} fallback={base} className="btn-text !min-h-[44px] -ml-1 !gap-0 !text-accent">
+      <BackLink path={base} fallback={base} onClick={onBackClick} className="btn-text !min-h-[44px] -ml-1 !gap-0 !text-accent">
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} aria-hidden />
         Ordering
       </BackLink>
@@ -444,6 +482,7 @@ function VenueCount({ venue }: { venue: Venue }) {
         </>
       )}
 
+      <LeaveSheet open={leaveOpen} counted={lists.counted} total={lists.total} busy={leaveCancelling} error={cancelError} onSave={saveAndLeave} onKeep={() => setLeaveOpen(false)} onCancel={() => void cancelAndLeave()} />
       <CancelSheet open={cancelOpen} counted={lists.counted} total={lists.total} busy={cancelling} error={cancelError} onKeep={() => setCancelOpen(false)} onCancel={() => void doCancel()} />
     </div>
   );

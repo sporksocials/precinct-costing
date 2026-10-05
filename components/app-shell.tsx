@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense, useEffect, useRef } from "react";
-import { BookOpen, Carrot, Ellipsis, HeartPulse, History, House, Lightbulb, LogOut, Search, Settings, Store, Tag, Trash2, Wheat } from "lucide-react";
+import { BookOpen, Carrot, ClipboardList, Ellipsis, HeartPulse, History, House, Lightbulb, LogOut, Search, Settings, Store, Tag, Trash2, Wheat } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -18,6 +18,7 @@ const MAIN = [
   { href: "/allergens", label: "Menu Labels", icon: Wheat },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
   { href: "/specials", label: "Specials", icon: Tag },
+  { href: "/ordering", label: "Ordering", icon: ClipboardList },
 ];
 const MORE = [
   { href: "/research-notes", label: "Research Notes", icon: Lightbulb },
@@ -95,7 +96,7 @@ export function hidesTabBar(pathname: string) {
 function TabBar() {
   const pathname = usePathname();
   if (hidesTabBar(pathname)) return null;
-  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials") || pathname.startsWith("/allergens");
+  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials") || pathname.startsWith("/allergens") || pathname.startsWith("/ordering");
   return (
     <nav className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden" aria-label="Main">
       <div className="mx-auto flex h-[50px] max-w-lg items-stretch">

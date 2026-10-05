@@ -1,6 +1,6 @@
 "use client";
 
-import { HeartPulse, History, Lightbulb, Settings, Store, Tag, Trash2, Wheat } from "lucide-react";
+import { ClipboardList, HeartPulse, History, Lightbulb, Settings, Store, Tag, Trash2, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
@@ -18,6 +18,7 @@ export default function MorePage() {
     <div>
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
+        <Row href="/ordering" title="Ordering" leading={<Icon className="bg-[#2f5f8a]"><ClipboardList className={ic} /></Icon>} chevron />
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
         <Row href="/allergens" title="Menu Labels" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
         <Row

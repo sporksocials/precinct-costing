@@ -3,7 +3,7 @@
 import { memo } from "react";
 import { Check, Circle } from "lucide-react";
 import { cx } from "@/components/ui";
-import { STORE_LABEL, productSubline, rowAnchor, rowStatus } from "@/lib/ordering-count-ui";
+import { STORE_LABEL, rowAnchor, rowStatus, unitPlural } from "@/lib/ordering-count-ui";
 import type { OrderingProduct } from "@/lib/ordering-types";
 import { PlaceControl } from "./place-control";
 
@@ -37,7 +37,10 @@ export const CountRow = memo(function CountRow({ product, secondLabel, store, se
         <div className="min-w-0 sm:flex-1">
           <p className="break-words text-[17px] font-semibold leading-snug">{product.name}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-label-2">
-            <span>{productSubline(product)}</span>
+            <span>{unitPlural(product.unit_name)}</span>
+            <span className="inline-flex items-center rounded-md bg-fill-2 px-2 py-0.5 text-[14px] font-semibold text-label">
+              Build To <span className="tnum ml-1">{product.par}</span>
+            </span>
             {counted ? (
               <span className="inline-flex items-center gap-1 font-medium text-good">
                 <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />

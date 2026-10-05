@@ -428,7 +428,10 @@ export function sendReasons(actions: readonly SendAction[]): string[] {
   return out;
 }
 
-/** What to save as the way the order went out, from the last button used (else the supplier's own way). */
+/**
+ * The way the order went out, decided for the person (there is no "how did you send it" question): the last button pressed on
+ * the card (Open Email, Open In Outlook, Copy Order, Open Login), else the supplier's own method.
+ */
 export function defaultSendMethod(last: SendActionId | null, supplierMethod: OrderingMethod): OrderSendMethod {
   if (last === "email") return "email";
   if (last === "outlook") return "outlook";
@@ -444,14 +447,6 @@ export const SEND_METHOD_LABEL: Record<OrderSendMethod, string> = {
   website: "Website",
   other: "Other",
 };
-
-export const SEND_METHOD_OPTIONS: { value: OrderSendMethod; label: string }[] = [
-  { value: "email", label: SEND_METHOD_LABEL.email },
-  { value: "outlook", label: SEND_METHOD_LABEL.outlook },
-  { value: "copy", label: SEND_METHOD_LABEL.copy },
-  { value: "website", label: SEND_METHOD_LABEL.website },
-  { value: "other", label: SEND_METHOD_LABEL.other },
-];
 
 export const METHOD_LABEL: Record<OrderingMethod, string> = { email: "Email", website: "Website Login", app: "App" };
 
@@ -497,6 +492,19 @@ export function priceCells(qty: number, priceInc: number | null | undefined, rat
   if (priceInc == null) return { unitEx: null, unitInc: null, totalEx: null, totalInc: null };
   const t = lineTotals(qty, priceInc, rate);
   return { unitEx: money(exGst(priceInc, rate)), unitInc: money(priceInc), totalEx: t ? money(t.ex) : null, totalInc: t ? money(t.inc) : null };
+}
+
+/** The ONE price shown on an order line: the line total inc GST and what one unit costs inc GST. Null without a price or a quantity. */
+export function linePrice(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE): { total: string; each: string } | null {
+  if (priceInc == null || !(qty > 0)) return null;
+  const p = priceCells(qty, priceInc, rate);
+  return p.totalInc && p.unitInc ? { total: p.totalInc, each: `${p.unitInc} each` } : null;
+}
+
+/** The one quiet line under an order line: "Counted 5 of 8" (Counted, then Build To). Null for a line that was not counted. */
+export function countedLine(l: Pick<DraftLine, "counted" | "par">): string | null {
+  if (l.counted == null) return null;
+  return l.par == null ? `Counted ${qtyText(l.counted)}` : `Counted ${qtyText(l.counted)} of ${qtyText(l.par)}`;
 }
 
 /** "2 products, 14 units" style wording for a count of things. */

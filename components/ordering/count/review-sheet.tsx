@@ -27,13 +27,13 @@ function Section({ title, rows }: { title: string; rows: React.ReactNode[] }) {
   );
 }
 
-function JumpRow({ row, note, onJump }: { row: ReviewRow; note?: string; onJump: (productId: string) => void }) {
+function JumpRow({ row, onJump }: { row: ReviewRow; onJump: (productId: string) => void }) {
   return (
     <li className="[&:not(:first-child)]:border-t [&:not(:first-child)]:border-[color:var(--separator)]">
       <button type="button" onClick={() => onJump(row.product.id)} className="flex min-h-[48px] w-full touch-manipulation items-center gap-3 px-4 py-2 text-left active:bg-fill">
         <span className="min-w-0 flex-1">
           <span className="block break-words text-[16px] font-medium leading-snug">{row.product.name}</span>
-          <span className="block text-[13px] text-label-2">{[row.categoryName, note].filter(Boolean).join(", ")}</span>
+          <span className="block text-[13px] text-label-2">{row.categoryName}</span>
         </span>
         <ChevronRight className="h-5 w-5 shrink-0 text-label-3" aria-hidden />
       </button>
@@ -42,8 +42,8 @@ function JumpRow({ row, note, onJump }: { row: ReviewRow; note?: string; onJump:
 }
 
 /**
- * Finish Count: what is still not counted (tap one to jump to it), what is over Build To, and two-place products with one place
- * blank, then Finalise Count. Finalise waits for the device's taps to reach the database and says so politely.
+ * Finish Count: only what is still not counted (tap one to jump to it), then Finish And Go To Orders. Uncounted products never
+ * block finishing. Finishing waits for the device's taps to reach the database and says so politely.
  */
 export function ReviewSheet({
   open,
@@ -87,8 +87,6 @@ export function ReviewSheet({
       )}
 
       <Section title="Not Counted" rows={lists.uncounted.map((r) => <JumpRow key={r.product.id} row={r} onJump={onJump} />)} />
-      <Section title="Over Build To" rows={lists.overPar.map((r) => <JumpRow key={r.product.id} row={r} note={`Over by ${r.over} (${r.counted} counted, Build To ${r.product.par})`} onJump={onJump} />)} />
-      <Section title="One Place Blank" rows={lists.partial.map((r) => <JumpRow key={r.product.id} row={r} note={`${r.missing} blank, counted as none`} onJump={onJump} />)} />
 
       <div className="sticky bottom-0 -mx-4 mt-6 bg-[#17171a] px-4 pb-1 pt-3 shadow-[0_-0.5px_0_var(--separator)]">
         {blocked ? (

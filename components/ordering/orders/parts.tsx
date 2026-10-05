@@ -108,22 +108,6 @@ export function RemoveButton({ name, onClick }: { name: string; onClick: () => v
   );
 }
 
-/** A switch with a 44 px high tap area (the shared Toggle is 31 px). */
-export function SwitchRow({ checked, onChange, label, sub }: { checked: boolean; onChange: (v: boolean) => void; label: string; sub?: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="flex min-h-[44px] w-full items-center gap-3 rounded-xl py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--label)]">
-      <span className="min-w-0 flex-1">
-        <span className="block text-[15px] font-medium text-label">{label}</span>
-        {sub ? <span className="block text-[13px] text-label-2">{sub}</span> : null}
-      </span>
-      <span aria-hidden className={cx("relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200 motion-reduce:transition-none", checked ? "bg-accent-fill" : "bg-fill-2")}>
-        <span className={cx("inline-block h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15)] transition-transform duration-200 motion-reduce:transition-none", checked ? "translate-x-[22px]" : "translate-x-[2px]")} />
-      </span>
-      <span className="w-6 text-[13px] font-semibold text-label-2">{checked ? "On" : "Off"}</span>
-    </button>
-  );
-}
-
 /** A choice made of visible 44 px chips (no hidden dropdown). */
 export function ChoiceChips<T extends string>({ options, value, onChange, label }: { options: { value: T; label: string }[]; value: T | null; onChange: (v: T) => void; label: string }) {
   return (

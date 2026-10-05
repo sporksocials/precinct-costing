@@ -177,17 +177,14 @@ describe("filters, jumps and the review lists", () => {
     expect(activeCategory([{ id: "a", top: 300 }], 100)).toBe("a");
     expect(activeCategory([], 100)).toBeNull();
   });
-  it("the review lists what is uncounted in shelf order, what is over par, and one-place-blank products", () => {
+  it("the review sheet lists only what is uncounted, in shelf order (over Build To and one-place-blank are not on it)", () => {
     const l = reviewLists(products, categories, qty([["Pale Ale", 5, 1], ["Lager", 2, null], ["Coke Bag", 0, null]]));
     expect(l.total).toBe(4);
     expect(l.counted).toBe(3);
     expect(l.uncounted.map((r) => r.product.id)).toEqual(["Lift Bag"]);
     expect(l.uncounted[0].categoryName).toBe("Post-Mix");
-    expect(l.overPar).toHaveLength(1);
-    expect(l.overPar[0]).toMatchObject({ counted: 6, over: 2 });
-    expect(l.partial).toHaveLength(1);
-    expect(l.partial[0]).toMatchObject({ missing: "Coldroom" });
-    expect(l.partial[0].product.id).toBe("Lager");
+    // Pale Ale is over Build To and Lager has one place blank: neither is listed any more
+    expect(Object.keys(l).sort()).toEqual(["counted", "total", "uncounted"]);
   });
 });
 

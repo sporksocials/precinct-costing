@@ -16,12 +16,14 @@ import {
   clampQty,
   commonUnit,
   countLabel,
+  countedLine,
   defaultSendMethod,
   draftLineFromProduct,
   draftLinesFromGroup,
   draftsToOrderLines,
   finalisedCounts,
   freeTextLine,
+  linePrice,
   linesSignature,
   minimumUnits,
   notNeededNote,
@@ -360,6 +362,15 @@ describe("how an order is recorded as sent", () => {
     expect(defaultSendMethod(null, "website")).toBe("website");
     expect(defaultSendMethod(null, "app")).toBe("other");
   });
+  it("is decided for the person: every send button maps to a method and the last one pressed wins", () => {
+    const ids = ["email", "outlook", "copy", "login"] as const;
+    const methods = ids.map((id) => defaultSendMethod(id, "email"));
+    expect(methods).toEqual(["email", "outlook", "copy", "website"]);
+    // the card keeps only the last id: Open Email then Copy Order records a copy
+    let last: (typeof ids)[number] | null = null;
+    for (const id of ["email", "copy"] as const) last = id;
+    expect(defaultSendMethod(last, "email")).toBe("copy");
+  });
 });
 
 describe("the state of a card", () => {
@@ -423,6 +434,35 @@ describe("price cells", () => {
   });
   it("is empty without a price", () => {
     expect(priceCells(3, null)).toEqual({ unitEx: null, unitInc: null, totalEx: null, totalInc: null });
+  });
+});
+
+describe("one price per order line", () => {
+  it("is the line total inc GST with what one costs, and never an ex GST figure", () => {
+    expect(linePrice(36, 29.5)).toEqual({ total: "$1,062.00", each: "$29.50 each" });
+    expect(linePrice(2, 31)).toEqual({ total: "$62.00", each: "$31.00 each" });
+    expect(JSON.stringify(linePrice(2, 31))).not.toMatch(/ex GST|\$28\.18/);
+  });
+  it("is null with no price or nothing ordered", () => {
+    expect(linePrice(3, null)).toBeNull();
+    expect(linePrice(0, 31)).toBeNull();
+  });
+});
+
+describe("the quiet count line on an order line", () => {
+  it("reads Counted, then Build To", () => {
+    expect(countedLine({ counted: 5, par: 8 })).toBe("Counted 5 of 8");
+    expect(countedLine({ counted: 0, par: 8 })).toBe("Counted 0 of 8");
+    expect(countedLine({ counted: 5, par: null })).toBe("Counted 5");
+  });
+  it("is absent for a line that was not counted (a typed line, a top-up, a skipped product)", () => {
+    expect(countedLine({ counted: null, par: 8 })).toBeNull();
+  });
+  it("never repeats the suggestion: a count line has Counted and Build To only", () => {
+    const g = groupFor("Lion");
+    const lines = draftLinesFromGroup(g);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(countedLine(l) ?? "").not.toMatch(/Suggested/i);
   });
 });
 

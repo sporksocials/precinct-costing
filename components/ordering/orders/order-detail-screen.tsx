@@ -10,7 +10,7 @@ import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
 import { money } from "@/lib/format";
 import { orderingVenueName, qtyText, qtyWithUnit } from "@/lib/ordering";
-import { SEND_METHOD_LABEL, brisbaneStamp, countLabel, plural, priceCells, sentLine, sentSummary, unitsText } from "@/lib/ordering-orders-ui";
+import { SEND_METHOD_LABEL, brisbaneStamp, countLabel, linePrice, plural, sentLine, sentSummary, unitsText } from "@/lib/ordering-orders-ui";
 import type { OrderingOrder, OrderingOrderLine, OrderingSupplier } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
@@ -197,12 +197,14 @@ function ProductCell({ l }: { l: OrderingOrderLine }) {
   );
 }
 
-function Money({ ex, inc }: { ex: string | null; inc: string | null }) {
-  if (ex == null || inc == null) return <span className="text-[13px] text-label-2">No price</span>;
+/** One price per line: the line total inc GST, with what one costs small. ex GST is only in the order total. */
+function Price({ qty, priceInc }: { qty: number; priceInc: number | null }) {
+  const p = linePrice(qty, priceInc);
+  if (!p) return <span className="text-[13px] text-label-2">No price</span>;
   return (
-    <span className="block text-[14px] leading-snug tnum">
-      <span className="block">{ex} <span className="text-[12px] text-label-2">ex GST</span></span>
-      <span className="block text-label-2">{inc} <span className="text-[12px]">inc GST</span></span>
+    <span className="block text-[16px] font-medium leading-snug text-label tnum">
+      {p.total}
+      <span className="block text-[12px] font-normal text-label-2">{p.each}</span>
     </span>
   );
 }
@@ -215,31 +217,18 @@ function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPr
           <th scope="col" className="px-4 pb-1 pt-3 font-medium">Product</th>
           <th scope="col" className="w-[90px] px-1 pb-1 pt-3 text-right font-medium">Suggested</th>
           <th scope="col" className="w-[110px] px-3 pb-1 pt-3 text-right font-medium">Ordered</th>
-          {showPrices ? (
-            <>
-              <th scope="col" className="w-[130px] px-1 pb-1 pt-3 font-medium">Price</th>
-              <th scope="col" className="w-[130px] px-1 pb-1 pt-3 font-medium">Line Total</th>
-            </>
-          ) : null}
+          {showPrices ? <th scope="col" className="w-[130px] px-1 pb-1 pt-3 font-medium">Price</th> : null}
         </tr>
       </thead>
       <tbody>
-        {lines.map((l) => {
-          const p = priceCells(l.ordered_qty, l.price_inc_gst);
-          return (
-            <tr key={l.id} className="border-t border-[color:var(--separator)] align-middle">
-              <td className="px-4 py-2.5"><ProductCell l={l} /></td>
-              <td className="px-1 py-2.5 text-right text-[15px] tnum text-label-2">{l.suggested_qty == null ? "-" : qtyText(l.suggested_qty)}</td>
-              <td className="px-3 py-2.5 text-right text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</td>
-              {showPrices ? (
-                <>
-                  <td className="px-1 py-2.5"><Money ex={p.unitEx} inc={p.unitInc} /></td>
-                  <td className="px-1 py-2.5"><Money ex={p.totalEx} inc={p.totalInc} /></td>
-                </>
-              ) : null}
-            </tr>
-          );
-        })}
+        {lines.map((l) => (
+          <tr key={l.id} className="border-t border-[color:var(--separator)] align-middle">
+            <td className="px-4 py-2.5"><ProductCell l={l} /></td>
+            <td className="px-1 py-2.5 text-right text-[15px] tnum text-label-2">{l.suggested_qty == null ? "-" : qtyText(l.suggested_qty)}</td>
+            <td className="px-3 py-2.5 text-right text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</td>
+            {showPrices ? <td className="px-1 py-2.5"><Price qty={l.ordered_qty} priceInc={l.price_inc_gst} /></td> : null}
+          </tr>
+        ))}
       </tbody>
     </table>
   );
@@ -248,21 +237,18 @@ function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPr
 function DetailList({ lines, showPrices }: { lines: OrderingOrderLine[]; showPrices: boolean }) {
   return (
     <ul>
-      {lines.map((l) => {
-        const p = priceCells(l.ordered_qty, l.price_inc_gst);
-        return (
-          <li key={l.id} className="flex items-start gap-3 border-t border-[color:var(--separator)] px-4 py-3 first:border-t-0">
-            <div className="min-w-0 flex-1">
-              <ProductCell l={l} />
-              {l.suggested_qty != null ? <span className="mt-0.5 block text-[13px] text-label-2 tnum">Suggested {qtyText(l.suggested_qty)}</span> : null}
-            </div>
-            <div className="shrink-0 text-right">
-              <span className="block text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</span>
-              {showPrices ? <Money ex={p.totalEx} inc={p.totalInc} /> : null}
-            </div>
-          </li>
-        );
-      })}
+      {lines.map((l) => (
+        <li key={l.id} className="flex items-start gap-3 border-t border-[color:var(--separator)] px-4 py-3 first:border-t-0">
+          <div className="min-w-0 flex-1">
+            <ProductCell l={l} />
+            {l.suggested_qty != null ? <span className="mt-0.5 block text-[13px] text-label-2 tnum">Suggested {qtyText(l.suggested_qty)}</span> : null}
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="block text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</span>
+            {showPrices ? <Price qty={l.ordered_qty} priceInc={l.price_inc_gst} /> : null}
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }

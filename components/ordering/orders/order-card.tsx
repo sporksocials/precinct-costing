@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useId, useMemo, useState } from "react";
-import { AlertTriangle, Check, ChevronRight, Globe, Mail, Phone, Plus, Smartphone } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Globe, Mail, Plus, Smartphone } from "lucide-react";
 import { Sheet, cx, useToast } from "@/components/ui";
 import { money } from "@/lib/format";
 import { orderingVenueName } from "@/lib/ordering";
@@ -10,7 +10,6 @@ import { OrderingError, createOrder, markOrderSent } from "@/lib/ordering-data";
 import {
   METHOD_LABEL,
   SEND_METHOD_LABEL,
-  SEND_METHOD_OPTIONS,
   addLine,
   buildSupplierSend,
   cardMode,
@@ -31,12 +30,12 @@ import {
   type DraftLine,
   type SendActionId,
 } from "@/lib/ordering-orders-ui";
-import type { OrderKind, OrderSendMethod, OrderingOrder, OrderingOrderLine, OrderingProduct, OrderingSupplier, SuggestedLine } from "@/lib/ordering-types";
+import type { OrderKind, OrderingOrder, OrderingOrderLine, OrderingProduct, OrderingSupplier, SuggestedLine } from "@/lib/ordering-types";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import type { Venue } from "@/lib/types";
 import { AddProduct } from "./add-product";
 import { LineEditor } from "./line-editor";
-import { ChoiceChips, Notice, StatusPill, SwitchRow, btnPlain, btnPrimary, btnText, btnTinted, useWide } from "./parts";
+import { Notice, StatusPill, btnPlain, btnPrimary, btnText, btnTinted, useWide } from "./parts";
 import { SendPanel } from "./send-panel";
 
 /** A sent order shown on its card. `lines` is null while they are still being loaded. */
@@ -87,26 +86,10 @@ export function MethodBadge({ method }: { method: OrderingSupplier["method"] }) 
   );
 }
 
-function telHref(phone: string): string {
-  return `tel:${phone.replace(/[^\d+]/g, "")}`;
-}
-
-/** Supplier name, how the order goes out, the rep and the account. Shared by the card and the order detail page. */
-export function SupplierFacts({ supplier }: { supplier: Pick<OrderingSupplier, "method" | "email_to" | "login_url" | "rep_name" | "rep_phone" | "account_no"> }) {
+/** Supplier name sits above this: ONE quiet line, the email address (email suppliers) or the login website. Shared by the card and the order detail page. */
+export function SupplierFacts({ supplier }: { supplier: Pick<OrderingSupplier, "method" | "email_to" | "login_url"> }) {
   const where = supplier.method === "email" ? supplier.email_to : supplier.login_url ? supplier.login_url.replace(/^https?:\/\//, "").replace(/\/$/, "") : null;
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-label-2">
-      {where ? <span className="min-w-0 break-all">{where}</span> : null}
-      {supplier.rep_name ? <span>Rep {supplier.rep_name}</span> : null}
-      {supplier.rep_phone ? (
-        <a href={telHref(supplier.rep_phone)} className="inline-flex min-h-[44px] items-center gap-1.5 text-accent">
-          <Phone aria-hidden className="h-3.5 w-3.5" strokeWidth={2.25} />
-          {supplier.rep_phone}
-        </a>
-      ) : null}
-      {supplier.account_no ? <span>Account {supplier.account_no}</span> : null}
-    </div>
-  );
+  return where ? <p className="mt-1.5 min-w-0 break-all text-[14px] text-label-2">{where}</p> : null;
 }
 
 export function OrderCard(p: OrderCardProps) {
@@ -117,14 +100,14 @@ export function OrderCard(p: OrderCardProps) {
   const titleId = useId();
 
   const [lines, setLines] = useState<DraftLine[]>(p.initialLines);
-  const [showPrices, setShowPrices] = useState(supplier.show_prices_on_order);
+  /** prices follow the supplier's own setting (Setup > Suppliers), never a per-order switch */
+  const showPrices = supplier.show_prices_on_order;
   const [open, setOpen] = useState(p.startOpen ?? p.initialLines.length > 0);
   const [adding, setAdding] = useState(false);
   const [notNeededOpen, setNotNeededOpen] = useState(false);
   const [uncountedOpen, setUncountedOpen] = useState(true);
   const [lastAction, setLastAction] = useState<SendActionId | null>(null);
   const [confirming, setConfirming] = useState(false);
-  const [chosenMethod, setChosenMethod] = useState<OrderSendMethod | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendAgain, setSendAgain] = useState(false);
@@ -158,7 +141,6 @@ export function OrderCard(p: OrderCardProps) {
 
   const startSendAgain = () => {
     setLines(p.initialLines);
-    setShowPrices(supplier.show_prices_on_order);
     setSavedDraft(null);
     setLastAction(null);
     setError(null);
@@ -167,7 +149,8 @@ export function OrderCard(p: OrderCardProps) {
   };
 
   const confirmSent = async () => {
-    const method = chosenMethod ?? defaultSendMethod(lastAction, supplier.method);
+    // decided for the person: the last way used on this card, else the supplier's own way
+    const method = defaultSendMethod(lastAction, supplier.method);
     setSaving(true);
     setError(null);
     try {
@@ -197,7 +180,6 @@ export function OrderCard(p: OrderCardProps) {
   const latest = sentAll[0] ?? null;
   const earlier = sentAll.slice(1);
   const summary = latest?.lines ? sentSummary(latest.lines) : null;
-  const methodForChips = chosenMethod ?? defaultSendMethod(lastAction, supplier.method);
   const hasPrice = send.totals.pricedLines > 0;
 
   return (
@@ -213,10 +195,10 @@ export function OrderCard(p: OrderCardProps) {
           </div>
           <SupplierFacts supplier={supplier} />
         </div>
-        {mode === "edit" ? (
-          <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className={cx(btnText, "shrink-0")}>
-            {open ? "Hide" : hasLines ? `Open (${plural(hasLines ? send.lineCount : 0, "line")})` : "Open"}
-            <ChevronRight aria-hidden className={cx("h-4 w-4 transition-transform motion-reduce:transition-none", open && "rotate-90")} strokeWidth={2.5} />
+        {mode === "edit" && !open ? (
+          <button type="button" aria-expanded={false} onClick={() => setOpen(true)} className={cx(btnText, "shrink-0")}>
+            {hasLines ? `Open (${plural(send.lineCount, "line")})` : "Open"}
+            <ChevronRight aria-hidden className="h-4 w-4" strokeWidth={2.5} />
           </button>
         ) : null}
       </div>
@@ -287,10 +269,6 @@ export function OrderCard(p: OrderCardProps) {
             </div>
           ) : null}
           {supplier.notes && !send.warning ? <p className="px-4 pb-2 text-[14px] text-label-2">Supplier note: {supplier.notes}</p> : null}
-          <div className="px-4 pb-1">
-            <SwitchRow checked={showPrices} onChange={setShowPrices} label="Show Prices On This Order" sub={supplier.show_prices_on_order ? "This supplier asks for prices on its orders." : "Off by default for this supplier. Turn it on for this order only."} />
-          </div>
-
           <div className="border-t border-[color:var(--separator)]">
             <LineEditor lines={lines} showPrices={showPrices} wide={wide} onQty={setQty} onRemove={remove} />
           </div>
@@ -346,7 +324,6 @@ export function OrderCard(p: OrderCardProps) {
                 <p className="text-[13px] text-label-2">No prices saved for these products.</p>
               )}
             </div>
-            {hasPrice && !showPrices ? <p className="mt-1 text-[13px] text-label-2">Prices are not included in the order text.</p> : null}
             {send.totals.unpricedLines > 0 && hasPrice ? (
               <p className="mt-1 text-[13px] text-label-2">{plural(send.totals.unpricedLines, "line")} with no price {send.totals.unpricedLines === 1 ? "is" : "are"} not in the total.</p>
             ) : null}
@@ -359,7 +336,7 @@ export function OrderCard(p: OrderCardProps) {
             ) : null}
           </div>
 
-          <SendPanel supplier={supplier} send={send} actions={actions} wide={wide} onUsed={setLastAction} onMarkSent={() => { setError(null); setChosenMethod(null); setConfirming(true); }} markDisabled={!hasLines} />
+          <SendPanel supplier={supplier} send={send} actions={actions} onUsed={setLastAction} onMarkSent={() => { setError(null); setConfirming(true); }} markDisabled={!hasLines} />
         </div>
       ) : null}
 
@@ -370,9 +347,7 @@ export function OrderCard(p: OrderCardProps) {
         <p className="mt-1 text-[15px] text-label-2">
           {send.subject} to {supplier.name}: {plural(send.lineCount, "product")}, {unitsText(send.textLines)}.
         </p>
-        <p className="mt-2 text-[15px] text-label-2">Only mark it once it has gone. Opening an email draft does not send it. The exact text, who sent it and when are saved.</p>
-        <p className="mb-2 mt-4 text-[15px] font-medium text-label">How did you send it?</p>
-        <ChoiceChips label="How the order was sent" options={SEND_METHOD_OPTIONS} value={methodForChips} onChange={(v) => setChosenMethod(v)} />
+        <p className="mt-2 text-[15px] text-label-2">Only mark it once it has gone. Opening an email draft does not send it. The order is saved with who sent it and when.</p>
         {error ? (
           <Notice tone="danger" className="mt-3" role="alert">
             <p className="font-medium">Not saved.</p>
@@ -387,7 +362,6 @@ export function OrderCard(p: OrderCardProps) {
             Not Yet
           </button>
         </div>
-        <p className="mt-3 text-[13px] text-label-2">Way sent: {SEND_METHOD_LABEL[methodForChips]}.</p>
       </Sheet>
     </section>
   );

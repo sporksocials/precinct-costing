@@ -9,12 +9,12 @@ import { VenueAccent } from "@/components/venue";
 import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
 import { ORDER_SIGN_OFF, buildSupplierOrders, orderingVenueName } from "@/lib/ordering";
-import { brisbaneDay, brisbaneTime, countLabel, draftLinesFromGroup, finalisedCounts, orderCardGroups, pickCount, plural, sentOrdersFor } from "@/lib/ordering-orders-ui";
-import type { OrderingCountSession, SuggestedLine, SupplierOrderGroup } from "@/lib/ordering-types";
+import { brisbaneTime, countLabel, draftLinesFromGroup, orderCardGroups, pickCount, plural, sentOrdersFor } from "@/lib/ordering-orders-ui";
+import type { SuggestedLine, SupplierOrderGroup } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
 import { OrderCard, type SentEntry } from "./order-card";
-import { ChoiceChips, Notice, btnPrimary, btnText } from "./parts";
+import { Notice, btnPrimary, btnText } from "./parts";
 import { PastOrders } from "./past-orders";
 import { TopUpPanel } from "./topup";
 import { useCountLines, useSentOrderLines, useVenueOrders } from "./use-orders-data";
@@ -33,25 +33,15 @@ export function UnknownVenue() {
   return <Empty title="Venue Not Found" body="That venue is not in the list. Go back to Ordering and pick one." action={<Link href="/more" className={btnPrimary}>Back To More</Link>} />;
 }
 
-/** Chip labels for the finished counts: the day, plus the time when two counts share a day. */
-function countChips(counts: readonly OrderingCountSession[]): { value: string; label: string }[] {
-  const day = (s: OrderingCountSession) => brisbaneDay(s.finalised_at ?? s.started_at);
-  return counts.slice(0, 6).map((s) => {
-    const same = counts.filter((o) => day(o) === day(s)).length > 1;
-    return { value: s.id, label: same ? `${day(s)} ${brisbaneTime(s.finalised_at ?? s.started_at)}` : day(s) };
-  });
-}
-
 function OrdersForVenue({ venue }: { venue: Venue }) {
   const store = useStore();
   const nameOf = usePersonName();
   const senderName = ORDER_SIGN_OFF;
   const { status, error, data, orders, reloadOrders } = useVenueOrders(venue.id);
-  const [wanted, setWanted] = useState<string | null>(null);
   const [topUp, setTopUp] = useState(false);
 
-  const finished = useMemo(() => (data ? finalisedCounts(data.sessions) : []), [data]);
-  const session = data ? pickCount(data.sessions, wanted) : null;
+  // orders always use the latest finished count (Edit Count fixes a mistake in it)
+  const session = data ? pickCount(data.sessions, null) : null;
   const { lines: countLines, error: linesError } = useCountLines(session?.id ?? null);
   const sessionOrders = useMemo(() => (session ? orders.filter((o) => o.session_id === session.id && o.status === "sent") : []), [orders, session]);
   const sentLines = useSentOrderLines(sessionOrders);
@@ -94,8 +84,7 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
             <h2 className="px-1 pb-2 text-[13px] font-medium text-label-2">Count To Order From</h2>
             {session ? (
               <>
-                {finished.length > 1 ? <ChoiceChips label="Choose a finished count" options={countChips(finished)} value={session.id} onChange={setWanted} /> : null}
-                <p className="mt-2 flex flex-wrap items-center gap-x-3 px-1 text-[15px] text-label">
+                <p className="flex flex-wrap items-center gap-x-3 px-1 text-[15px] text-label">
                   <span>
                     {countLabel(session, nameOf)} <span className="text-label-2">at {brisbaneTime(session.finalised_at ?? session.started_at)}</span>
                   </span>

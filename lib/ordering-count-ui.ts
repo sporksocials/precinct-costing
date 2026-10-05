@@ -218,16 +218,13 @@ export interface ReviewLists {
   counted: number;
   total: number;
   uncounted: ReviewRow[];
-  overPar: (ReviewRow & { counted: number; over: number })[];
-  partial: (ReviewRow & { missing: string })[];
 }
 
-/** What Finish Count shows: what is not counted yet (in shelf order), what is over Build To, and two-place products with one place blank. */
+/** What Finish Count shows: only what is not counted yet, in shelf order. "Over by N" is said under the row's own controls. */
 export function reviewLists(products: readonly OrderingProduct[], categories: readonly OrderingCategory[], qty: ReadonlyMap<string, RowQty>): ReviewLists {
   const lines = [...qty.entries()].map(([product_id, r]) => ({ product_id, store_qty: r.store, second_qty: r.second }));
   const progress: CountProgress = countProgress(products, lines, categories);
   const catName = new Map(categories.map((c) => [c.id, c.name]));
-  const secondLabel = new Map(categories.map((c) => [c.id, c.second_location_label]));
   const row = (product: OrderingProduct): ReviewRow => ({ product, categoryName: catName.get(product.category_id) ?? "" });
   const shelf = new Map(categories.map((c, i) => [c.id, i]));
   const byShelf = (a: ReviewRow, b: ReviewRow) => (shelf.get(a.product.category_id) ?? 1e9) - (shelf.get(b.product.category_id) ?? 1e9) || a.product.sort - b.product.sort || a.product.name.localeCompare(b.product.name);
@@ -235,8 +232,6 @@ export function reviewLists(products: readonly OrderingProduct[], categories: re
     counted: progress.counted,
     total: progress.total,
     uncounted: progress.uncounted.map(row).sort(byShelf),
-    overPar: progress.overPar.map((o) => ({ ...row(o.product), counted: o.counted, over: o.over })).sort(byShelf),
-    partial: progress.partial.map((x) => ({ ...row(x.product), missing: x.missing === "store" ? STORE_LABEL : secondLabel.get(x.product.category_id) ?? "Second place" })).sort(byShelf),
   };
 }
 

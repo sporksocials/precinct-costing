@@ -47,7 +47,7 @@ function VenueCount({ venue }: { venue: Venue }) {
   const { userEmail } = useStore();
   const nameOf = usePersonName();
   const c = useCountSession(venue.id, userEmail);
-  const { setQty, enter, finalise } = c;
+  const { setQty, setPar, enter, finalise } = c;
   const venueName = VENUE_SHORT[venue.slug] ?? venue.name;
   const base = `/ordering/${venue.slug}`;
 
@@ -347,7 +347,7 @@ function VenueCount({ venue }: { venue: Venue }) {
                   <ul className="divide-y divide-[color:var(--separator)] overflow-hidden rounded-2xl bg-surface">
                     {g.products.map((p) => {
                       const q = c.qty.get(p.id);
-                      return <CountRow key={p.id} product={p} secondLabel={secondLabel.get(p.category_id) ?? null} store={q?.store ?? null} second={q?.second ?? null} readOnly={readOnly} flash={flash === p.id} onSet={onSet} />;
+                      return <CountRow key={p.id} product={p} secondLabel={secondLabel.get(p.category_id) ?? null} store={q?.store ?? null} second={q?.second ?? null} readOnly={readOnly} flash={flash === p.id} onSet={onSet} onSetPar={setPar} />;
                     })}
                   </ul>
                 </section>

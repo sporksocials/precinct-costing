@@ -1,10 +1,11 @@
 "use client";
 
-import { memo } from "react";
-import { Check, Circle } from "lucide-react";
+import { memo, useState } from "react";
+import { Check, Circle, Pencil } from "lucide-react";
 import { cx } from "@/components/ui";
 import { STORE_LABEL, rowAnchor, rowStatus, unitPlural } from "@/lib/ordering-count-ui";
 import type { OrderingProduct } from "@/lib/ordering-types";
+import { ParEditor } from "./par-editor";
 import { PlaceControl } from "./place-control";
 
 export interface CountRowProps {
@@ -18,6 +19,8 @@ export interface CountRowProps {
   /** briefly marked after a jump from the review sheet */
   flash: boolean;
   onSet: (product: OrderingProduct, place: "store" | "second", value: number | null) => void;
+  /** save a new Build To; resolves with a message when it could not */
+  onSetPar: (product: OrderingProduct, par: number) => Promise<string | null>;
 }
 
 const dash = (n: number | null) => (n == null ? "-" : String(n));
@@ -26,7 +29,8 @@ const dash = (n: number | null) => (n == null ? "-" : String(n));
  * One product on the count screen. Takes plain numbers (not objects) so a tap re-renders only its own row, even with 300 products.
  * An uncounted row says "Not counted" in words with a hollow dot, a counted row says "Counted" with a tick: never colour alone.
  */
-export const CountRow = memo(function CountRow({ product, secondLabel, store, second, readOnly, flash, onSet }: CountRowProps) {
+export const CountRow = memo(function CountRow({ product, secondLabel, store, second, readOnly, flash, onSet, onSetPar }: CountRowProps) {
+  const [editingPar, setEditingPar] = useState(false);
   const status = rowStatus({ store, second }, secondLabel);
   const counted = status.state === "counted";
   const over = counted && status.total != null && status.total > product.par ? status.total - product.par : 0;
@@ -38,9 +42,16 @@ export const CountRow = memo(function CountRow({ product, secondLabel, store, se
           <p className="break-words text-[17px] font-semibold leading-snug">{product.name}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-label-2">
             <span>{unitPlural(product.unit_name)}</span>
-            <span className="inline-flex items-center rounded-md bg-fill-2 px-2 py-0.5 text-[14px] font-semibold text-label">
-              Build To <span className="tnum ml-1">{product.par}</span>
-            </span>
+            <button
+              type="button"
+              aria-label={`Build To ${product.par} for ${product.name}. Change it`}
+              aria-expanded={editingPar}
+              onClick={() => setEditingPar((v) => !v)}
+              className="inline-flex min-h-[44px] touch-manipulation items-center gap-1.5 rounded-xl bg-fill-2 px-3 text-[14px] font-semibold text-label transition active:opacity-80 motion-reduce:transition-none"
+            >
+              Build To <span className="tnum">{product.par}</span>
+              <Pencil className="h-3.5 w-3.5 text-label-2" aria-hidden />
+            </button>
             {counted ? (
               <span className="inline-flex items-center gap-1 font-medium text-good">
                 <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
@@ -74,6 +85,7 @@ export const CountRow = memo(function CountRow({ product, secondLabel, store, se
           </div>
         )}
       </div>
+      {editingPar ? <ParEditor product={product} onSave={onSetPar} onClose={() => setEditingPar(false)} /> : null}
       {/* notes sit BELOW the controls so a tap never moves the buttons the finger is on */}
       {over > 0 || status.blank ? (
         <p className="mt-2 flex flex-wrap gap-x-3 text-[13px] font-medium text-warn">

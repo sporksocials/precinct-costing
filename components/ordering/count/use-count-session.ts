@@ -13,6 +13,7 @@ import {
   readCountQueue,
   startCountSession,
   syncCountEdits,
+  updateProduct,
   writeCountQueue,
 } from "@/lib/ordering-data";
 import { cacheUsable, coalesceEdit, finaliseBlock, openOrLast, queueSessions, retryDelayMs, syncStatus, type CountCache, type RowQty, type SyncStatus } from "@/lib/ordering-count-ui";
@@ -52,6 +53,8 @@ export interface CountController {
   leave: () => void;
   setQty: (product: OrderingProduct, place: "store" | "second", value: number | null) => void;
   finalise: () => Promise<{ ok: boolean; message: string | null }>;
+  /** change a product's Build To (needs a connection; the screen shows it at once and puts it back if the save fails). Resolves with a message when it could not. */
+  setPar: (product: OrderingProduct, par: number) => Promise<string | null>;
   /** try a sync now (Retry) */
   syncNow: () => void;
   reload: () => void;
@@ -296,6 +299,30 @@ export function useCountSession(venueId: number | null, email: string | null): C
 
   /* ---- actions ---- */
 
+  const setPar = useCallback(async (product: OrderingProduct, par: number): Promise<string | null> => {
+    const data = viewRef.current;
+    if (!data) return "The count is still loading.";
+    if (!Number.isInteger(par) || par < 0) return "Build To must be a whole number, 0 or more.";
+    if (!isOnline()) return "Changing Build To needs a connection. Your counts are still saved on this device.";
+    const old = data.products.find((p) => p.id === product.id)?.par ?? product.par;
+    const put = (value: number) => {
+      const cur = viewRef.current;
+      if (!cur) return;
+      const next: VenueView = { ...cur, products: cur.products.map((p) => (p.id === product.id ? { ...p, par: value } : p)) };
+      viewRef.current = next;
+      setView(next);
+    };
+    put(par);
+    try {
+      await updateProduct(sb(), product.id, { par });
+      persist();
+      return null;
+    } catch (err) {
+      put(old);
+      return err instanceof Error ? err.message : "Build To could not be saved.";
+    }
+  }, [persist]);
+
   const enter = useCallback(
     async (which: "open" | "last"): Promise<string | null> => {
       const { venueId: v, email: e } = ids.current;
@@ -427,6 +454,7 @@ export function useCountSession(venueId: number | null, email: string | null): C
     leave,
     setQty,
     finalise,
+    setPar,
     syncNow: () => {
       attempt.current = 0;
       void sync();

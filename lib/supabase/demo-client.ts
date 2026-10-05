@@ -265,6 +265,10 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
     this.filters.push((r) => r[col] === v);
     return this;
   }
+  neq(col: string, v: unknown): this {
+    this.filters.push((r) => r[col] !== v);
+    return this;
+  }
   in(col: string, vs: unknown[]): this {
     const s = new Set(vs);
     this.filters.push((r) => s.has(r[col]));

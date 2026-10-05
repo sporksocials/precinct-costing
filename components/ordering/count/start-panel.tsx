@@ -25,6 +25,7 @@ export function StartPanel({
   nameOf,
   onStart,
   onViewLast,
+  onCancel,
 }: {
   slug: string;
   venueName: string;
@@ -40,6 +41,8 @@ export function StartPanel({
   nameOf: (email: string | null | undefined) => string | null;
   onStart: () => void;
   onViewLast: () => void;
+  /** cancel the count in progress (only offered while one is open) */
+  onCancel: () => void;
 }) {
   const cannotStart = !open && !online;
   return (
@@ -72,6 +75,11 @@ export function StartPanel({
         <button type="button" className="btn-primary !min-h-[44px] mt-4 w-full" disabled={starting || productCount === 0 || cannotStart} onClick={onStart}>
           {starting ? "Opening..." : open ? "Resume Count" : "Start Count"}
         </button>
+        {open ? (
+          <button type="button" className="btn-plain !min-h-[44px] mt-2 w-full !text-danger" disabled={starting} onClick={onCancel}>
+            Cancel Count
+          </button>
+        ) : null}
         {productCount === 0 ? <p className="mt-2 text-[13px] text-label-2">There are no active products at {venueName} yet. Add them in Ordering setup first.</p> : null}
       </section>
 

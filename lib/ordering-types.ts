@@ -8,7 +8,7 @@
 export type OrderingMethod = "email" | "website" | "app";
 /** How an order was actually sent (saved on the order). */
 export type OrderSendMethod = "email" | "outlook" | "copy" | "website" | "other";
-export type CountStatus = "in_progress" | "finalised";
+export type CountStatus = "in_progress" | "finalised" | "cancelled";
 export type OrderStatus = "draft" | "sent";
 export type OrderKind = "count" | "top_up";
 

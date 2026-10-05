@@ -449,3 +449,14 @@ describe("copyText", () => {
     expect(await copyText("x", { writeText: null, legacyCopy: () => { throw new Error("no"); } })).toBe(false);
   });
 });
+
+describe("sign-off", () => {
+  it("every order email is signed off by Matt, never by the signed-in person (orders must not read as coming from SPORK)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { ORDER_SIGN_OFF } = await import("@/lib/ordering");
+    expect(ORDER_SIGN_OFF).toBe("Matt");
+    const src = readFileSync("components/ordering/orders/orders-screen.tsx", "utf8");
+    expect(src).toContain("const senderName = ORDER_SIGN_OFF;");
+    expect(src).not.toMatch(/senderName\s*=\s*nameOf/);
+  });
+});

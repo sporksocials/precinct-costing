@@ -1924,3 +1924,9 @@ comment on table public.ordering_orders is 'Ordering: one supplier order for one
 comment on table public.ordering_order_lines is 'Ordering: the lines of an order, with name, unit, code and price as they were when the order was made.';
 comment on table public.ordering_price_uploads is 'Ordering: a supplier price sheet applied to one venue (who, when, file, how many rows matched, changed and unmatched).';
 comment on table public.ordering_price_log is 'Ordering: every change to a product''s order price (old and new, who, when, and the upload it came from).';
+
+-- Ordering: a count in progress can be cancelled (set aside, never deleted).
+-- A cancelled count frees the "one count in progress per venue" slot, never becomes "last count" and is never used for orders.
+-- Who cancelled it and when is in updated_by / updated_at and the Change Log (the sessions table is already tracked).
+alter table public.ordering_count_sessions drop constraint if exists ordering_count_sessions_status_check;
+alter table public.ordering_count_sessions add constraint ordering_count_sessions_status_check check (status in ('in_progress', 'finalised', 'cancelled'));

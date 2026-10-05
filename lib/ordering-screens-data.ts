@@ -55,7 +55,7 @@ export interface VenueSummary {
 export async function loadVenueSummary(sb: SupabaseClient, venueId: number): Promise<VenueSummary> {
   const [prod, sess, drafts] = await Promise.all([
     sb.from(T.products).select("id", { count: "exact", head: true }).eq("venue_id", venueId).eq("active", true),
-    sb.from(T.sessions).select("*").eq("venue_id", venueId).order("started_at", { ascending: false }).limit(10),
+    sb.from(T.sessions).select("*").eq("venue_id", venueId).neq("status", "cancelled").order("started_at", { ascending: false }).limit(10),
     sb.from(T.orders).select("id", { count: "exact", head: true }).eq("venue_id", venueId).eq("status", "draft"),
   ]);
   if (prod.error) fail(prod.error);
@@ -152,7 +152,7 @@ export async function copyVenueSetup(
 
 /** A page of count sessions, newest first. `before` (an ISO start time) continues from the last one already loaded. */
 export async function loadSessionsPage(sb: SupabaseClient, venueId: number, opts: { before?: string; limit?: number } = {}): Promise<OrderingCountSession[]> {
-  let q = sb.from(T.sessions).select("*").eq("venue_id", venueId);
+  let q = sb.from(T.sessions).select("*").eq("venue_id", venueId).neq("status", "cancelled");
   if (opts.before) q = q.lt("started_at", opts.before);
   const { data, error } = await q.order("started_at", { ascending: false }).limit(opts.limit ?? 12);
   if (error) fail(error);

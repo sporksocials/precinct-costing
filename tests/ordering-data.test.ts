@@ -12,6 +12,7 @@ import {
   createOrder,
   createProduct,
   createSupplier,
+  cancelCountSession,
   finaliseCountSession,
   loadCountLines,
   loadOrderLines,
@@ -119,6 +120,22 @@ describe("count sessions", () => {
     const other = await startCountSession(sb, 1, "a@x.com");
     expect(other.resumed).toBe(false);
     expect(other.session.id).not.toBe(a.session.id);
+  });
+
+  it("Cancel Count sets a count in progress aside: it frees the slot, is hidden, and a finished count cannot be cancelled", async () => {
+    const a = await startCountSession(sb, 2, "a@x.com");
+    expect(await cancelCountSession(sb, a.session.id)).toMatchObject({ status: "cancelled" });
+    const after = await loadVenueOrdering(sb, 2);
+    expect(after.openSession).toBeNull();
+    expect(after.sessions.some((x) => x.id === a.session.id)).toBe(false);
+    // a fresh count can start, and it is a different one
+    const b = await startCountSession(sb, 2, "a@x.com");
+    expect(b.resumed).toBe(false);
+    expect(b.session.id).not.toBe(a.session.id);
+    // cancelling twice is harmless, a finished count is refused
+    expect(await cancelCountSession(sb, a.session.id)).toMatchObject({ status: "cancelled" });
+    await finaliseCountSession(sb, b.session.id, "a@x.com");
+    await expect(cancelCountSession(sb, b.session.id)).rejects.toThrow(/already finished/);
   });
 
   it("syncs queued edits: a zero stays zero, a clear stays null, a retry changes nothing, nothing is logged while in progress", async () => {
@@ -256,7 +273,7 @@ describe("inserts", () => {
 describe("errors", () => {
   const failing = (error: { code?: string; message: string }) => {
     const q: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "order", "limit", "range", "update", "insert", "upsert"]) q[m] = () => q;
+    for (const m of ["select", "eq", "neq", "order", "limit", "range", "update", "insert", "upsert"]) q[m] = () => q;
     q.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: null, error }).then(ok);
     return { from: () => q } as unknown as SupabaseClient;
   };

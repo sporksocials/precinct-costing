@@ -104,7 +104,7 @@ export async function loadVenueOrdering(sb: SupabaseClient, venueId: number, ses
     pageAll<OrderingSupplier>((a, b) => sb.from(T.suppliers).select("*").eq("venue_id", venueId).order("sort").order("name").order("id").range(a, b)),
     pageAll<OrderingCategory>((a, b) => sb.from(T.categories).select("*").eq("venue_id", venueId).order("sort").order("name").order("id").range(a, b)),
     pageAll<OrderingProduct>((a, b) => sb.from(T.products).select("*").eq("venue_id", venueId).order("sort").order("name").order("id").range(a, b)),
-    sb.from(T.sessions).select("*").eq("venue_id", venueId).order("started_at", { ascending: false }).limit(sessionLimit),
+    sb.from(T.sessions).select("*").eq("venue_id", venueId).neq("status", "cancelled").order("started_at", { ascending: false }).limit(sessionLimit),
   ]);
   if (sessionsRes.error) fail(sessionsRes.error);
   const sessions = (sessionsRes.data ?? []) as OrderingCountSession[];
@@ -267,6 +267,22 @@ export async function finaliseCountSession(sb: SupabaseClient, sessionId: string
   const { data: existing, error: e2 } = await sb.from(T.sessions).select("*").eq("id", sessionId);
   if (e2) fail(e2);
   return one<OrderingCountSession>(existing, "That count could not be found.");
+}
+
+/**
+ * Cancel a count that is still in progress: it is set aside (status cancelled), never deleted. It frees the venue's one open
+ * slot, is never "the last count" and is never used for orders. A finalised count cannot be cancelled (Edit Count corrects it).
+ */
+export async function cancelCountSession(sb: SupabaseClient, sessionId: string): Promise<OrderingCountSession> {
+  const { data, error } = await sb.from(T.sessions).update({ status: "cancelled" }).eq("id", sessionId).eq("status", "in_progress").select("*");
+  if (error) fail(error);
+  const first = (data ?? [])[0] as OrderingCountSession | undefined;
+  if (first) return first;
+  const { data: existing, error: e2 } = await sb.from(T.sessions).select("*").eq("id", sessionId);
+  if (e2) fail(e2);
+  const s = one<OrderingCountSession>(existing, "That count could not be found.");
+  if (s.status === "finalised") throw new Error("That count is already finished, so it cannot be cancelled. Use Edit Count to correct a number.");
+  return s;
 }
 
 /* ------------------------------------------------------------------ orders */

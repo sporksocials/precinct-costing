@@ -7,6 +7,7 @@ import { newId } from "@/lib/store";
 import {
   countLinesWithQueue,
   dropSyncedEdits,
+  cancelCountSession,
   finaliseCountSession,
   loadCountLines,
   loadVenueOrdering,
@@ -53,6 +54,8 @@ export interface CountController {
   leave: () => void;
   setQty: (product: OrderingProduct, place: "store" | "second", value: number | null) => void;
   finalise: () => Promise<{ ok: boolean; message: string | null }>;
+  /** cancel the count in progress (set aside, never deleted). Needs a connection. Resolves with a message when it could not. */
+  cancel: () => Promise<string | null>;
   /** change a product's Build To (needs a connection; the screen shows it at once and puts it back if the save fails). Resolves with a message when it could not. */
   setPar: (product: OrderingProduct, par: number) => Promise<string | null>;
   /** try a sync now (Retry) */
@@ -207,8 +210,11 @@ export function useCountSession(venueId: number | null, email: string | null): C
     try {
       const gen = syncGen.current;
       const d = await loadVenueOrdering(sb(), v, 12);
-      const data: VenueView = { categories: d.categories, products: d.products, sessions: d.sessions };
-      const keep = viewIdRef.current && d.sessions.some((s) => s.id === viewIdRef.current) ? viewIdRef.current : null;
+      // a count started on this screen while this read was out may not be in what the database returned yet: keep it
+      const local = viewIdRef.current ? viewRef.current?.sessions.find((s) => s.id === viewIdRef.current && s.status === "in_progress" && Date.now() - Date.parse(s.started_at) < 120_000) : undefined;
+      const sessions = local && !d.sessions.some((s) => s.id === local.id) ? [local, ...d.sessions] : d.sessions;
+      const data: VenueView = { categories: d.categories, products: d.products, sessions };
+      const keep = viewIdRef.current && sessions.some((s) => s.id === viewIdRef.current) ? viewIdRef.current : null;
       const want = keep ?? d.openSession?.id ?? null;
       let rows: OrderingCountLine[] = linesRef.current.sessionId === want ? linesRef.current.rows : [];
       if (want) {
@@ -244,6 +250,7 @@ export function useCountSession(venueId: number | null, email: string | null): C
     setFromCache(false);
     setProblem(null);
     setOnline(isOnline());
+    lastRefresh.current = Date.now(); // the first read is on its way: the page-show event must not start a second one
     readQueue();
     void (async () => {
       const cached = await readCountCache(venueId);
@@ -418,6 +425,34 @@ export function useCountSession(venueId: number | null, email: string | null): C
     }
   }, [persist, readQueue, sync]);
 
+  const cancel = useCallback(async (): Promise<string | null> => {
+    const { venueId: v } = ids.current;
+    const data = viewRef.current;
+    if (v == null || !data) return "The count is still loading.";
+    const open = viewIdRef.current ? data.sessions.find((s) => s.id === viewIdRef.current && s.status === "in_progress") : openOrLast(data.sessions).open;
+    if (!open) return "There is no count in progress.";
+    if (!isOnline()) return "Cancelling a count needs a connection.";
+    try {
+      await cancelCountSession(sb(), open.id);
+    } catch (err) {
+      return err instanceof Error ? err.message : "The count could not be cancelled.";
+    }
+    // forget the device's waiting taps for it, and take it off screen
+    const st = storage();
+    const rest = readCountQueue(st, v).filter((e) => e.session_id !== open.id);
+    writeCountQueue(st, v, rest);
+    setQueue(rest);
+    const next: VenueView = { ...data, sessions: data.sessions.filter((s) => s.id !== open.id) };
+    viewRef.current = next;
+    setView(next);
+    setViewId(null);
+    viewIdRef.current = null;
+    setLines({ sessionId: null, rows: [] });
+    linesRef.current = { sessionId: null, rows: [] };
+    persist();
+    return null;
+  }, [persist]);
+
   /* ---- what the screen reads ---- */
 
   const sessions = view?.sessions ?? [];
@@ -454,6 +489,7 @@ export function useCountSession(venueId: number | null, email: string | null): C
     leave,
     setQty,
     finalise,
+    cancel,
     setPar,
     syncNow: () => {
       attempt.current = 0;

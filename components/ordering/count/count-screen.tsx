@@ -23,6 +23,7 @@ import { VENUE_SHORT, VenueAccent } from "@/components/venue";
 import { Banner, Empty, ListSkeleton, PageHeader, Skeleton } from "@/components/ui";
 import { usePersonName } from "@/components/use-person-name";
 import type { Venue } from "@/lib/types";
+import { CancelSheet } from "./cancel-sheet";
 import { CountHeader } from "./count-header";
 import { CountRow } from "./count-row";
 import { OfflineWorker } from "./offline-worker";
@@ -49,7 +50,7 @@ function VenueCount({ venue }: { venue: Venue }) {
   const nameOf = usePersonName();
   const c = useCountSession(venue.id, userEmail);
   const router = useRouter();
-  const { setQty, setPar, enter, finalise } = c;
+  const { setQty, setPar, enter, finalise, cancel } = c;
   const venueName = VENUE_SHORT[venue.slug] ?? venue.name;
   const base = `/ordering/${venue.slug}`;
 
@@ -61,6 +62,9 @@ function VenueCount({ venue }: { venue: Venue }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [finalising, setFinalising] = useState(false);
   const [finaliseError, setFinaliseError] = useState<string | null>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -194,6 +198,19 @@ function VenueCount({ venue }: { venue: Venue }) {
       }
       router.push(`${base}/orders`);
     } else setFinaliseError(r.message);
+  };
+
+  const doCancel = async () => {
+    setCancelling(true);
+    setCancelError(null);
+    const message = await cancel();
+    setCancelling(false);
+    if (message) setCancelError(message);
+    else {
+      setCancelOpen(false);
+      setReviewOpen(false);
+      window.scrollTo({ top: 0 });
+    }
   };
 
   /* No Start step: opening Count goes straight into counting (the count in progress, or a new one). "?last=1" opens the last
@@ -330,6 +347,10 @@ function VenueCount({ venue }: { venue: Venue }) {
           nameOf={nameOf}
           onStart={() => void begin("open")}
           onViewLast={() => void begin("last")}
+          onCancel={() => {
+            setCancelError(null);
+            setCancelOpen(true);
+          }}
         />
       ) : (
         <>
@@ -348,6 +369,14 @@ function VenueCount({ venue }: { venue: Venue }) {
             activeCategoryId={activeCat}
             onJump={jumpToCategory}
           />
+
+          {!finalisedView ? (
+            <div className="mt-2 flex justify-end">
+              <button type="button" className="btn-text !min-h-[44px] !text-danger" onClick={() => { setCancelError(null); setCancelOpen(true); }}>
+                Cancel Count
+              </button>
+            </div>
+          ) : null}
 
           {shown.length === 0 ? (
             <Empty
@@ -405,6 +434,8 @@ function VenueCount({ venue }: { venue: Venue }) {
           />
         </>
       )}
+
+      <CancelSheet open={cancelOpen} counted={lists.counted} total={lists.total} busy={cancelling} error={cancelError} onKeep={() => setCancelOpen(false)} onCancel={() => void doCancel()} />
     </div>
   );
 }

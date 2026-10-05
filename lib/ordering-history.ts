@@ -113,7 +113,7 @@ export function orderingFieldLabel(table: string, field: string): string {
 }
 
 const MONEY_FIELDS = new Set(["price_inc_gst", "min_order_value"]);
-const WORDS: Record<string, string> = { in_progress: "In Progress", finalised: "Finalised", draft: "Draft", sent: "Sent", count: "From a count", top_up: "Top-up", email: "Email", website: "Website", app: "App", outlook: "Outlook", copy: "Copy" };
+const WORDS: Record<string, string> = { in_progress: "In Progress", finalised: "Finalised", cancelled: "Cancelled", draft: "Draft", sent: "Sent", count: "From a count", top_up: "Top-up", email: "Email", website: "Website", app: "App", outlook: "Outlook", copy: "Copy" };
 
 export interface OrderingLookups {
   venueName: (id: number) => string | undefined;

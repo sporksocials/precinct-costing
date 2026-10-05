@@ -387,6 +387,12 @@ export function buildOrderText(input: OrderTextInput): OrderText {
   return { subject: `${venue} Order`, body: out.join("\n") };
 }
 
+/**
+ * Every order email is signed off by Matt, whoever taps the button (Troy, 5 Oct 2026: orders must not read as coming from
+ * SPORK). Who actually sent an order is still recorded on it (sent_by). Change the name here if Matt hands ordering on.
+ */
+export const ORDER_SIGN_OFF = "Matt";
+
 /** Line breaks as \r\n (what an email body and Windows apps expect); already-correct text is unchanged. */
 export function toCrlf(text: string): string {
   return text.replace(/\r\n|\r|\n/g, "\r\n");

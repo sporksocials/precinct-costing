@@ -8,7 +8,7 @@ import { BackLink } from "@/components/back-link";
 import { VenueAccent } from "@/components/venue";
 import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
-import { buildSupplierOrders, orderingVenueName } from "@/lib/ordering";
+import { ORDER_SIGN_OFF, buildSupplierOrders, orderingVenueName } from "@/lib/ordering";
 import { brisbaneDay, brisbaneTime, countLabel, draftLinesFromGroup, finalisedCounts, orderCardGroups, pickCount, plural, sentOrdersFor } from "@/lib/ordering-orders-ui";
 import type { OrderingCountSession, SuggestedLine, SupplierOrderGroup } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
@@ -45,7 +45,7 @@ function countChips(counts: readonly OrderingCountSession[]): { value: string; l
 function OrdersForVenue({ venue }: { venue: Venue }) {
   const store = useStore();
   const nameOf = usePersonName();
-  const senderName = nameOf(store.userEmail);
+  const senderName = ORDER_SIGN_OFF;
   const { status, error, data, orders, reloadOrders } = useVenueOrders(venue.id);
   const [wanted, setWanted] = useState<string | null>(null);
   const [topUp, setTopUp] = useState(false);

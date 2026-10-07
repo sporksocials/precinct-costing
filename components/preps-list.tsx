@@ -13,6 +13,8 @@ import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, visibleRecords } from "@/lib/active";
 import { Chips, Empty, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
+import { PrintSelectBar, usePrintSelect, type PrintSelect } from "@/components/print/select";
+import { SelectButton } from "@/components/print/select-button";
 
 const PAGE = 100;
 type Sort = "az" | "cost";
@@ -55,6 +57,7 @@ export function PrepsList() {
     return list;
   }, [pool, cat, q, sort]);
 
+  const sel = usePrintSelect("prep", rows.map((p) => p.prep.id));
   const add = () => newRecipe.open({ venueId: venue?.id ?? null, type: "prep" });
 
   return (
@@ -102,15 +105,18 @@ export function PrepsList() {
             <p className="text-[13px] text-label-2">
               {rows.length} {rows.length === 1 ? "prep" : "preps"}
             </p>
-            <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+            <span className="flex items-center gap-1">
+              <SelectButton active={sel.on} onStart={sel.start} />
+              <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
+            </span>
           </div>
           <div className="group-list lg:hidden">
             {rows.slice(0, limit).map((p) => (
-              <PrepRow key={p.prep.id} p={p} />
+              <PrepRow key={p.prep.id} p={p} sel={sel} />
             ))}
           </div>
           <div className="hidden lg:block">
-            <PrepTable rows={rows.slice(0, limit)} />
+            <PrepTable rows={rows.slice(0, limit)} sel={sel} />
           </div>
           {rows.length > limit ? (
             <button type="button" className="btn-plain mt-3 w-full" onClick={() => setLimit((l) => l + PAGE * 2)}>
@@ -119,11 +125,12 @@ export function PrepsList() {
           ) : null}
         </>
       )}
+      <PrintSelectBar sel={sel} />
     </div>
   );
 }
 
-function PrepTable({ rows }: { rows: PrepCost[] }) {
+function PrepTable({ rows, sel }: { rows: PrepCost[]; sel: PrintSelect }) {
   const store = useStore();
   const columns: Column<PrepCost>[] = [
     { key: "name", label: "Prep", render: (p) => <span className="font-medium"><TitleWithTag name={p.prep.name} active={p.prep.active} /></span>, sort: (p) => p.prep.name },
@@ -134,16 +141,17 @@ function PrepTable({ rows }: { rows: PrepCost[] }) {
     { key: "unit", label: "Cost per Unit", align: "right", render: (p) => `${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`, sort: (p) => p.costPerUnit },
     { key: "total", label: "Batch Cost", align: "right", render: (p) => <span className="font-semibold">{money(p.batchCost)}</span>, sort: (p) => p.batchCost },
   ];
-  return <DataTable rows={rows} columns={columns} rowKey={(p) => p.prep.id} href={(p) => `/preps/${p.prep.id}`} />;
+  return <DataTable rows={rows} columns={columns} rowKey={(p) => p.prep.id} href={(p) => `/preps/${p.prep.id}`} selection={sel.table()} />;
 }
 
-function PrepRow({ p }: { p: PrepCost }) {
+function PrepRow({ p, sel }: { p: PrepCost; sel: PrintSelect }) {
   return (
     <Row
       href={`/preps/${p.prep.id}`}
       title={<TitleWithTag name={p.prep.name} active={p.prep.active} />}
       sub={`Batch ${packLabel(p.prep.yield_qty, p.prep.yield_unit)} · ${costPerShot(p) != null ? `${money(costPerShot(p))} per shot · ` : ""}${money(p.costPerUnit)}/${unitShort(p.prep.yield_unit)}`}
       trailing={<span className="text-label">{money(p.batchCost)}</span>}
+      select={sel.row(p.prep.id, p.prep.name)}
     />
   );
 }

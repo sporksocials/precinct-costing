@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Ellipsis, FlaskConical, GripVertical } from "lucide-react";
+import { ChevronLeft, Ellipsis, FlaskConical, GripVertical, Printer } from "lucide-react";
 import { useBackHref } from "@/components/use-back-href";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
@@ -33,6 +33,7 @@ import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { ResearchDrinkCard } from "./research-drink";
 import { RecordHistory } from "./record-history";
+import { printHref } from "@/lib/print-job";
 import { RECORD_TABLE } from "@/lib/undo-change";
 import { ServesCountInput, ServesSegmented } from "../serves-choice";
 import { portionsForMode, servesMode, switchToOneNote, type ServesMode } from "@/lib/serves";
@@ -560,6 +561,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {isFlavour || kind === "item" ? "Menu" : "Ingredients · Preps"}
         </Link>
         <div className="flex items-center gap-1">
+          <Link href={printHref(kind, [id])} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl px-3 text-[17px] font-semibold text-accent transition active:opacity-70">
+            <Printer className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+            Print
+          </Link>
           <Menu label="More Actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
         </div>
       </div>

@@ -151,7 +151,6 @@ export default function MenuPage() {
     <div>
       <PageHeader title="Menu" trailing={<AddButton label={addLabel} onClick={add} />} />
       <VenueFilter className="mb-3" />
-      <PosListButton className="mb-3" />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <SearchField className="flex-1" value={q} onChange={setQ} placeholder="Search the menu" />
         <Segmented
@@ -262,9 +261,12 @@ export default function MenuPage() {
             </div>
           ) : null}
           {rows.length ? (
-            <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 pb-1.5 pt-4">
               <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
-              <SelectButton active={sel.on} onStart={sel.start} />
+              <div className="ml-auto flex items-center gap-1">
+                <SelectButton active={sel.on} onStart={sel.start} />
+                <PosListButton />
+              </div>
             </div>
           ) : null}
           {rows.length ? (

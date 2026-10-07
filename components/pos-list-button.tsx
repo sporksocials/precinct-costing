@@ -59,14 +59,16 @@ export function PosListButton({ className }: { className?: string }) {
     }
   }
 
-  const who = venue ? (VENUE_SHORT[venue.slug] ?? venue.name) : "every venue";
   return (
-    <div className={cx("flex flex-wrap items-center gap-x-3 gap-y-1", className)}>
-      <button type="button" className="btn-plain !min-h-[44px]" onClick={run} disabled={busy || store.loading} aria-busy={busy}>
-        <Download className="h-4 w-4" strokeWidth={2.25} aria-hidden />
-        {busy ? "Preparing..." : "Download POS List"}
-      </button>
-      <p className="hidden text-[13px] text-label-2 sm:block">Menu and prices for the till: {who}.</p>
-    </div>
+    <button
+      type="button"
+      onClick={run}
+      disabled={busy || store.loading}
+      aria-busy={busy}
+      className={cx("inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold text-accent transition active:opacity-70 disabled:opacity-40", className)}
+    >
+      <Download className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
+      {busy ? "Preparing..." : "Download POS List"}
+    </button>
   );
 }

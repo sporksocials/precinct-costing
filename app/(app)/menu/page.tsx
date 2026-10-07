@@ -16,6 +16,7 @@ import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
+import { PosListButton } from "@/components/pos-list-button";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
@@ -147,6 +148,7 @@ export default function MenuPage() {
     <div>
       <PageHeader title="Menu" trailing={<AddButton label={addLabel} onClick={add} />} />
       <VenueFilter className="mb-3" />
+      <PosListButton className="mb-3" />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <SearchField className="flex-1" value={q} onChange={setQ} placeholder="Search the menu" />
         <Segmented

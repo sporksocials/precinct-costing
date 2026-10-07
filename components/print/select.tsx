@@ -134,7 +134,7 @@ export function PrintSelectBar({ sel }: { sel: PrintSelect }) {
           <button type="button" onClick={sel.selectAllShown} className={`${BTN} flex-1 bg-fill text-label sm:order-1 sm:flex-none`}>
             {sel.allShownTicked ? "Clear All Shown" : "Select All Shown"}
           </button>
-          <button type="button" onClick={sel.cancel} className={`${BTN} flex-1 text-accent sm:order-2 sm:flex-none`}>
+          <button type="button" onClick={sel.cancel} className={`${BTN} flex-1 bg-fill text-label sm:order-2 sm:flex-none`}>
             Cancel
           </button>
         </div>

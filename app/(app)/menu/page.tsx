@@ -21,7 +21,7 @@ import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 import { PrintSelectBar, usePrintSelect, type PrintSelect } from "@/components/print/select";
-import { SelectButton } from "@/components/print/select-button";
+import { SelectControls } from "@/components/print/select-button";
 
 type Sort = "az" | "gp" | "cost";
 const PAGE = 100;
@@ -264,7 +264,7 @@ export default function MenuPage() {
             <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 pb-1.5 pt-4">
               <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
               <div className="ml-auto flex items-center gap-1">
-                <SelectButton active={sel.on} onStart={sel.start} />
+                <SelectControls sel={sel} />
                 <PosListButton />
               </div>
             </div>

@@ -15,3 +15,22 @@ export function SelectButton({ active, onStart, className }: { active: boolean; 
     </button>
   );
 }
+
+/**
+ * The top-of-list controls for Select mode. Before picking: "Select". While picking: "Select All" (or "Clear All" once every
+ * row shown is ticked) and "Cancel", so a whole list is one tap away without scrolling to the bar at the bottom.
+ */
+export function SelectControls({ sel, className }: { sel: { on: boolean; start: () => void; cancel: () => void; selectAllShown: () => void; allShownTicked: boolean }; className?: string }) {
+  if (!sel.on) return <SelectButton active={false} onStart={sel.start} className={className} />;
+  const base = "inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-fill px-3.5 text-[15px] font-semibold text-label transition active:opacity-70";
+  return (
+    <>
+      <button type="button" onClick={sel.selectAllShown} className={[base, className].filter(Boolean).join(" ")}>
+        {sel.allShownTicked ? "Clear All" : "Select All"}
+      </button>
+      <button type="button" onClick={sel.cancel} className={[base, className].filter(Boolean).join(" ")}>
+        Cancel
+      </button>
+    </>
+  );
+}

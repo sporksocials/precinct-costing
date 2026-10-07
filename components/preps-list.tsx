@@ -14,7 +14,7 @@ import { countInactive, visibleRecords } from "@/lib/active";
 import { Chips, Empty, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
 import { PrintSelectBar, usePrintSelect, type PrintSelect } from "@/components/print/select";
-import { SelectButton } from "@/components/print/select-button";
+import { SelectControls } from "@/components/print/select-button";
 
 const PAGE = 100;
 type Sort = "az" | "cost";
@@ -106,7 +106,7 @@ export function PrepsList() {
               {rows.length} {rows.length === 1 ? "prep" : "preps"}
             </p>
             <span className="flex items-center gap-1">
-              <SelectButton active={sel.on} onStart={sel.start} />
+              <SelectControls sel={sel} />
               <ShowInactiveButton count={inactiveCount} show={showInactive} onToggle={() => setShowInactive((x) => !x)} />
             </span>
           </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { cx } from "./ui";
 
@@ -32,6 +32,7 @@ export function DataTable<T>({
   limit,
   className,
   rowClassName,
+  selection,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -41,6 +42,8 @@ export function DataTable<T>({
   limit?: number;
   className?: string;
   rowClassName?: (row: T) => string | undefined;
+  /** picking mode (print selection): a 44px checkbox column, a row click ticks instead of opening, and `onOrder` hears the order shown */
+  selection?: { isSelected: (key: string) => boolean; toggle: (key: string) => void; onOrder?: (keys: string[]) => void };
 }) {
   const router = useRouter();
   const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(initialSort ?? null);
@@ -61,12 +64,23 @@ export function DataTable<T>({
     return out;
   }, [rows, columns, sort]);
   const shown = limit ? sorted.slice(0, limit) : sorted;
+  const onOrder = selection?.onOrder;
+  const orderKey = selection ? shown.map(rowKey).join("\n") : "";
+  useEffect(() => {
+    if (onOrder && orderKey) onOrder(orderKey.split("\n"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderKey]);
 
   return (
     <div className={cx("overflow-clip rounded-2xl bg-surface", className)}>
       <table className="w-full border-collapse text-[14px] tnum">
         <thead>
           <tr className="text-label-2">
+            {selection ? (
+              <th scope="col" className="sticky top-0 z-10 w-14 bg-surface px-2 py-2.5 shadow-[inset_0_-0.5px_0_var(--separator)]">
+                <span className="sr-only">Select</span>
+              </th>
+            ) : null}
             {columns.map((c) => {
               const on = sort?.key === c.key;
               const Icon = on && sort?.dir === "asc" ? ArrowUp : ArrowDown;
@@ -98,13 +112,22 @@ export function DataTable<T>({
         </thead>
         <tbody>
           {shown.map((r) => {
-            const to = href?.(r);
+            const key = rowKey(r);
+            const to = selection ? undefined : href?.(r);
+            const ticked = !!selection?.isSelected(key);
             return (
               <tr
-                key={rowKey(r)}
-                onClick={to ? () => router.push(to) : undefined}
-                className={cx("group border-t-[0.5px] border-sep transition-colors duration-150 first:border-t-0", to && "cursor-pointer hover:bg-surface-2", rowClassName?.(r))}
+                key={key}
+                onClick={selection ? () => selection.toggle(key) : to ? () => router.push(to) : undefined}
+                className={cx("group border-t-[0.5px] border-sep transition-colors duration-150 first:border-t-0", (to || selection) && "cursor-pointer hover:bg-surface-2", ticked && "bg-fill", rowClassName?.(r))}
               >
+                {selection ? (
+                  <td className="w-14 px-2 py-0 align-middle">
+                    <label className="flex h-11 w-11 cursor-pointer items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={ticked} onChange={() => selection.toggle(key)} aria-label={`Select ${String(columns[0]?.sort?.(r) ?? key)}`} className="h-6 w-6 cursor-pointer accent-[color:var(--accent-fill)]" />
+                    </label>
+                  </td>
+                ) : null}
                 {columns.map((c, i) => (
                   <td key={c.key} className={cx("px-4 py-2.5 align-middle", i > 0 && "whitespace-nowrap", c.align === "right" ? "text-right" : "text-left", c.hideBelow === "xl" && "hidden xl:table-cell", c.className)}>
                     {i === 0 && to ? (

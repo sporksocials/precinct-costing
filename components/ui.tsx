@@ -97,6 +97,7 @@ export function Row({
   titleClassName,
   active,
   wrapSub,
+  select,
 }: {
   href?: string;
   onClick?: () => void;
@@ -110,7 +111,22 @@ export function Row({
   active?: boolean;
   /** let the sub line wrap onto more lines instead of truncating (for reasons that must be read in full) */
   wrapSub?: boolean;
+  /** picking mode (print selection): the whole row is a checkbox with a 44px target, and it neither links nor opens anything */
+  select?: { checked: boolean; onChange: () => void; label: string };
 }) {
+  if (select)
+    return (
+      <label className={cx("flex min-h-[48px] w-full cursor-pointer items-center gap-1 py-1 pl-1 pr-4 text-left transition-colors duration-150 active:bg-fill", select.checked && "bg-fill", className)}>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center">
+          <input type="checkbox" checked={select.checked} onChange={select.onChange} aria-label={`Select ${select.label}`} className="h-6 w-6 cursor-pointer accent-[color:var(--accent-fill)]" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className={cx("block truncate text-[17px] leading-snug text-label sm:text-[15px]", titleClassName)}>{title}</span>
+          {sub ? <span className={cx("mt-0.5 block text-[15px] leading-snug text-label-2 sm:text-[13px]", !wrapSub && "truncate")}>{sub}</span> : null}
+        </span>
+        {trailing != null ? <span className="flex shrink-0 items-center gap-1.5 text-[17px] tnum text-label-2 sm:text-[15px]">{trailing}</span> : null}
+      </label>
+    );
   const inner = (
     <>
       {leading ? <span className="flex shrink-0 items-center">{leading}</span> : null}

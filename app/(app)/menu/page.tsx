@@ -19,6 +19,8 @@ import { NewFlavourSheet } from "@/components/new-flavour";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
+import { PrintSelectBar, usePrintSelect, type PrintSelect } from "@/components/print/select";
+import { SelectButton } from "@/components/print/select-button";
 
 type Sort = "az" | "gp" | "cost";
 const PAGE = 100;
@@ -133,6 +135,7 @@ export default function MenuPage() {
     (cat === "all" || cat === BEER ? beersHere.filter((b) => !b.active).length : 0) +
     (hasGelato && (inGelato || cat === GELATO) && (cat === "all" || cat === GELATO) ? store.gelato.flavours.filter((f) => !f.active).length : 0);
   const rows = items;
+  const sel = usePrintSelect("item", rows.map((c) => c.item.id));
   const total = rows.length + flavourRows.length + beerRows.length + (gelatoSummary ? 1 : 0);
 
   // one add button, whatever you're looking at
@@ -259,17 +262,18 @@ export default function MenuPage() {
           {rows.length ? (
             <div className="flex items-baseline justify-between gap-3 px-4 pb-1.5 pt-5">
               <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
+              <SelectButton active={sel.on} onStart={sel.start} />
             </div>
           ) : null}
           {rows.length ? (
             <>
               <div className="group-list lg:hidden">
                 {rows.slice(0, limit).map((c) => (
-                  <ItemRow key={c.item.id} c={c} showVenue={!venue} />
+                  <ItemRow key={c.item.id} c={c} showVenue={!venue} sel={sel} />
                 ))}
               </div>
               <div className="hidden lg:block">
-                <ItemTable rows={rows.slice(0, limit)} showVenue={!venue} sorted={!!q.trim() || sort !== "az"} />
+                <ItemTable rows={rows.slice(0, limit)} showVenue={!venue} sorted={!!q.trim() || sort !== "az"} sel={sel} />
               </div>
             </>
           ) : null}
@@ -281,6 +285,7 @@ export default function MenuPage() {
         </>
       )}
 
+      <PrintSelectBar sel={sel} />
       {sheet === "beer" && beerDefaultVenue != null ? <NewBeerSheet defaultVenueId={beerDefaultVenue} onClose={() => setSheet(null)} /> : null}
       {sheet === "beerServes" ? <BeerServeSizesSheet open onClose={() => setSheet(null)} /> : null}
       {sheet === "flavour" && gelatoVenue ? <NewFlavourSheet venueId={gelatoVenue.id} onClose={() => setSheet(null)} /> : null}
@@ -306,7 +311,7 @@ function GpCell({ c }: { c: ItemCost }) {
   );
 }
 
-function ItemRow({ c, showVenue }: { c: ItemCost; showVenue: boolean }) {
+function ItemRow({ c, showVenue, sel }: { c: ItemCost; showVenue: boolean; sel: PrintSelect }) {
   const store = useStore();
   const v = store.venueById.get(c.item.venue_id);
   return (
@@ -315,11 +320,12 @@ function ItemRow({ c, showVenue }: { c: ItemCost; showVenue: boolean }) {
       title={<TitleWithTag name={c.item.name} active={c.item.active} />}
       sub={itemSub(c, showVenue, VENUE_SHORT[v?.slug ?? ""] ?? v?.name)}
       trailing={<GpCell c={c} />}
+      select={sel.row(c.item.id, c.item.name)}
     />
   );
 }
 
-function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: boolean; sorted: boolean }) {
+function ItemTable({ rows, showVenue, sorted, sel }: { rows: ItemCost[]; showVenue: boolean; sorted: boolean; sel: PrintSelect }) {
   const store = useStore();
   const vName = (c: ItemCost) => {
     const v = store.venueById.get(c.item.venue_id);
@@ -351,7 +357,7 @@ function ItemTable({ rows, showVenue, sorted }: { rows: ItemCost[]; showVenue: b
       sort: (c) => c.gpPct,
     },
   ];
-  return <DataTable key={sorted ? "s" : "u"} rows={rows} columns={columns} rowKey={(c) => c.item.id} href={(c) => `/items/${c.item.id}`} />;
+  return <DataTable key={sorted ? "s" : "u"} rows={rows} columns={columns} rowKey={(c) => c.item.id} href={(c) => `/items/${c.item.id}`} selection={sel.table()} />;
 }
 
 function FlavourRow({ f, serves, worst }: { f: Prep; serves: number; worst: ItemCost | null }) {

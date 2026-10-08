@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import { applyHouseRules, dehydrateLimeWheels, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+
+describe("lime wheels are always dehydrated", () => {
+  it("rewords a plain lime wheel and keeps the capital", () => {
+    expect(dehydrateLimeWheels("Lime wheel")).toBe("Dehydrated lime wheel");
+    expect(dehydrateLimeWheels("Garnish with a lime wheel")).toBe("Garnish with a dehydrated lime wheel");
+    expect(dehydrateLimeWheels("2 lime wheels")).toBe("2 dehydrated lime wheels");
+    expect(dehydrateLimeWheels("Fresh lime wheel")).toBe("Dehydrated lime wheel");
+  });
+  it("leaves a dehydrated lime wheel and unrelated text alone", () => {
+    expect(dehydrateLimeWheels("Dehydrated lime wheel")).toBe("Dehydrated lime wheel");
+    expect(dehydrateLimeWheels("2 to 3 dehydrated lime wheels")).toBe("2 to 3 dehydrated lime wheels");
+    expect(dehydrateLimeWheels("Add the lime juice")).toBe("Add the lime juice");
+    expect(dehydrateLimeWheels("Lemon wheel")).toBe("Lemon wheel");
+  });
+});
+
+describe("a salted rim on a margarita says to wipe the inside", () => {
+  it("adds the step straight after the rim step", () => {
+    expect(ensureRimWipe(["Wet and rim the glass with salt", "Chill the glass", "Shake hard for 12 seconds"], "Margarita")).toEqual([
+      "Wet and rim the glass with salt",
+      "Wipe the inside of the glass rim so there is no salt on the inside",
+      "Chill the glass",
+      "Shake hard for 12 seconds",
+    ]);
+  });
+  it("says chilli salt for a chilli salt rim", () => {
+    expect(wipeStepFor("Wet and rim the glass with chilli salt")).toBe("Wipe the inside of the glass rim so there is no chilli salt on the inside");
+    expect(ensureRimWipe(["Wet and rim the glass with chilli salt", "Shake"], "Mango Chilli Margarita")[1]).toContain("chilli salt");
+  });
+  it("does not repeat itself, and ignores other drinks and other rims", () => {
+    const done = ["Wet and rim the glass with salt", "Wipe the inside of the glass rim so there is no salt on the inside", "Shake"];
+    expect(ensureRimWipe(done, "Margarita")).toEqual(done);
+    expect(ensureRimWipe(["Wet and rim the glass with salt", "Shake"], "Paloma")).toEqual(["Wet and rim the glass with salt", "Shake"]);
+    expect(ensureRimWipe(["Wet and rim the glass with sugar", "Shake"], "Watermelon Margarita")).toEqual(["Wet and rim the glass with sugar", "Shake"]);
+    expect(ensureRimWipe(["Fill the carafe with ice", "Shake"], "Casa Margarita Carafe")).toEqual(["Fill the carafe with ice", "Shake"]);
+  });
+});
+
+describe("applyHouseRules", () => {
+  it("returns the same object when nothing needs changing", () => {
+    const item = { name: "Mojito", method: ["Shake"], garnish: ["Dehydrated lime wheel"] };
+    expect(applyHouseRules(item)).toBe(item);
+  });
+  it("applies both rules to method and garnish", () => {
+    const out = applyHouseRules({ name: "Margarita", method: ["Wet and rim the glass with salt", "Shake"], garnish: ["Lime wheel"] });
+    expect(out.garnish).toEqual(["Dehydrated lime wheel"]);
+    expect(out.method).toHaveLength(3);
+  });
+  it("leaves a missing method or garnish missing", () => {
+    expect(applyHouseRules({ name: "Margarita", method: null, garnish: null })).toEqual({ name: "Margarita", method: null, garnish: null });
+  });
+});

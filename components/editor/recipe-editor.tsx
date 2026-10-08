@@ -32,6 +32,7 @@ import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
+import { applyHouseRules } from "@/lib/house-rules";
 import { ResearchDrinkCard } from "./research-drink";
 import { RecordHistory } from "./record-history";
 import { printHref } from "@/lib/print-job";
@@ -183,6 +184,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           setStatus("idle");
           return { status: "idle" };
         }
+        // house wording (lib/house-rules.ts), only on a save that already has an edit: dehydrated lime wheels, and the wipe step after a salted margarita rim
+        if (kind === "item") d = applyHouseRules(d as MenuItem) as Rec;
         setStatus("saving");
         const s = storeRef.current;
         const outcome = await checkedSave<Rec>(

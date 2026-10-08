@@ -7,6 +7,7 @@
  *   4 Any rim (salt, chilli salt, coconut, sugar, cinnamon sugar, anything) always says, right after the rim step, to wipe
  *     the inside of the glass rim so there is none of it on the inside (Troy, 9 Oct 2026: "we always wipe the inside").
  *   5 A garnish never says to smack mint (a garnish mint leaf is left as it is). Troy, 9 Oct 2026.
+ *   6 A shake for 12 seconds always adds ", or until frosted". Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
 
@@ -48,6 +49,12 @@ export function noSmackedGarnish(text: string): string {
   return cleaned && cleaned[0] !== text[0] && /^[a-z]/.test(cleaned) && /^[A-Z]/.test(text) ? cleaned[0].toUpperCase() + cleaned.slice(1) : cleaned;
 }
 
+/** "Shake hard for 12 seconds" gives "Shake hard for 12 seconds, or until frosted"; a step that already says frosted is left alone. */
+export function shakeUntilFrosted(text: string): string {
+  if (!/\bshake\b/i.test(text) || !/\b12 seconds\b/i.test(text) || /\bfrost/i.test(text)) return text;
+  return text.replace(/\b12 seconds(,?\s+(?:and|then)\b)?/i, (_m, joiner: string | undefined) => (joiner ? `12 seconds, or until frosted,${joiner.replace(/^,/, "")}` : "12 seconds, or until frosted"));
+}
+
 const RIM_STEP = /^(?!\s*wipe\b).*\brim\b/i;
 const RIM_MATERIAL = /\brim\b[^.]*?\bwith\s+(?:the\s+|some\s+)?(.+?)\s*$/i;
 const WIPE = /\bwipe\b[^.]*\binside\b/i;
@@ -78,7 +85,7 @@ export interface HouseRuleItem {
 export function applyHouseRules<T extends HouseRuleItem>(item: T): T {
   let method = item.method ?? null;
   let garnish = item.garnish ?? null;
-  if (method) method = ensureRimWipe(method.map((m) => cocktailSkewer(doubleStrain(dehydrateLimeWheels(m)))));
+  if (method) method = ensureRimWipe(method.map((m) => shakeUntilFrosted(cocktailSkewer(doubleStrain(dehydrateLimeWheels(m))))));
   if (garnish) garnish = garnish.map((g) => noSmackedGarnish(cocktailSkewer(dehydrateLimeWheels(g))));
   const same = (a: readonly string[] | null, b: readonly string[] | null) => (a === b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
   if (same(method, item.method ?? null) && same(garnish, item.garnish ?? null)) return item;

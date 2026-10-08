@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, cocktailSkewer, noSmackedGarnish, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, cocktailSkewer, noSmackedGarnish, shakeUntilFrosted, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -94,5 +94,24 @@ describe("a garnish never says to smack mint", () => {
   });
   it("applies to a saved drink's garnish", () => {
     expect(applyHouseRules({ name: "Sunset Spritz", method: null, garnish: ["Mint (smack it between your hands first)", "Dehydrated lime wheel"] }).garnish).toEqual(["Mint", "Dehydrated lime wheel"]);
+  });
+});
+
+describe("a 12 second shake says or until frosted", () => {
+  it("adds it at the end of the step", () => {
+    expect(shakeUntilFrosted("Shake hard for 12 seconds")).toBe("Shake hard for 12 seconds, or until frosted");
+    expect(shakeUntilFrosted("Shake the lime juice, agave and Bacardi hard for 12 seconds")).toBe("Shake the lime juice, agave and Bacardi hard for 12 seconds, or until frosted");
+  });
+  it("adds it before 'and' or 'then' in a longer step", () => {
+    expect(shakeUntilFrosted("Add ice, shake hard for 12 seconds and dump into the glass")).toBe("Add ice, shake hard for 12 seconds, or until frosted, and dump into the glass");
+    expect(shakeUntilFrosted("Add ice, shake hard for 12 seconds, then dump into the glass")).toBe("Add ice, shake hard for 12 seconds, or until frosted, then dump into the glass");
+  });
+  it("leaves steps that already say frosted, and steps that are not a 12 second shake", () => {
+    expect(shakeUntilFrosted("Shake hard for 12 seconds, or until frosted")).toBe("Shake hard for 12 seconds, or until frosted");
+    expect(shakeUntilFrosted("Shake vigorously")).toBe("Shake vigorously");
+    expect(shakeUntilFrosted("Stir for 12 seconds")).toBe("Stir for 12 seconds");
+  });
+  it("is part of the rules a saved drink gets", () => {
+    expect(applyHouseRules({ name: "Daiquiri", method: ["Shake hard for 12 seconds"], garnish: null }).method).toEqual(["Shake hard for 12 seconds, or until frosted"]);
   });
 });

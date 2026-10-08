@@ -6,6 +6,7 @@
  *   3 A toothpick is always a cocktail skewer (Troy, 9 Oct 2026).
  *   4 Any rim (salt, chilli salt, coconut, sugar, cinnamon sugar, anything) always says, right after the rim step, to wipe
  *     the inside of the glass rim so there is none of it on the inside (Troy, 9 Oct 2026: "we always wipe the inside").
+ *   5 A garnish never says to smack mint (a garnish mint leaf is left as it is). Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
 
@@ -35,6 +36,16 @@ export function cocktailSkewer(text: string): string {
     const plural = /s$/i.test(match);
     return `${cap ? "Cocktail" : "cocktail"} skewer${plural ? "s" : ""}`;
   });
+}
+
+/** "Mint (smack it between your hands first)" gives "Mint"; "Smacked mint sprig" gives "Mint sprig". Garnish lines only. */
+export function noSmackedGarnish(text: string): string {
+  const cleaned = text
+    .replace(/\s*\((?:[^)]*\b)?smack(?:ed|ing)?\b[^)]*\)/gi, "")
+    .replace(/,\s*smack(?:ed|ing)?\b[^,;]*$/i, "")
+    .replace(/\bsmacked\s+/gi, "")
+    .trim();
+  return cleaned && cleaned[0] !== text[0] && /^[a-z]/.test(cleaned) && /^[A-Z]/.test(text) ? cleaned[0].toUpperCase() + cleaned.slice(1) : cleaned;
 }
 
 const RIM_STEP = /^(?!\s*wipe\b).*\brim\b/i;
@@ -68,7 +79,7 @@ export function applyHouseRules<T extends HouseRuleItem>(item: T): T {
   let method = item.method ?? null;
   let garnish = item.garnish ?? null;
   if (method) method = ensureRimWipe(method.map((m) => cocktailSkewer(doubleStrain(dehydrateLimeWheels(m)))));
-  if (garnish) garnish = garnish.map((g) => cocktailSkewer(dehydrateLimeWheels(g)));
+  if (garnish) garnish = garnish.map((g) => noSmackedGarnish(cocktailSkewer(dehydrateLimeWheels(g))));
   const same = (a: readonly string[] | null, b: readonly string[] | null) => (a === b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
   if (same(method, item.method ?? null) && same(garnish, item.garnish ?? null)) return item;
   return { ...item, ...(item.method ? { method } : {}), ...(item.garnish ? { garnish } : {}) };

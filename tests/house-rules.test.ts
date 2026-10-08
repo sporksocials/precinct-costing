@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, cocktailSkewer, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, cocktailSkewer, noSmackedGarnish, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -81,5 +81,18 @@ describe("a toothpick is a cocktail skewer", () => {
     const out = applyHouseRules({ name: "Dry Martini", method: ["Spear an olive on a toothpick"], garnish: ["Olive on a toothpick"] });
     expect(out.garnish).toEqual(["Olive on a cocktail skewer"]);
     expect(out.method).toEqual(["Spear an olive on a cocktail skewer"]);
+  });
+});
+
+describe("a garnish never says to smack mint", () => {
+  it("drops the smack instruction and keeps the garnish", () => {
+    expect(noSmackedGarnish("Mint (smack it between your hands first)")).toBe("Mint");
+    expect(noSmackedGarnish("Mint sprig (smack it between your hands first)")).toBe("Mint sprig");
+    expect(noSmackedGarnish("Smacked mint sprig")).toBe("Mint sprig");
+    expect(noSmackedGarnish("Mint leaf, smacked first")).toBe("Mint leaf");
+    expect(noSmackedGarnish("1 mint leaf")).toBe("1 mint leaf");
+  });
+  it("applies to a saved drink's garnish", () => {
+    expect(applyHouseRules({ name: "Sunset Spritz", method: null, garnish: ["Mint (smack it between your hands first)", "Dehydrated lime wheel"] }).garnish).toEqual(["Mint", "Dehydrated lime wheel"]);
   });
 });

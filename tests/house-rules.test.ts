@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, cocktailSkewer, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -65,5 +65,19 @@ describe("fine strain is always double strain", () => {
   });
   it("is part of the rules a saved drink gets", () => {
     expect(applyHouseRules({ name: "French Martini", method: ["Shake", "Fine strain into the glass"], garnish: null }).method).toEqual(["Shake", "Double strain into the glass"]);
+  });
+});
+
+describe("a toothpick is a cocktail skewer", () => {
+  it("rewords in either case and plural", () => {
+    expect(cocktailSkewer("Lychee on a toothpick")).toBe("Lychee on a cocktail skewer");
+    expect(cocktailSkewer("Toothpick")).toBe("Cocktail skewer");
+    expect(cocktailSkewer("Two toothpicks")).toBe("Two cocktail skewers");
+    expect(cocktailSkewer("Olive on a cocktail skewer")).toBe("Olive on a cocktail skewer");
+  });
+  it("applies to a saved drink's garnish and method", () => {
+    const out = applyHouseRules({ name: "Dry Martini", method: ["Spear an olive on a toothpick"], garnish: ["Olive on a toothpick"] });
+    expect(out.garnish).toEqual(["Olive on a cocktail skewer"]);
+    expect(out.method).toEqual(["Spear an olive on a cocktail skewer"]);
   });
 });

@@ -1,6 +1,7 @@
 import { isBeerItemId, parseBeerItemId } from "./beer";
 import { isVirtualItemId } from "./gelato";
 import { isActive } from "./active";
+import { titleCase } from "./name-tidy";
 import type { Beer, BeerServe, GelatoServe, MenuItem } from "./types";
 
 /**
@@ -56,33 +57,8 @@ export interface PosInput {
 
 /* ------------------------------------------------------------------ names */
 
-const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on", "or", "the", "to", "vs", "with"]);
-
-function capFirst(s: string): string {
-  const m = s.match(/^([^\p{L}\p{N}]*)(\p{L})(.*)$/u);
-  return m ? `${m[1]}${m[2].toUpperCase()}${m[3]}` : s;
-}
-
-/**
- * Title Case for item names: capitalise each word, keep small words ("and", "of") lower case unless first, and leave
- * any word that already has a capital in it alone ("WMC", "Heart & Soul", "McIntyre"). Spelling is never touched.
- */
-export function titleCase(name: string): string {
-  const words = name.trim().replace(/\s+/g, " ").split(" ").filter(Boolean);
-  return words
-    .map((w, wi) =>
-      w
-        .split("-")
-        .map((part, pi) => {
-          if (/\p{Lu}/u.test(part)) return part;
-          const lower = part.toLowerCase();
-          if (!(wi === 0 && pi === 0) && SMALL_WORDS.has(lower)) return part;
-          return capFirst(part);
-        })
-        .join("-"),
-    )
-    .join(" ");
-}
+// Title Case lives in lib/name-tidy.ts (shared with the name tidy on the entry screens); re-exported for the POS list tests.
+export { titleCase };
 
 /** Categories whose names can contain " - " for another reason, so they are never split into item and size. */
 const NO_SPLIT = new Set(["Food", "Cocktail", "Mocktail"]);

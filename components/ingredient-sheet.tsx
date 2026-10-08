@@ -7,6 +7,7 @@ import { money, parseDecimal, unitShort } from "@/lib/format";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
 import { Banner, Segmented, Sheet, Toggle } from "./ui";
+import { NameSuggestRow, useNameTidy } from "./name-suggest";
 
 export type IngredientDraft = Omit<Ingredient, "id" | "updated_at">;
 
@@ -80,6 +81,7 @@ export function IngredientSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof IngredientDraft>(k: K, v: IngredientDraft[K]) => setF((p) => ({ ...p, [k]: v }));
+  const nt = useNameTidy({ kind: "ingredient", value: f.name, setValue: (v) => set("name", v), enabled: open });
 
   const size = parseDecimal(sizeText) ?? 0;
   // a blank price is allowed (new items are often priced later); text that is not a price is not
@@ -94,7 +96,7 @@ export function IngredientSheet({
     setBusy(true);
     setError(null);
     try {
-      const payload = { ...f, name: f.name.trim(), pack_size: size, pack_price: price, last_price_update: new Date().toISOString().slice(0, 10) };
+      const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: price, last_price_update: new Date().toISOString().slice(0, 10) };
       const id = await store.insertIngredient(payload);
       onSaved({ id, pack_unit: payload.pack_unit, name: payload.name });
     } catch (e) {
@@ -115,7 +117,8 @@ export function IngredientSheet({
       >
         {error ? <Banner>{error}</Banner> : null}
         {note ? <p className="px-1 text-[13px] text-label-2">{note}</p> : null}
-        <input autoFocus={!initial.name} className="field !text-[20px] font-semibold" placeholder="Name" value={f.name} onChange={(e) => set("name", e.target.value)} aria-label="Name" />
+        <input autoFocus={!initial.name} className="field !text-[20px] font-semibold" placeholder="Name" value={f.name} onChange={(e) => set("name", e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Name" />
+        <NameSuggestRow nt={nt} className="!mt-2" />
         <div>
           <p className="section-label !px-1">Category</p>
           <input

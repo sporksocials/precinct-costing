@@ -5,10 +5,12 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { useStore } from "@/lib/store";
 import { initialResearchStatus } from "@/lib/research-drink";
 import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
+import { DRINK_CATEGORIES } from "@/lib/insights";
 import { parseServeCount, portionsForMode, type ServesMode } from "@/lib/serves";
 import { Banner, Chips, FieldRow, Sheet } from "./ui";
 import { ServesSegmented } from "./serves-choice";
 import { VENUE_SHORT } from "./venue";
+import { NameSuggestRow, useNameTidy } from "./name-suggest";
 
 type RecipeType = "item" | "prep";
 interface OpenArgs {
@@ -58,6 +60,8 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
   const guessed = useMemo(() => guessCategory(name, store.venueById.get(venueId ?? -1)?.slug, store.items.filter((i) => i.venue_id === venueId)), [name, venueId, store.venueById, store.items]);
   const category = picked ?? guessed;
   const setCategory = (c: string) => setPicked(c);
+  // spelling and capitals: tidy on leaving the field, "Did you mean" under it (nothing is saved by it)
+  const nt = useNameTidy({ kind: type === "prep" ? "prep" : DRINK_CATEGORIES.has(category) ? "drink" : "menu_item", value: name, setValue: setName });
 
   const canCreate = name.trim().length > 0 && venueId != null && (type === "prep" || !!category) && !busy;
 
@@ -65,10 +69,12 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
     if (!canCreate || venueId == null) return;
     setBusy(true);
     setError(null);
+    // a name still being typed when Create is pressed (Enter) is tidied the same way as one the person left
+    const finalName = nt.settle(name);
     try {
       if (type === "item") {
         const item: Omit<MenuItem, "id"> = {
-          name: name.trim(),
+          name: finalName,
           venue_id: venueId,
           category,
           section: null,
@@ -86,7 +92,7 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
         onClose();
         router.push(`/items/${id}?new=1`);
       } else {
-        const prep: Omit<Prep, "id"> = { name: name.trim(), venue_id: venueId, prep_type: null, yield_qty: 1, yield_unit: "kg", active: true, source: "app", notes: null };
+        const prep: Omit<Prep, "id"> = { name: finalName, venue_id: venueId, prep_type: null, yield_qty: 1, yield_unit: "kg", active: true, source: "app", notes: null };
         const id = await store.insertPrep(prep);
         onClose();
         router.push(`/preps/${id}?new=1`);
@@ -113,9 +119,12 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
           placeholder={type === "prep" ? "Prep name, e.g. Hollandaise" : "Dish or drink name"}
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onFocus={nt.onFocus}
+          onBlur={nt.onBlur}
           enterKeyHint="done"
           aria-label="Recipe Name"
         />
+        <NameSuggestRow nt={nt} className="!mt-2" />
         <div>
           <p className="section-label !px-1">Venue{venueId == null ? <span className="text-danger"> · Choose One</span> : null}</p>
           <Chips

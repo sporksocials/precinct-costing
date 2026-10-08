@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { FLAVOUR_PREP_TYPE, flavourName } from "@/lib/gelato";
 import { Banner, Sheet } from "@/components/ui";
+import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
 
 /** New gelato flavour: a name, then straight into its mix. Used from the Menu and the Price Grid. */
 export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose: () => void }) {
@@ -13,7 +14,9 @@ export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clean = name.trim().replace(/\s+gelato\s+mix$/i, "").trim();
+  const nt = useNameTidy({ kind: "prep", value: name, setValue: setName });
+  // the flavour is tidied the same way as a name the person left (Enter skips the blur), then " Gelato Mix" is dropped
+  const clean = nt.settle(name).replace(/\s+gelato\s+mix$/i, "").trim();
   const exists = !!clean && store.gelato.flavours.some((f) => flavourName(f).toLowerCase() === clean.toLowerCase());
 
   async function create() {
@@ -40,7 +43,8 @@ export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose
         }}
       >
         {error ? <Banner>{error}</Banner> : null}
-        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Flavour name, e.g. Lemon Sorbet" value={name} onChange={(e) => setName(e.target.value)} aria-label="Flavour Name" />
+        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Flavour name, e.g. Lemon Sorbet" value={name} onChange={(e) => setName(e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Flavour Name" />
+        <NameSuggestRow nt={nt} />
         {exists ? <p className="px-1 text-[13px] text-danger">There’s already a {clean} flavour.</p> : null}
         <p className="px-1 text-[13px] text-label-2">Next you’ll add the mix ingredients (base, paste, toppings). Every serve is priced from the mix automatically — no recipes to set up.</p>
         <button type="submit" className="btn-primary w-full" disabled={!clean || exists || busy}>

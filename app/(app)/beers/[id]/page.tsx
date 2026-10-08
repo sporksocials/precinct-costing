@@ -17,6 +17,7 @@ import { RecordHistory } from "@/components/editor/record-history";
 import { SetPriceButton } from "@/components/price-actions";
 import { ActiveToggle, DeleteRecordSheet, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { TAP_ACTIVE_LABEL, TAP_ACTIVE_SUB } from "@/lib/active";
+import { NameFieldRow } from "@/components/name-suggest";
 import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, useToast } from "@/components/ui";
 
 export default function BeerPage() {
@@ -66,9 +67,7 @@ export default function BeerPage() {
       {error ? <Banner>{error}</Banner> : null}
 
       <div className="group-list mt-5">
-        <FieldRow label="Name">
-          <InlineInput value={beer.name} inputMode="text" width="w-48" onCommit={(t) => t.trim() && t.trim() !== beer.name && run(store.updateBeer(beer.id, { name: t.trim() }))} />
-        </FieldRow>
+        <NameFieldRow kind="beer" value={beer.name} onSave={(name) => run(store.updateBeer(beer.id, { name }))} />
         <Row onClick={() => setPicking(true)} title="Keg" sub={keg ? `${money(Number(keg.pack_price))} per ${Number(keg.pack_size)} L · ${money(perL)}/L incl. yield` : undefined} trailing={<span className="max-w-[12rem] truncate text-label-2">{keg ? keg.name : "Choose"}</span>} chevron />
         {keg ? <Row href={`/ingredients/${keg.id}`} title="Update Keg Price" sub="Changes every serve at once" chevron /> : null}
         <FieldRow label="Target GP" sub={`Blank uses ${VENUE_SHORT[venue?.slug ?? ""] ?? "venue"} Tap Beer: ${gp(defaultTarget, 0)}`}>

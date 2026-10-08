@@ -27,6 +27,7 @@ import { RecipeAllergens } from "../allergen-picker";
 import { GelatoDietary } from "./gelato-dietary";
 import { DietOptionsGroup } from "./diet-options";
 import { isDrinkItem } from "@/lib/allergen-badges";
+import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
 import { isBarCategory } from "@/lib/bar";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
@@ -423,6 +424,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const costById = useMemo(() => new Map(recipe.lines.map((c) => [c.line.id, c])), [recipe]);
   const prep = kind === "prep" ? (draft as Prep) : null;
   const item = kind === "item" ? (draft as MenuItem) : null;
+  // spelling and capitals on the name: a change of the draft like typing is, never a write to the database
+  const nameTidy = useNameTidy({ kind: item ? (isDrinkItem(item) ? "drink" : "menu_item") : "prep", value: draft.name, setValue: (v) => setDraft((d) => ({ ...d, name: v })), own: saved.name });
   const prepYield = prep ? Number(prep.yield_qty) || 0 : 0;
   const prepCostPerUnit = prep && prepYield > 0 ? recipe.total / prepYield : 0;
   const venue = store.venueById.get((draft as MenuItem).venue_id ?? -1);
@@ -591,11 +594,14 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             placeholder="Recipe name"
             aria-label="Recipe Name"
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value.replace(/\n/g, " ") }))}
+            onFocus={nameTidy.onFocus}
             onBlur={() => {
+              nameTidy.onBlur();
               if (!draftRef.current.name.trim()) setDraft((d) => ({ ...d, name: saved.name || "Untitled" }));
             }}
             className="mt-2 block w-full resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-tight tracking-tight outline-none placeholder:text-label-3 lg:text-[32px]"
           />
+          <NameSuggestRow nt={nameTidy} className="mt-2" />
           {!draft.active ? (
             <p className="mt-1 text-[13px] font-medium text-label-2">
               <InactiveTag />

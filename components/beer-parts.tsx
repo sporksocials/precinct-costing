@@ -8,6 +8,7 @@ import { money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
+import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { Banner, Chips, FieldRow, InlineInput, Group, Row, SearchField, Sheet } from "./ui";
 
 /** Pick the keg a beer pours from: ingredients priced per litre, best matches first. */
@@ -62,7 +63,9 @@ export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: numb
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const keg = store.ingredients.find((i) => i.id === kegId);
-  const exists = !!name.trim() && store.beer.beers.some((b) => b.venue_id === venueId && b.name.toLowerCase() === name.trim().toLowerCase());
+  const nt = useNameTidy({ kind: "beer", value: name, setValue: setName });
+  // the tidied name is what is checked and saved, so "stone & wood" cannot slip in beside "Stone & Wood"
+  const exists = !!name.trim() && store.beer.beers.some((b) => b.venue_id === venueId && b.name.toLowerCase() === nt.settle(name).toLowerCase());
   const can = !!name.trim() && venueId != null && !!kegId && !exists && !busy;
 
   async function create() {
@@ -71,7 +74,7 @@ export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: numb
     setError(null);
     try {
       const id = await store.insertBeer(
-        { venue_id: venueId, name: name.trim(), ingredient_id: kegId, target_gp: null, active: true, sort: 0, notes: null },
+        { venue_id: venueId, name: nt.settle(name), ingredient_id: kegId, target_gp: null, active: true, sort: 0, notes: null },
         serves.map((s) => ({ serve_id: s.id, sell_price_inc: parsePriceInput(prices[s.id] ?? "") })),
       );
       onClose();
@@ -86,7 +89,8 @@ export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: numb
     <Sheet open onClose={onClose} title="New Tap Beer" action={{ label: busy ? "Adding…" : "Add", onClick: () => void create(), disabled: !can }}>
       <div className="space-y-5 pb-2 pt-3">
         {error ? <Banner>{error}</Banner> : null}
-        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Beer name, e.g. Stone & Wood Pacific" value={name} onChange={(e) => setName(e.target.value)} aria-label="Beer name" />
+        <input autoFocus className="field !text-[20px] font-semibold" placeholder="Beer name, e.g. Stone & Wood Pacific" value={name} onChange={(e) => setName(e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Beer name" />
+        <NameSuggestRow nt={nt} className="!mt-2" />
         {exists ? <p className="px-1 text-[13px] text-danger">That venue already has a beer with this name.</p> : null}
         <div>
           <p className="section-label !px-1">Venue</p>

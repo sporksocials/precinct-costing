@@ -22,6 +22,7 @@ import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { IngredientHistory } from "@/components/ingredient-history";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
 import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-parts";
+import { NameFieldRow } from "@/components/name-suggest";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
 /** entered_by marker for alternate prices carried over from the source sheets. */
@@ -246,9 +247,7 @@ function Detail({ ing }: { ing: Ingredient }) {
 
           <Disclosure title="Advanced" hint="Name, pack, GST, yield, supplier code">
             <div className="group-list">
-              <FieldRow label="Name">
-                <InlineInput value={ing.name} inputMode="text" width="w-48" onCommit={(t) => t.trim() && patch({ name: t.trim() })} />
-              </FieldRow>
+              <NameFieldRow kind="ingredient" value={ing.name} onSave={(name) => patch({ name })} />
               <FieldRow label="Supplier">
                 <select className="max-w-[12rem] bg-transparent text-right text-[17px] text-label-2 outline-none sm:text-[15px]" value={ing.supplier_id ?? ""} onChange={(e) => patch({ supplier_id: e.target.value ? Number(e.target.value) : null })}>
                   <option value="">None</option>

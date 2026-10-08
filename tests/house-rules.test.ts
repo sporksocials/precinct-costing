@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, dehydrateLimeWheels, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -50,5 +50,20 @@ describe("applyHouseRules", () => {
   });
   it("leaves a missing method or garnish missing", () => {
     expect(applyHouseRules({ name: "Margarita", method: null, garnish: null })).toEqual({ name: "Margarita", method: null, garnish: null });
+  });
+});
+
+describe("fine strain is always double strain", () => {
+  it("rewords and keeps the capital", () => {
+    expect(doubleStrain("Fine strain into the glass")).toBe("Double strain into the glass");
+    expect(doubleStrain("Shake, then fine strain into the glass")).toBe("Shake, then double strain into the glass");
+    expect(doubleStrain("Fine-strain into the glass")).toBe("Double strain into the glass");
+  });
+  it("leaves double strain and other steps alone", () => {
+    expect(doubleStrain("Double strain into the glass")).toBe("Double strain into the glass");
+    expect(doubleStrain("Strain into the glass over the ice")).toBe("Strain into the glass over the ice");
+  });
+  it("is part of the rules a saved drink gets", () => {
+    expect(applyHouseRules({ name: "French Martini", method: ["Shake", "Fine strain into the glass"], garnish: null }).method).toEqual(["Shake", "Double strain into the glass"]);
   });
 });

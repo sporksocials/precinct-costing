@@ -16,25 +16,27 @@ describe("lime wheels are always dehydrated", () => {
   });
 });
 
-describe("a salted rim on a margarita says to wipe the inside", () => {
-  it("adds the step straight after the rim step", () => {
-    expect(ensureRimWipe(["Wet and rim the glass with salt", "Chill the glass", "Shake hard for 12 seconds"], "Margarita")).toEqual([
+describe("every rim says to wipe the inside", () => {
+  it("adds the step straight after the rim step, naming what is on the rim", () => {
+    expect(ensureRimWipe(["Wet and rim the glass with salt", "Chill the glass", "Shake hard for 12 seconds"])).toEqual([
       "Wet and rim the glass with salt",
       "Wipe the inside of the glass rim so there is no salt on the inside",
       "Chill the glass",
       "Shake hard for 12 seconds",
     ]);
-  });
-  it("says chilli salt for a chilli salt rim", () => {
     expect(wipeStepFor("Wet and rim the glass with chilli salt")).toBe("Wipe the inside of the glass rim so there is no chilli salt on the inside");
-    expect(ensureRimWipe(["Wet and rim the glass with chilli salt", "Shake"], "Mango Chilli Margarita")[1]).toContain("chilli salt");
+    expect(wipeStepFor("Wet and rim the glass with coconut")).toBe("Wipe the inside of the glass rim so there is no coconut on the inside");
+    expect(wipeStepFor("Wet and rim the glass with cinnamon sugar")).toBe("Wipe the inside of the glass rim so there is no cinnamon sugar on the inside");
+    expect(wipeStepFor("Wet and rim the glass with the sugar")).toBe("Wipe the inside of the glass rim so there is no sugar on the inside");
   });
-  it("does not repeat itself, and ignores other drinks and other rims", () => {
+  it("applies to any drink, not only margaritas", () => {
+    expect(ensureRimWipe(["Wet and rim the glass with coconut", "Shake"])[1]).toContain("no coconut");
+  });
+  it("does not repeat itself, and ignores drinks with no rim", () => {
     const done = ["Wet and rim the glass with salt", "Wipe the inside of the glass rim so there is no salt on the inside", "Shake"];
-    expect(ensureRimWipe(done, "Margarita")).toEqual(done);
-    expect(ensureRimWipe(["Wet and rim the glass with salt", "Shake"], "Paloma")).toEqual(["Wet and rim the glass with salt", "Shake"]);
-    expect(ensureRimWipe(["Wet and rim the glass with sugar", "Shake"], "Watermelon Margarita")).toEqual(["Wet and rim the glass with sugar", "Shake"]);
-    expect(ensureRimWipe(["Fill the carafe with ice", "Shake"], "Casa Margarita Carafe")).toEqual(["Fill the carafe with ice", "Shake"]);
+    expect(ensureRimWipe(done)).toEqual(done);
+    expect(ensureRimWipe(["Fill the carafe with ice", "Shake"])).toEqual(["Fill the carafe with ice", "Shake"]);
+    expect(ensureRimWipe(["Wipe the rim clean", "Shake"])).toEqual(["Wipe the rim clean", "Shake"]);
   });
 });
 

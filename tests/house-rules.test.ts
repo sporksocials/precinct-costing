@@ -97,14 +97,16 @@ describe("a garnish never says to smack mint", () => {
   });
 });
 
-describe("Chiobu coupe drinks are pre-chilled", () => {
-  it("adds the chill step first on Chiobu only", () => {
+describe("Drift and Chiobu coupe drinks are pre-chilled", () => {
+  it("adds the chill step first on Drift and Chiobu only", () => {
     expect(ensureCoupeChilled(["Shake", "Strain"], "Coupe Glass", 2)).toEqual(["Chill the coupe glass", "Shake", "Strain"]);
     expect(ensureCoupeChilled(["Shake"], "Coupe Glass, Chilli Salt Rim", 2)[0]).toBe("Chill the coupe glass");
-    expect(ensureCoupeChilled(["Shake"], "Coupe Glass", 1)).toEqual(["Shake"]);
+    expect(ensureCoupeChilled(["Shake"], "Coupe Glass", 1)[0]).toBe("Chill the coupe glass");
+    expect(ensureCoupeChilled(["Shake"], "Coupe Glass", 3)).toEqual(["Shake"]);
   });
   it("leaves a method that already chills, other glasses, and an empty method alone", () => {
     expect(ensureCoupeChilled(["Wet and rim the glass", "Chill the glass", "Shake"], "Coupe Glass", 2)).toHaveLength(3);
+    expect(ensureCoupeChilled(["Drizzle the syrup. Do not chill the glass, or it will not stick"], "Coupe Glass", 1)).toHaveLength(1);
     expect(ensureCoupeChilled(["Fill with ice"], "Rocks Glass", 2)).toEqual(["Fill with ice"]);
     expect(ensureCoupeChilled([], "Coupe Glass", 2)).toEqual([]);
   });

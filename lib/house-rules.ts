@@ -11,7 +11,7 @@
  *     12 second shake. Troy, 9 Oct 2026. WHICH drinks say "hard" is a recipe decision, not a rule here: only a drink with a
  *     foamy top (aqua faba or aqua fibre sours, the espresso martinis) says "Shake hard for 12 seconds, or until the shaker is
  *     frosted"; every other shake says "Shake for 12 seconds, or until the shaker is frosted".
- *   7 Chiobu only: a drink in a coupe glass is pre-chilled (the method starts "Chill the coupe glass"). Troy, 9 Oct 2026.
+ *   7 Drift and Chiobu: a drink in a coupe glass is pre-chilled (the method starts "Chill the coupe glass"). Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
 
@@ -88,12 +88,16 @@ export function ensureRimWipe(method: readonly string[]): string[] {
   return out;
 }
 
-/** Chiobu's row in `cost_venues`. */
+/** Drift and Chiobu's rows in `cost_venues`. */
+export const DRIFT_VENUE_ID = 1;
 export const CHIOBU_VENUE_ID = 2;
 
-/** Chiobu only: any drink served in a coupe glass is pre-chilled, so the method starts "Chill the coupe glass" unless it already says to chill the glass. */
+/**
+ * Drift and Chiobu: any drink served in a coupe glass is pre-chilled, so the method starts "Chill the coupe glass" unless it
+ * already mentions chilling (Top Deck says NOT to chill, so it is left alone too). Greedy's own rule has not been given.
+ */
 export function ensureCoupeChilled(method: readonly string[], glass: string | null | undefined, venueId: number | null | undefined): string[] {
-  if (venueId !== CHIOBU_VENUE_ID || !/\bcoupe\b/i.test(glass ?? "") || method.length === 0) return [...method];
+  if ((venueId !== DRIFT_VENUE_ID && venueId !== CHIOBU_VENUE_ID) || !/\bcoupe\b/i.test(glass ?? "") || method.length === 0) return [...method];
   if (method.some((m) => /\bchill/i.test(m))) return [...method];
   return ["Chill the coupe glass", ...method];
 }

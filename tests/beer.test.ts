@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildIndex, costItem } from "@/lib/costing";
-import { beerItemId, buildBeer, parseBeerItemId, serveSoldAt, servesAt } from "@/lib/beer";
+import { beerItemId, buildBeer, parseBeerItemId, serveOffered, serveSoldAt, servesAt } from "@/lib/beer";
 import { isVirtualItemId, parseVirtualItemId } from "@/lib/gelato";
 import { DEFAULT_SETTINGS, type Beer, type BeerPrice, type BeerServe, type Ingredient } from "@/lib/types";
 
@@ -64,5 +64,28 @@ describe("serves a venue does not pour", () => {
     expect(m.items.filter((i) => i.venue_id === 1).map((i) => i.name)).toEqual(["Drift Lager - Pot", "Drift Lager - Schooner", "Drift Lager - Pint", "Drift Lager - Jug"]);
     expect(m.items.filter((i) => i.venue_id === 2).map((i) => i.name)).toEqual(["Chiobu - Schooner", "Chiobu - Jug"]);
     expect(m.items.filter((i) => i.venue_id === 3).map((i) => i.name)).toEqual(["Greedy Lager - Schooner", "Greedy Lager - Jug"]);
+  });
+});
+
+describe("a beer that pours only some serves (Tiger at Chiobu)", () => {
+  const all: BeerServe[] = [
+    { id: "pot", name: "Pot", sort: 1, ml: 285, active: true, not_sold_at: [1, 2, 3] },
+    { id: "sch", name: "Schooner", sort: 2, ml: 425, active: true },
+    { id: "g500", name: "500ml Glass", sort: 3, ml: 500, active: true, not_sold_at: [1, 2, 3] },
+    { id: "jug", name: "Jug", sort: 5, ml: 1140, active: true },
+  ];
+  const tiger: Beer = { id: "t", venue_id: 2, name: "Tiger", ingredient_id: "keg", target_gp: null, active: true, sort: 0, notes: null, only_serves: ["jug", "g500"] };
+  const usual: Beer = { id: "u", venue_id: 2, name: "Rice Lager", ingredient_id: "keg", target_gp: null, active: true, sort: 0, notes: null };
+  it("pours exactly the serves it lists, even ones no venue usually sells", () => {
+    expect(all.filter((s) => serveOffered(s, tiger)).map((s) => s.name)).toEqual(["500ml Glass", "Jug"]);
+  });
+  it("falls back to the venue's usual serves with no list or an empty one", () => {
+    expect(all.filter((s) => serveOffered(s, usual)).map((s) => s.name)).toEqual(["Schooner", "Jug"]);
+    expect(all.filter((s) => serveOffered(s, { ...usual, only_serves: [] })).map((s) => s.name)).toEqual(["Schooner", "Jug"]);
+  });
+  it("builds items only for the serves each beer pours", () => {
+    const m = buildBeer({ beers: [tiger, usual], serves: all, prices: [] });
+    expect(m.items.filter((i) => i.name.startsWith("Tiger")).map((i) => i.name)).toEqual(["Tiger - 500ml Glass", "Tiger - Jug"]);
+    expect(m.items.filter((i) => i.name.startsWith("Rice")).map((i) => i.name)).toEqual(["Rice Lager - Schooner", "Rice Lager - Jug"]);
   });
 });

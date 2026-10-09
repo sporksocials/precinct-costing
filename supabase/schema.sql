@@ -198,6 +198,7 @@ create table if not exists public.cost_beers (
   active boolean not null default true,
   sort integer not null default 0,
   notes text,
+  only_serves uuid[],
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   unique (venue_id, name)
@@ -1938,3 +1939,10 @@ delete from public.cost_bar_options where kind = 'glass' and name = 'Carafe';
 -- Mirrors supabase/migrations/20261009110000_beer_serves_not_sold_at.sql: Chiobu (2) and Greedy (3) pour only the Schooner and the Jug (Troy, 9 Oct 2026).
 alter table public.cost_beer_serves add column if not exists not_sold_at integer[] not null default '{}';
 update public.cost_beer_serves set not_sold_at = '{2,3}' where name in ('Pot', 'Pint');
+
+-- Mirrors supabase/migrations/20261009120000_beer_serves_tiger.sql (Troy, 9 Oct 2026): Pot is not sold anywhere, a 500ml Glass serve exists, and a beer can list the only serves it pours.
+update public.cost_beer_serves set not_sold_at = '{1,2,3}' where name = 'Pot';
+insert into public.cost_beer_serves (name, sort, ml, not_sold_at) values ('500ml Glass', 3, 500, '{1,2,3}') on conflict (name) do nothing;
+update public.cost_beer_serves set sort = 4 where name = 'Pint' and sort = 3;
+update public.cost_beer_serves set sort = 5 where name = 'Jug' and sort = 4;
+alter table public.cost_beers add column if not exists only_serves uuid[];

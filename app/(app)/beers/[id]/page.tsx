@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
-import { beerItemId, servesAt } from "@/lib/beer";
+import { beerItemId, serveOffered } from "@/lib/beer";
 import { costPerBaseFromIndex, resolveTargetGp } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { parseGpInput, parsePriceInput } from "@/lib/solver";
@@ -44,7 +44,7 @@ export default function BeerPage() {
     );
 
   const venue = store.venueById.get(beer.venue_id);
-  const servesHere = servesAt(store.beer.serves, beer.venue_id);
+  const servesHere = store.beer.serves.filter((s) => serveOffered(s, beer));
   const keg = store.ingredients.find((i) => i.id === beer.ingredient_id);
   const perL = keg ? costPerBaseFromIndex(store.index, keg, store.settings.gst_rate) : 0;
   const defaultTarget = resolveTargetGp({ venue_id: beer.venue_id, category: "Tap Beer", target_override: null }, store.targets);
@@ -127,8 +127,12 @@ export default function BeerPage() {
                     onCommit={(t) => run(store.setBeerPrice(beer.id, s.id, { hh_price_inc: parsePriceInput(t) }))}
                   />
                 </label>
-                {c?.underTarget ? <SetPriceButton c={c} /> : <span className="text-[13px] text-label-3 tnum">target {gp(c?.targetGp ?? defaultTarget, 0)}</span>}
+                {c?.underTarget ? <SetPriceButton c={c} /> : null}
               </div>
+              <p className="mt-1.5 text-[13px] text-label-3 tnum">
+                Target {gp(c?.targetGp ?? defaultTarget, 0)}
+                {c && c.costPerPortion > 0 ? ` · Suggested ${money(c.suggestedInc)}` : ""}
+              </p>
             </div>
           );
         })}

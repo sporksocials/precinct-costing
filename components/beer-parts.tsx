@@ -5,8 +5,8 @@ import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { servesAt } from "@/lib/beer";
 import { KEG_CATEGORY, KEG_PACK_SIZE, KEG_PACK_UNIT, KEG_YIELD, kegNameFor } from "@/lib/keg";
-import { costPerBaseFromIndex } from "@/lib/costing";
-import { money, parseDecimal } from "@/lib/format";
+import { costPerBaseFromIndex, resolveTargetGp, suggestedPrice } from "@/lib/costing";
+import { gp, money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
@@ -85,6 +85,11 @@ export function NewBeerSheet({ defaultVenueId, onClose, onBack }: { defaultVenue
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const keg = store.ingredients.find((i) => i.id === kegId);
+  // once a keg is chosen each size shows the price that would hit the venue's target GP
+  const target = venueId != null ? resolveTargetGp({ venue_id: venueId, category: "Tap Beer", target_override: null }, store.targets) : null;
+  const perL = keg ? costPerBaseFromIndex(store.index, keg, store.settings.gst_rate) : 0;
+  const suggestedFor = (ml: number): number | null =>
+    target != null && perL > 0 ? suggestedPrice((perL * ml) / 1000, target, store.settings.gst_rate, store.settings.round_to) : null;
   const nt = useNameTidy({ kind: "beer", value: name, setValue: setName });
   // the tidied name is what is checked and saved, so "stone & wood" cannot slip in beside "Stone & Wood"
   const exists = !!name.trim() && store.beer.beers.some((b) => b.venue_id === venueId && b.name.toLowerCase() === nt.settle(name).toLowerCase());
@@ -133,12 +138,12 @@ export function NewBeerSheet({ defaultVenueId, onClose, onBack }: { defaultVenue
             chevron
           />
           {serves.map((s) => (
-            <FieldRow key={s.id} label={s.name} sub={`${s.ml} ml`}>
+            <FieldRow key={s.id} label={s.name} sub={`${s.ml} ml${suggestedFor(s.ml) != null ? ` · suggested ${money(suggestedFor(s.ml) ?? 0)}` : ""}`}>
               <InlineInput value={prices[s.id] ?? ""} placeholder="0.00" prefix="$" onCommit={(t) => setPrices((p) => ({ ...p, [s.id]: t }))} />
             </FieldRow>
           ))}
         </div>
-        <p className="px-1 text-[13px] text-label-2">Prices include GST. Leave one blank if that serve isn’t sold; you can change them any time.</p>
+        <p className="px-1 text-[13px] text-label-2">Prices include GST. {target != null && keg ? `Suggested prices hit the ${gp(target, 0)} target. ` : ""}Leave one blank if that serve isn’t sold; you can change them any time.</p>
         <button type="button" className="btn-primary w-full" disabled={!can} onClick={() => void create()}>
           {busy ? "Adding…" : "Add Tap Beer"}
         </button>

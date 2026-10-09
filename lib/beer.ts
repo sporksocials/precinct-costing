@@ -27,6 +27,12 @@ export function serveSoldAt(serve: BeerServe, venueId: number | null | undefined
   return venueId == null || !(serve.not_sold_at ?? []).includes(venueId);
 }
 
+/** True when this beer is poured in this serve: its own `only_serves` list wins, otherwise the venue's usual serves. */
+export function serveOffered(serve: BeerServe, beer: { venue_id: number; only_serves?: string[] | null }): boolean {
+  if (beer.only_serves && beer.only_serves.length > 0) return beer.only_serves.includes(serve.id);
+  return serveSoldAt(serve, beer.venue_id);
+}
+
 /** The serves a venue sells, in the order given. */
 export function servesAt(serves: BeerServe[], venueId: number | null | undefined): BeerServe[] {
   return serves.filter((s) => serveSoldAt(s, venueId));
@@ -50,7 +56,7 @@ export function buildBeer(input: { beers: Beer[]; serves: BeerServe[]; prices: B
   const lines: RecipeLine[] = [];
   for (const b of beers) {
     for (const s of serves) {
-      if (!serveSoldAt(s, b.venue_id)) continue; // this venue does not pour this size, so there is no item for it
+      if (!serveOffered(s, b)) continue; // this beer is not poured in this size, so there is no item for it
       const p = priceOf.get(`${b.id}~${s.id}`);
       const id = beerItemId(b.id, s.id);
       items.push({

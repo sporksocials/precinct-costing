@@ -246,6 +246,8 @@ export interface Beer {
   active: boolean;
   sort: number;
   notes: string | null;
+  /** serve ids this beer pours and nothing else (a one-off beer such as Tiger); null or empty = the venue's usual serves */
+  only_serves?: string[] | null;
 }
 
 export interface BeerPrice {

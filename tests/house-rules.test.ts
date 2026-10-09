@@ -99,19 +99,19 @@ describe("a garnish never says to smack mint", () => {
 
 describe("every rim is made the same way", () => {
   it("rewords older rim steps, keeping what is on the rim", () => {
-    expect(rimOnSponge("Wet and rim the glass with salt")).toBe("Rim the glass with salt by dipping it in lime juice first, then in salt");
-    expect(rimOnSponge("Wet and rim the jar with coconut")).toBe("Rim the jar with coconut by dipping it in lime juice first, then in coconut");
-    expect(rimOnSponge("Rim the coupe glass with sugar")).toBe("Rim the coupe glass with sugar by dipping it in lime juice first, then in sugar");
-    expect(rimOnSponge("Wet the rim on the lime juice sponge, then dip it in chilli salt")).toBe("Rim the glass with chilli salt by dipping it in lime juice first, then in chilli salt");
+    expect(rimOnSponge("Wet and rim the glass with salt")).toBe("Rim the glass with salt by dipping it in the lime juice sponge first, then in salt");
+    expect(rimOnSponge("Wet and rim the jar with coconut")).toBe("Rim the jar with coconut by dipping it in the lime juice sponge first, then in coconut");
+    expect(rimOnSponge("Rim the coupe glass with sugar")).toBe("Rim the coupe glass with sugar by dipping it in the lime juice sponge first, then in sugar");
+    expect(rimOnSponge("Wet the rim on the lime juice sponge, then dip it in chilli salt")).toBe("Rim the glass with chilli salt by dipping it in the lime juice sponge first, then in chilli salt");
   });
   it("leaves the new wording and other steps alone", () => {
-    const done = "Rim the glass with coconut by dipping it in lime juice first, then in coconut";
+    const done = "Rim the glass with coconut by dipping it in the lime juice sponge first, then in coconut";
     expect(rimOnSponge(done)).toBe(done);
     expect(rimOnSponge("Fill the glass with ice")).toBe("Fill the glass with ice");
   });
   it("still gets the wipe step named after what is on the rim", () => {
     const out = applyHouseRules({ name: "X", method: ["Wet and rim the glass with chilli salt", "Shake"], garnish: null }).method;
-    expect(out).toEqual(["Rim the glass with chilli salt by dipping it in lime juice first, then in chilli salt", "Wipe the inside of the glass rim so there is no chilli salt on the inside", "Shake"]);
+    expect(out).toEqual(["Rim the glass with chilli salt by dipping it in the lime juice sponge first, then in chilli salt", "Wipe the inside of the glass rim so there is no chilli salt on the inside", "Shake"]);
     expect(applyHouseRules({ name: "X", method: [out![0], out![1], "Shake"], garnish: null }).method).toEqual(out);
   });
 });

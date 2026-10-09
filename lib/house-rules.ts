@@ -12,7 +12,7 @@
  *     foamy top (aqua faba or aqua fibre sours, the espresso martinis) says "Shake hard for 12 seconds, or until the shaker is
  *     frosted"; every other shake says "Shake for 12 seconds, or until the shaker is frosted".
  *   7 Drift and Chiobu: a drink in a coupe glass is pre-chilled (the method starts "Chill the coupe glass"). Troy, 9 Oct 2026.
- *   9 Every rim reads "Rim the glass with coconut by dipping it in lime juice first, then in coconut" (the bar wets it on a lime juice sponge). Troy, 9 Oct 2026, all venues.
+ *   9 Every rim reads "Rim the glass with coconut by dipping it in the lime juice sponge first, then in coconut" (the lime juice sponge is what the bar wets rims on). Troy, 9 Oct 2026, all venues.
  *   8 The venue is always spelled "Chiobu" (never ChioBu or CHIOBU) in method and garnish text, and in names via lib/name-tidy.ts. Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
@@ -87,9 +87,9 @@ const RIM_OLD_FORMS = [
 export function rimOnSponge(text: string): string {
   if (/\bby dipping\b/i.test(text)) return text;
   const a = text.match(RIM_OLD_FORMS[0]);
-  if (a) return `Rim the ${a[1].toLowerCase()} with ${a[2]} by dipping it in lime juice first, then in ${a[2]}`;
+  if (a) return `Rim the ${a[1].toLowerCase()} with ${a[2]} by dipping it in the lime juice sponge first, then in ${a[2]}`;
   const b = text.match(RIM_OLD_FORMS[1]);
-  if (b) return `Rim the glass with ${b[1]} by dipping it in lime juice first, then in ${b[1]}`;
+  if (b) return `Rim the glass with ${b[1]} by dipping it in the lime juice sponge first, then in ${b[1]}`;
   return text;
 }
 

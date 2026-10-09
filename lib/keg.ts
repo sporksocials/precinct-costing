@@ -2,15 +2,15 @@
  * Tap beer kegs (Troy, 9 Oct 2026): a keg is an ingredient in the "Beer Keg" category, sold by the litre (50 L), with 99% yield
  * (1% wastage, the same for every keg; wastage lives on the keg, never on a serve).
  */
-export const KEG_CATEGORY = "Beer Keg";
+import { BEER_KEG_CATEGORY, looksLikeKeg } from "./ingredient-categories";
+
+export const KEG_CATEGORY = BEER_KEG_CATEGORY;
 export const KEG_PACK_SIZE = 50;
 export const KEG_PACK_UNIT = "L" as const;
 export const KEG_YIELD = 0.99;
 
-/** True when a name is a keg: the word "keg" on its own ("Stone & Wood Keg", "Chiobu keg"). */
-export function looksLikeKeg(name: string): boolean {
-  return /\bkeg\b/i.test(name);
-}
+/** True when a name is a keg: the word "keg" on its own ("Stone & Wood Keg", "Chiobu keg"). The rule lives in lib/ingredient-categories.ts. */
+export { looksLikeKeg };
 
 /** The keg's name for a beer: "Stone & Wood Pacific" becomes "Stone & Wood Pacific Keg"; a name that already ends in keg is kept. */
 export function kegNameFor(beerName: string): string {

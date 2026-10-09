@@ -100,6 +100,8 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
     for (const i of active) if (i.category) counts.set(i.category, (counts.get(i.category) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
   }, [active]);
+  // an old or mistyped ?cat= value (one with no chip) shows All instead of an empty list
+  const catValue = cat === "all" || cats.includes(cat) ? cat : "all";
 
   const docs = useMemo(
     () => active.map((i) => ({ ...indexDoc({ kind: "ingredient" as const, id: i.id, title: i.name, sub: "", href: "", extra: `${store.supplierById.get(i.supplier_id ?? -1)?.name ?? ""} ${i.supplier_code ?? ""}` }), i })),
@@ -107,11 +109,11 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
   );
 
   const rows = useMemo(() => {
-    let list = cat === "all" ? docs : docs.filter((d) => d.i.category === cat);
+    let list = catValue === "all" ? docs : docs.filter((d) => d.i.category === catValue);
     if (q.trim()) return search(list, q, 400).map((h) => h.doc.i);
     list = [...list].sort((a, b) => a.i.name.localeCompare(b.i.name));
     return list.map((d) => d.i);
-  }, [docs, cat, q]);
+  }, [docs, catValue, q]);
 
   const gst = store.settings.gst_rate;
   const usedCount = (id: string) => {
@@ -135,7 +137,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
         </div>
       ) : null}
       <SearchField value={q} onChange={setQ} placeholder="Search ingredients or suppliers" />
-      {filter ? null : <Chips className="mt-3" ariaLabel="Category" value={cat} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />}
+      {filter ? null : <Chips className="mt-3" ariaLabel="Category" value={catValue} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />}
 
       {rows.length === 0 && !filter && inactiveCount > 0 ? (
         <div className="flex justify-end px-4 pt-4">
@@ -172,6 +174,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
               href={(i) => `/ingredients/${i.id}`}
               columns={[
                 { key: "name", label: "Ingredient", render: (i) => <span className="font-medium"><TitleWithTag name={i.name} active={i.active} /></span>, sort: (i) => i.name },
+                { key: "cat", label: "Category", render: (i) => (i.category ? <span className="text-label-2">{i.category}</span> : <span className="text-label-3">None</span>), sort: (i) => i.category ?? "" },
                 { key: "sup", label: "Supplier", render: (i) => <span className="text-label-2">{store.supplierById.get(i.supplier_id ?? -1)?.name ?? "—"}</span>, sort: (i) => store.supplierById.get(i.supplier_id ?? -1)?.name ?? "" },
                 { key: "pack", label: "Pack", align: "right", render: (i) => <span className="text-label-2">{packLabel(i.pack_size, i.pack_unit)}</span> },
                 { key: "price", label: "Pack Price", align: "right", render: (i) => money(Number(i.pack_price)), sort: (i) => Number(i.pack_price) },
@@ -216,7 +219,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
                       ? `Catalogue ${money(gapById.get(i.id)!.theirs)}/${unitShort(i.pack_unit)} vs yours ${money(gapById.get(i.id)!.ours)} (${gapById.get(i.id)!.diffPct > 0 ? "+" : ""}${Math.round(gapById.get(i.id)!.diffPct * 100)}%)`
                       : filter === "stale"
                         ? `${sup ?? "No supplier"} · last updated ${i.last_price_update ? dateShort(i.last_price_update) : "never"}`
-                        : [sup, `${money(Number(i.pack_price))} per ${packLabel(i.pack_size, i.pack_unit)}`].filter(Boolean).join(" · ")
+                        : [i.category, sup, `${money(Number(i.pack_price))} per ${packLabel(i.pack_size, i.pack_unit)}`].filter(Boolean).join(" · ")
                   }
                   trailing={
                     <span className="flex flex-col items-end leading-tight">
@@ -238,7 +241,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
       {adding ? (
         <IngredientSheet
           open
-          initial={blankIngredient({ name: q.trim() })}
+          initial={blankIngredient({ name: q.trim(), ...(catValue !== "all" ? { category: catValue } : {}) })}
           onClose={() => setAdding(false)}
           onSaved={(ing) => {
             setAdding(false);

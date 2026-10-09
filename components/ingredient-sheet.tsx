@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
 import { money, parseDecimal, unitShort } from "@/lib/format";
-import { applyKegHint } from "@/lib/keg";
+import { suggestCategory } from "@/lib/ingredient-categories";
+import { applyKegHint, looksLikeKeg } from "@/lib/keg";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
 import { Banner, Segmented, Sheet, Toggle } from "./ui";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
+import { CategoryChips } from "./ingredient-category-picker";
 
 export type IngredientDraft = Omit<Ingredient, "id" | "updated_at">;
 
@@ -83,24 +85,35 @@ export function IngredientSheet({
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof IngredientDraft>(k: K, v: IngredientDraft[K]) => setF((p) => ({ ...p, [k]: v }));
   const nt = useNameTidy({ kind: "ingredient", value: f.name, setValue: (v) => set("name", v), enabled: open });
+  // The category is pre-selected from the name as the person types, until they tap a category themselves. With no suggestion it
+  // goes back to where the form started. A keg name is left to the keg hint below (it also sets the pack and yield).
+  const [categoryTouched, setCategoryTouched] = useState(false);
+  const startCategory = useRef(initial.category?.trim() || DEFAULT_INGREDIENT_CATEGORY);
+  const suggestion = categoryTouched ? null : suggestCategory({ name: f.name });
   // a name that says keg, on a form still at its blank defaults, becomes a Beer Keg (50 L, 99% yield); done once so the person can still change it
   const kegHinted = useRef(false);
   useEffect(() => {
     if (kegHinted.current) return;
-    const hinted = applyKegHint(f, sizeText);
-    if (hinted.draft !== f) {
+    // a category the form chose for the person (a suggestion from the name) does not count as changed: check the keg hint against where the form started
+    const basis = !categoryTouched && f.category !== startCategory.current ? { ...f, category: startCategory.current } : f;
+    const hinted = applyKegHint(basis, sizeText);
+    if (hinted.draft !== basis) {
       kegHinted.current = true;
       setF(hinted.draft);
       setSizeText(hinted.sizeText);
     }
-  }, [f, sizeText]);
+  }, [f, sizeText, categoryTouched]);
+  useEffect(() => {
+    if (categoryTouched || kegHinted.current || looksLikeKeg(f.name)) return;
+    const target = suggestion ?? startCategory.current;
+    if (f.category !== target) setF((p) => ({ ...p, category: target }));
+  }, [categoryTouched, suggestion, f.name, f.category]);
 
   const size = parseDecimal(sizeText) ?? 0;
   // a blank price is allowed (new items are often priced later); text that is not a price is not
   const parsedPrice = priceText.trim() === "" ? 0 : parseDecimal(priceText);
   const price = parsedPrice ?? 0;
   const unitCost = ingredientCostPerBase({ ...f, pack_size: size, pack_price: price }, store.settings.gst_rate);
-  const categories = Array.from(new Set(store.ingredients.map((i) => i.category).filter((c): c is string => !!c))).sort();
   const valid = f.name.trim() && !!f.category?.trim() && size > 0 && parsedPrice != null && !busy;
 
   async function save() {
@@ -133,19 +146,15 @@ export function IngredientSheet({
         <NameSuggestRow nt={nt} className="!mt-2" />
         <div>
           <p className="section-label !px-1">Category</p>
-          <input
-            className="field"
-            list="ingredient-category-options"
-            placeholder="Food"
+          <CategoryChips
             value={f.category ?? ""}
-            onChange={(e) => set("category", e.target.value)}
-            aria-label="Category"
+            extra={startCategory.current}
+            onChange={(c) => {
+              setCategoryTouched(true);
+              set("category", c);
+            }}
           />
-          <datalist id="ingredient-category-options">
-            {categories.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
+          {suggestion && f.category === suggestion ? <p className="px-1 pt-2 text-[13px] text-label-2">Suggested from the name</p> : null}
         </div>
         <div>
           <p className="section-label !px-1">Supplier</p>

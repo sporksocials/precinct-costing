@@ -7,6 +7,8 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import { ReviewSheet } from "@/components/price-review";
 import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
 import { DEFAULT_INGREDIENT_CATEGORY } from "@/components/ingredient-sheet";
+import { CategoryPickerSheet } from "@/components/ingredient-category-picker";
+import { isListedCategory } from "@/lib/ingredient-categories";
 import { ChevronLeft } from "lucide-react";
 import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
@@ -54,6 +56,10 @@ function Detail({ ing }: { ing: Ingredient }) {
   const [pending, setPending] = useState<PendingEdit | null>(null);
   const [review, setReview] = useState<ReviewChange[] | null>(null);
   const [addingDeal, setAddingDeal] = useState(false);
+  const [pickingCategory, setPickingCategory] = useState(false);
+  // a stored value outside the pick-list is shown as it is (never rewritten) until the person picks a proper one
+  const category = ing.category?.trim() || DEFAULT_INGREDIENT_CATEGORY;
+  const categoryListed = isListedCategory(category);
   const gst = store.settings.gst_rate;
   const supplier = store.supplierById.get(ing.supplier_id ?? -1);
   const supplierName = useCallback((sid: number) => store.supplierById.get(sid)?.name, [store.supplierById]);
@@ -163,7 +169,7 @@ function Detail({ ing }: { ing: Ingredient }) {
       </div>
       <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{ing.name}</h1>
       <p className="mt-1 text-[15px] text-label-2">
-        {[supplier?.name, `${packLabel(ing.pack_size, ing.pack_unit)} pack`].filter(Boolean).join(" · ")}
+        {[category, supplier?.name, `${packLabel(ing.pack_size, ing.pack_unit)} pack`].filter(Boolean).join(" · ")}
         {!ing.active ? <InactiveTag /> : null}
       </p>
       {error ? <Banner>{error}</Banner> : null}
@@ -189,6 +195,25 @@ function Detail({ ing }: { ing: Ingredient }) {
               </button>
             </div>
           </section>
+
+          <div className="group-list mt-4">
+            <Row
+              title="Category"
+              sub={categoryListed ? undefined : "Not In The List"}
+              trailing={<span className="max-w-[14rem] truncate">{category}</span>}
+              chevron
+              onClick={() => setPickingCategory(true)}
+            />
+          </div>
+          <CategoryPickerSheet
+            open={pickingCategory}
+            value={category}
+            onClose={() => setPickingCategory(false)}
+            onPick={(c) => {
+              setPickingCategory(false);
+              if (c !== ing.category) patch({ category: c });
+            }}
+          />
 
           <div className="group-list mt-4">
             <ActiveToggle checked={ing.active} record="ingredient" name={ing.name} impact={impact} undo onChange={(v) => store.updateIngredient(ing.id, { active: v })} onError={setError} />
@@ -266,9 +291,6 @@ function Detail({ ing }: { ing: Ingredient }) {
                   <InlineInput value={num(ing.pack_size)} width="w-16" onCommit={(t) => { const n = parseDecimal(t); if (n != null && n > 0) patch({ pack_size: n }); }} />
                   <Segmented size="sm" ariaLabel="Pack unit" className="w-[140px]" value={ing.pack_unit} onChange={(u) => patch({ pack_unit: u })} options={PACK_UNITS.map((u) => ({ value: u, label: u }))} />
                 </span>
-              </FieldRow>
-              <FieldRow label="Category">
-                <InlineInput value={ing.category} placeholder={DEFAULT_INGREDIENT_CATEGORY} inputMode="text" width="w-40" onCommit={(t) => patch({ category: t.trim() || DEFAULT_INGREDIENT_CATEGORY })} />
               </FieldRow>
               <FieldRow label="Rebate per Pack">
                 <InlineInput value={String(ing.rebate ?? 0)} prefix="$" onCommit={(t) => { const n = t.trim() === "" ? 0 : parseDecimal(t); if (n != null) patch({ rebate: n }); }} />

@@ -1045,7 +1045,7 @@ create policy cost_allowed_all on public.cost_bar_options for all to authenticat
 insert into public.cost_bar_options (kind, name, sort) values
   ('glass', 'Coupe Glass', 1), ('glass', 'Rocks Glass', 2), ('glass', 'Short Rocks Glass', 3), ('glass', 'High Ball Glass', 4),
   ('glass', 'Martini Glass', 5), ('glass', 'Margarita Glass', 6), ('glass', 'Wine Glass', 7), ('glass', 'Poco Glass', 8),
-  ('glass', 'Mason Jar', 9), ('glass', 'Carafe', 10), ('glass', 'Jug', 11), ('glass', 'Fishbowl', 12),
+  ('glass', 'Mason Jar', 9), ('glass', 'Jug', 11), ('glass', 'Fishbowl', 12),
   ('rim', 'Salt', 1), ('rim', 'Chilli Salt', 2), ('rim', 'Coconut', 3), ('rim', 'Cinnamon Sugar', 4), ('rim', 'Sugar', 5)
 on conflict (kind, name) do nothing;
 
@@ -1930,3 +1930,6 @@ comment on table public.ordering_price_log is 'Ordering: every change to a produ
 -- Who cancelled it and when is in updated_by / updated_at and the Change Log (the sessions table is already tracked).
 alter table public.ordering_count_sessions drop constraint if exists ordering_count_sessions_status_check;
 alter table public.ordering_count_sessions add constraint ordering_count_sessions_status_check check (status in ('in_progress', 'finalised', 'cancelled'));
+
+-- Mirrors supabase/migrations/20261009100000_remove_carafe_glass.sql: "carafe" is always "jug" (Troy, 9 Oct 2026).
+delete from public.cost_bar_options where kind = 'glass' and name = 'Carafe';

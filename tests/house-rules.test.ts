@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, ensureCoupeChilled, cocktailSkewer, noSmackedGarnish, shakeUntilFrosted, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, rimOnSponge, ensureCoupeChilled, cocktailSkewer, noSmackedGarnish, shakeUntilFrosted, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -94,6 +94,24 @@ describe("a garnish never says to smack mint", () => {
   });
   it("applies to a saved drink's garnish", () => {
     expect(applyHouseRules({ name: "Sunset Spritz", method: null, garnish: ["Mint (smack it between your hands first)", "Dehydrated lime wheel"] }).garnish).toEqual(["Mint", "Dehydrated lime wheel"]);
+  });
+});
+
+describe("a rim is wet on the lime juice sponge", () => {
+  it("rewords the old wet and rim step, keeping what is on the rim", () => {
+    expect(rimOnSponge("Wet and rim the glass with salt")).toBe("Wet the rim on the lime juice sponge, then dip it in salt");
+    expect(rimOnSponge("Wet and rim the jar with coconut")).toBe("Wet the rim on the lime juice sponge, then dip it in coconut");
+    expect(rimOnSponge("Wet and rim the glass with chilli salt")).toBe("Wet the rim on the lime juice sponge, then dip it in chilli salt");
+    expect(rimOnSponge("Rim the coupe glass with sugar")).toBe("Wet the rim on the lime juice sponge, then dip it in sugar");
+  });
+  it("leaves the new wording and other steps alone", () => {
+    const done = "Wet the rim on the lime juice sponge, then dip it in salt";
+    expect(rimOnSponge(done)).toBe(done);
+    expect(rimOnSponge("Fill the glass with ice")).toBe("Fill the glass with ice");
+  });
+  it("still gets the wipe step named after what is on the rim", () => {
+    const out = applyHouseRules({ name: "X", method: ["Wet and rim the glass with chilli salt", "Shake"], garnish: null }).method;
+    expect(out).toEqual(["Wet the rim on the lime juice sponge, then dip it in chilli salt", "Wipe the inside of the glass rim so there is no chilli salt on the inside", "Shake"]);
   });
 });
 

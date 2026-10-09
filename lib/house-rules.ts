@@ -12,6 +12,7 @@
  *     foamy top (aqua faba or aqua fibre sours, the espresso martinis) says "Shake hard for 12 seconds, or until the shaker is
  *     frosted"; every other shake says "Shake for 12 seconds, or until the shaker is frosted".
  *   7 Drift and Chiobu: a drink in a coupe glass is pre-chilled (the method starts "Chill the coupe glass"). Troy, 9 Oct 2026.
+ *   9 A rim is wet on the lime juice sponge, then dipped: "Wet the rim on the lime juice sponge, then dip it in salt". Troy, 9 Oct 2026, all venues.
  *   8 The venue is always spelled "Chiobu" (never ChioBu or CHIOBU) in method and garnish text, and in names via lib/name-tidy.ts. Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
@@ -71,8 +72,19 @@ export function shakeUntilFrosted(text: string): string {
   return text.replace(/\b12 seconds(,?\s+(?:and|then)\b)?/i, (_m, joiner: string | undefined) => (joiner ? `12 seconds, or until the shaker is frosted,${joiner.replace(/^,/, "")}` : "12 seconds, or until the shaker is frosted"));
 }
 
+const SPONGE_RIM_OLD = /^\s*(?:wet\s+(?:and\s+)?rim|rim)\s+the\s+(?:jar|glass|[a-z]+\s+glass)\s+(?:with|in)\s+(?:the\s+|some\s+)?(.+?)\s*$/i;
+
+/**
+ * Every rim is wet on the bar's lime juice sponge, then dipped (Troy, 9 Oct 2026, all venues):
+ * "Wet and rim the glass with salt" becomes "Wet the rim on the lime juice sponge, then dip it in salt".
+ */
+export function rimOnSponge(text: string): string {
+  const m = text.match(SPONGE_RIM_OLD);
+  return m ? `Wet the rim on the lime juice sponge, then dip it in ${m[1]}` : text;
+}
+
 const RIM_STEP = /^(?!\s*wipe\b).*\brim\b/i;
-const RIM_MATERIAL = /\brim\b[^.]*?\bwith\s+(?:the\s+|some\s+)?(.+?)\s*$/i;
+const RIM_MATERIAL = /\brim\b[^.]*?\b(?:with|dip it in)\s+(?:the\s+|some\s+)?(.+?)\s*$/i;
 const WIPE = /\bwipe\b[^.]*\binside\b/i;
 
 /** The wipe step for a rim step: "salt", "chilli salt", "coconut", "sugar", "cinnamon sugar" are named from the rim step itself. */
@@ -117,7 +129,7 @@ export interface HouseRuleItem {
 export function applyHouseRules<T extends HouseRuleItem>(item: T): T {
   let method = item.method ?? null;
   let garnish = item.garnish ?? null;
-  if (method) method = ensureCoupeChilled(ensureRimWipe(method.map((m) => brandSpelling(shakeUntilFrosted(cocktailSkewer(doubleStrain(dehydrateLimeWheels(m))))))), item.glass, item.venue_id);
+  if (method) method = ensureCoupeChilled(ensureRimWipe(method.map((m) => brandSpelling(shakeUntilFrosted(cocktailSkewer(doubleStrain(dehydrateLimeWheels(rimOnSponge(m)))))))), item.glass, item.venue_id);
   if (garnish) garnish = garnish.map((g) => brandSpelling(noSmackedGarnish(cocktailSkewer(dehydrateLimeWheels(g)))));
   const same = (a: readonly string[] | null, b: readonly string[] | null) => (a === b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
   if (same(method, item.method ?? null) && same(garnish, item.garnish ?? null)) return item;

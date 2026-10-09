@@ -7,7 +7,8 @@
  *   4 Any rim (salt, chilli salt, coconut, sugar, cinnamon sugar, anything) always says, right after the rim step, to wipe
  *     the inside of the glass rim so there is none of it on the inside (Troy, 9 Oct 2026: "we always wipe the inside").
  *   5 A garnish never says to smack mint (a garnish mint leaf is left as it is). Troy, 9 Oct 2026.
- *   6 A shake for 12 seconds always adds ", or until the shaker is frosted". Troy, 9 Oct 2026.
+ *   6 A shake for 12 seconds always adds ", or until the shaker is frosted", and "shake hard" with no time is that same
+ *     12 second shake. Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
 
@@ -49,9 +50,18 @@ export function noSmackedGarnish(text: string): string {
   return cleaned && cleaned[0] !== text[0] && /^[a-z]/.test(cleaned) && /^[A-Z]/.test(text) ? cleaned[0].toUpperCase() + cleaned.slice(1) : cleaned;
 }
 
-/** "Shake hard for 12 seconds" gives "Shake hard for 12 seconds, or until the shaker is frosted"; a step that already says frosted is left alone. */
+/**
+ * "Shake hard" is always a 12 second shake: "Shake hard" gives "Shake hard for 12 seconds, or until the shaker is frosted",
+ * and "Shake hard for 12 seconds" gets the ", or until the shaker is frosted". A step that already says frosted, or gives
+ * another time, is left alone (Troy, 9 Oct 2026: "shake hard is always 12 secs or until shaker is frosted").
+ */
 export function shakeUntilFrosted(text: string): string {
-  if (!/\bshake\b/i.test(text) || !/\b12 seconds\b/i.test(text) || /\bfrost/i.test(text)) return text;
+  if (!/\bshake\b/i.test(text) || /\bfrost/i.test(text)) return text;
+  if (!/\bsecond/i.test(text)) {
+    if (!/\bshake\b[^.]*?\bhard\b|\bhard\b[^.]*?\bshake\b/i.test(text)) return text;
+    return text.replace(/\bhard\b(,?\s+(?:and|then)\b)?/i, (_m, joiner: string | undefined) => (joiner ? `hard for 12 seconds, or until the shaker is frosted,${joiner.replace(/^,/, "")}` : "hard for 12 seconds, or until the shaker is frosted"));
+  }
+  if (!/\b12 seconds\b/i.test(text)) return text;
   return text.replace(/\b12 seconds(,?\s+(?:and|then)\b)?/i, (_m, joiner: string | undefined) => (joiner ? `12 seconds, or until the shaker is frosted,${joiner.replace(/^,/, "")}` : "12 seconds, or until the shaker is frosted"));
 }
 

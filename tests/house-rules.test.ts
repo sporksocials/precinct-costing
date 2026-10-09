@@ -111,6 +111,17 @@ describe("a 12 second shake says or until the shaker is frosted", () => {
     expect(shakeUntilFrosted("Shake vigorously")).toBe("Shake vigorously");
     expect(shakeUntilFrosted("Stir for 12 seconds")).toBe("Stir for 12 seconds");
   });
+  it("treats 'shake hard' with no time as the 12 second shake", () => {
+    expect(shakeUntilFrosted("Shake hard")).toBe("Shake hard for 12 seconds, or until the shaker is frosted");
+    expect(shakeUntilFrosted("Shake hard, then strain over the ice")).toBe("Shake hard for 12 seconds, or until the shaker is frosted, then strain over the ice");
+    expect(shakeUntilFrosted("Shake the tequila and lime juice hard")).toBe("Shake the tequila and lime juice hard for 12 seconds, or until the shaker is frosted");
+  });
+  it("leaves a dry shake, a gentle shake and another time alone", () => {
+    expect(shakeUntilFrosted("Dry shake")).toBe("Dry shake");
+    expect(shakeUntilFrosted("Shake first without ice")).toBe("Shake first without ice");
+    expect(shakeUntilFrosted("Shake the lime juice, vodka and Tabasco (6 dashes)")).toBe("Shake the lime juice, vodka and Tabasco (6 dashes)");
+    expect(shakeUntilFrosted("Shake hard for 15 seconds")).toBe("Shake hard for 15 seconds");
+  });
   it("is part of the rules a saved drink gets", () => {
     expect(applyHouseRules({ name: "Daiquiri", method: ["Shake hard for 12 seconds"], garnish: null }).method).toEqual(["Shake hard for 12 seconds, or until the shaker is frosted"]);
   });

@@ -134,8 +134,8 @@ describe("suggestSpelling", () => {
   });
 
   it("leaves brand style words alone: capitals inside, all capitals, venue names", () => {
-    expect(words("ChioBu Bao")).toEqual([]);
-    expect(words("ChioBu Porkbelly")).toEqual([]);
+    expect(words("McIntyre Bao")).toEqual([]);
+    expect(words("McIntyre Porkbelly")).toEqual([]);
     expect(words("WMC Riesling")).toEqual([]);
     expect(words("Heart & Soul Rose")).toEqual([]);
     expect(words("Chiobu Bao")).toEqual([]);

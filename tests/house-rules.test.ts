@@ -97,6 +97,14 @@ describe("a garnish never says to smack mint", () => {
   });
 });
 
+describe("Chiobu is always spelled Chiobu", () => {
+  it("fixes the spelling in a saved method and garnish", () => {
+    const out = applyHouseRules({ name: "X", method: ["Serve at ChioBu"], garnish: ["CHIOBU leaf"] });
+    expect(out.method).toEqual(["Serve at Chiobu"]);
+    expect(out.garnish).toEqual(["Chiobu leaf"]);
+  });
+});
+
 describe("Drift and Chiobu coupe drinks are pre-chilled", () => {
   it("adds the chill step first on Drift and Chiobu only", () => {
     expect(ensureCoupeChilled(["Shake", "Strain"], "Coupe Glass", 2)).toEqual(["Chill the coupe glass", "Shake", "Strain"]);

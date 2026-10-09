@@ -157,7 +157,7 @@ function nearest(key: string, vocab: Vocab): string | null {
 
 /**
  * Words in `name` that are not in the vocabulary but are one typo (two for long words) from one that is. A word is
- * skipped when it is under 4 letters, sits against a digit, has a capital inside it (brand style: "ChioBu", "WMC") or
+ * skipped when it is under 4 letters, sits against a digit, has a capital inside it (brand style: "McIntyre", "WMC") or
  * is in `dismissed` (folded or as typed). No near match: nothing, a new word is not a mistake.
  */
 export function suggestSpelling(name: string, vocab: Vocab, opts: { dismissed?: ReadonlySet<string> } = {}): Suggestion[] {

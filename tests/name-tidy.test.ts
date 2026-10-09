@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameButSpacing, tidyName, titleCase } from "@/lib/name-tidy";
+import { brandSpelling, sameButSpacing, tidyName, titleCase } from "@/lib/name-tidy";
 import { titleCase as posTitleCase } from "@/lib/pos-list";
 
 describe("tidyName", () => {
@@ -23,7 +23,7 @@ describe("tidyName", () => {
     expect(tidyName("McIntyre shiraz")).toBe("McIntyre Shiraz");
     expect(tidyName("heart & Soul rose")).toBe("Heart & Soul Rose");
     expect(tidyName("Heart & Soul Rose")).toBe("Heart & Soul Rose");
-    expect(tidyName("ChioBu bao")).toBe("ChioBu Bao");
+    expect(tidyName("McIntyre bao")).toBe("McIntyre Bao");
     expect(tidyName("iPhone case")).toBe("iPhone Case");
   });
 
@@ -85,9 +85,21 @@ describe("tidyName", () => {
       "house red 150 ml glass",
       "(sauv blanc)",
       "and/or",
+      "McIntyre bao",
       "ChioBu bao",
     ];
     for (const s of samples) expect(tidyName(tidyName(s))).toBe(tidyName(s));
+  });
+});
+
+describe("brand spelling", () => {
+  it("always writes the venue as Chiobu", () => {
+    expect(tidyName("ChioBu bao")).toBe("Chiobu Bao");
+    expect(tidyName("CHIOBU PORK BELLY")).toBe("Chiobu Pork Belly");
+    expect(tidyName("chiobu - pot")).toBe("Chiobu - Pot");
+    expect(tidyName("ChioBu's special")).toBe("Chiobu's Special");
+    expect(brandSpelling("Served at ChioBu and CHIOBU")).toBe("Served at Chiobu and Chiobu");
+    expect(brandSpelling("Chiobu")).toBe("Chiobu");
   });
 });
 

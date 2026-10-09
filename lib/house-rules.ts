@@ -12,8 +12,11 @@
  *     foamy top (aqua faba or aqua fibre sours, the espresso martinis) says "Shake hard for 12 seconds, or until the shaker is
  *     frosted"; every other shake says "Shake for 12 seconds, or until the shaker is frosted".
  *   7 Drift and Chiobu: a drink in a coupe glass is pre-chilled (the method starts "Chill the coupe glass"). Troy, 9 Oct 2026.
+ *   8 The venue is always spelled "Chiobu" (never ChioBu or CHIOBU) in method and garnish text, and in names via lib/name-tidy.ts. Troy, 9 Oct 2026.
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
+
+import { brandSpelling } from "@/lib/name-tidy";
 
 const LIME_WHEEL = /\b(fresh\s+)?(dehydrated\s+)?(lime\s+wheels?)\b/gi;
 
@@ -114,8 +117,8 @@ export interface HouseRuleItem {
 export function applyHouseRules<T extends HouseRuleItem>(item: T): T {
   let method = item.method ?? null;
   let garnish = item.garnish ?? null;
-  if (method) method = ensureCoupeChilled(ensureRimWipe(method.map((m) => shakeUntilFrosted(cocktailSkewer(doubleStrain(dehydrateLimeWheels(m)))))), item.glass, item.venue_id);
-  if (garnish) garnish = garnish.map((g) => noSmackedGarnish(cocktailSkewer(dehydrateLimeWheels(g))));
+  if (method) method = ensureCoupeChilled(ensureRimWipe(method.map((m) => brandSpelling(shakeUntilFrosted(cocktailSkewer(doubleStrain(dehydrateLimeWheels(m))))))), item.glass, item.venue_id);
+  if (garnish) garnish = garnish.map((g) => brandSpelling(noSmackedGarnish(cocktailSkewer(dehydrateLimeWheels(g)))));
   const same = (a: readonly string[] | null, b: readonly string[] | null) => (a === b) || (!!a && !!b && a.length === b.length && a.every((x, i) => x === b[i]));
   if (same(method, item.method ?? null) && same(garnish, item.garnish ?? null)) return item;
   return { ...item, ...(item.method ? { method } : {}), ...(item.garnish ? { garnish } : {}) };

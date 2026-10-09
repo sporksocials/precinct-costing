@@ -66,7 +66,7 @@ Rules:
 - Keep every number, size, symbol and ampersand exactly as given.
 - Use Australian English (for example "capsicum", "chilli", "flavour").
 - Many names are real dishes, ingredients or brands from other cuisines (karaage, hiramasa, massaman, gochujang, Aperol, Stone & Wood). A correct word you do not recognise stays as it is.
-- Keep brand style capitals such as WMC, McIntyre and ChioBu.
+- Keep brand style capitals such as WMC and McIntyre. The venue is always spelled Chiobu.
 - Title Case each word, with small words such as and, of, with and the in lower case unless they open the name.
 - Use the list of known words only as a hint for the spelling the venue already uses. A known word is not proof that the typed word is wrong.
 - If the name is already right, reply with changed false.

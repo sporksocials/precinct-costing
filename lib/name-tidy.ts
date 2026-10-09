@@ -17,6 +17,14 @@ const ACRONYMS = new Set([
   "NV", "OJ", "DOC", "DOCG", "GSM", "SSB", "SBS", "SEM", "RTD", "POS", "GST",
 ]);
 
+/** Brand names with one fixed spelling wherever they are typed: the venue is always "Chiobu", never ChioBu or CHIOBU (Troy, 9 Oct 2026). */
+const BRAND_SPELLINGS: ReadonlyArray<readonly [RegExp, string]> = [[/\bchiobu(?=\b|['’])/gi, "Chiobu"]];
+
+/** Puts every brand name into its fixed spelling. */
+export function brandSpelling(text: string): string {
+  return BRAND_SPELLINGS.reduce((acc, [re, spelled]) => acc.replace(re, spelled), text);
+}
+
 function capFirst(s: string): string {
   const m = s.match(/^([^\p{L}\p{N}]*)(\p{L})(.*)$/u);
   return m ? `${m[1]}${m[2].toUpperCase()}${m[3]}` : s;
@@ -67,14 +75,16 @@ export function tidyName(raw: string): string {
   const s = raw.replace(/\s+/g, " ").trim();
   if (!s) return "";
   if (isShouting(s)) {
-    return titleCase(
-      s
-        .split(" ")
-        .map((w) => (ACRONYMS.has(w.replace(/[^\p{L}]/gu, "")) ? w : w.toLowerCase()))
-        .join(" "),
+    return brandSpelling(
+      titleCase(
+        s
+          .split(" ")
+          .map((w) => (ACRONYMS.has(w.replace(/[^\p{L}]/gu, "")) ? w : w.toLowerCase()))
+          .join(" "),
+      ),
     );
   }
-  return titleCase(s);
+  return brandSpelling(titleCase(s));
 }
 
 /** True when the only difference between the two is spaces (so the screen can fix it quietly, without a toast). */

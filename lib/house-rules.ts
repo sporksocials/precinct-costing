@@ -8,7 +8,9 @@
  *     the inside of the glass rim so there is none of it on the inside (Troy, 9 Oct 2026: "we always wipe the inside").
  *   5 A garnish never says to smack mint (a garnish mint leaf is left as it is). Troy, 9 Oct 2026.
  *   6 A shake for 12 seconds always adds ", or until the shaker is frosted", and "shake hard" with no time is that same
- *     12 second shake. Troy, 9 Oct 2026.
+ *     12 second shake. Troy, 9 Oct 2026. WHICH drinks say "hard" is a recipe decision, not a rule here: only a drink with a
+ *     foamy top (aqua faba or aqua fibre sours, the espresso martinis) says "Shake hard for 12 seconds, or until the shaker is
+ *     frosted"; every other shake says "Shake for 12 seconds, or until the shaker is frosted".
  * The rules only add or reword; they never remove a step and never touch an item that already follows them.
  */
 

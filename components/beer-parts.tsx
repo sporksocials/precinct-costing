@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
+import { servesAt } from "@/lib/beer";
 import { costPerBaseFromIndex } from "@/lib/costing";
 import { money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
@@ -54,9 +55,9 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
 export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: number | undefined; onClose: () => void }) {
   const store = useStore();
   const router = useRouter();
-  const serves = store.beer.serves;
   const [name, setName] = useState("");
   const [venueId, setVenueId] = useState<number | undefined>(defaultVenueId);
+  const serves = servesAt(store.beer.serves, venueId);
   const [kegId, setKegId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [prices, setPrices] = useState<Record<string, string>>({});

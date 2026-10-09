@@ -183,6 +183,7 @@ create table if not exists public.cost_beer_serves (
   sort integer not null default 0,
   ml numeric not null,
   active boolean not null default true,
+  not_sold_at integer[] not null default '{}',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -1933,3 +1934,7 @@ alter table public.ordering_count_sessions add constraint ordering_count_session
 
 -- Mirrors supabase/migrations/20261009100000_remove_carafe_glass.sql: "carafe" is always "jug" (Troy, 9 Oct 2026).
 delete from public.cost_bar_options where kind = 'glass' and name = 'Carafe';
+
+-- Mirrors supabase/migrations/20261009110000_beer_serves_not_sold_at.sql: Chiobu (2) and Greedy (3) pour only the Schooner and the Jug (Troy, 9 Oct 2026).
+alter table public.cost_beer_serves add column if not exists not_sold_at integer[] not null default '{}';
+update public.cost_beer_serves set not_sold_at = '{2,3}' where name in ('Pot', 'Pint');

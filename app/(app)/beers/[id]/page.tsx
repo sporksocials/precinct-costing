@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
-import { beerItemId } from "@/lib/beer";
+import { beerItemId, servesAt } from "@/lib/beer";
 import { costPerBaseFromIndex, resolveTargetGp } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { parseGpInput, parsePriceInput } from "@/lib/solver";
@@ -44,6 +44,7 @@ export default function BeerPage() {
     );
 
   const venue = store.venueById.get(beer.venue_id);
+  const servesHere = servesAt(store.beer.serves, beer.venue_id);
   const keg = store.ingredients.find((i) => i.id === beer.ingredient_id);
   const perL = keg ? costPerBaseFromIndex(store.index, keg, store.settings.gst_rate) : 0;
   const defaultTarget = resolveTargetGp({ venue_id: beer.venue_id, category: "Tap Beer", target_override: null }, store.targets);
@@ -96,7 +97,7 @@ export default function BeerPage() {
       </div>
 
       <Group title="Serves" className="mt-7" footer="Prices include GST. Cost is the serve’s ml of the keg, after the keg’s wastage.">
-        {store.beer.serves.map((s) => {
+        {servesHere.map((s) => {
           const c = store.itemCosts.get(beerItemId(beer.id, s.id));
           return (
             <div key={s.id} className="px-4 py-3">
@@ -135,15 +136,15 @@ export default function BeerPage() {
 
       <PriceHistory
         filter={{ kind: "beer_serve", beerId: beer.id, limit: 30 }}
-        refreshKey={store.beer.serves.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}
-        serveNames={Object.fromEntries(store.beer.serves.map((s) => [s.id, s.name]))}
+        refreshKey={servesHere.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}
+        serveNames={Object.fromEntries(servesHere.map((s) => [s.id, s.name]))}
       />
 
       <RecordHistory
         table="cost_beers"
         rowKey={beer.id}
         label="tap beer"
-        refreshKey={`${JSON.stringify([beer.name, beer.ingredient_id, beer.target_gp, beer.active])}|${store.beer.serves.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}`}
+        refreshKey={`${JSON.stringify([beer.name, beer.ingredient_id, beer.target_gp, beer.active])}|${servesHere.map((s) => { const c = store.itemCosts.get(beerItemId(beer.id, s.id)); return `${c?.sellInc}|${c?.item.hh_price_inc}`; }).join(",")}`}
       />
 
       <div className="mt-8">

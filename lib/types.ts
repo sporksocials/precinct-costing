@@ -232,6 +232,8 @@ export interface BeerServe {
   sort: number;
   ml: number;
   active: boolean;
+  /** venue ids that do NOT sell this serve (empty or missing = sold everywhere). Troy, 9 Oct 2026: Chiobu and Greedy sell only the Schooner and the Jug. */
+  not_sold_at?: number[] | null;
 }
 
 export interface Beer {

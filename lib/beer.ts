@@ -22,6 +22,16 @@ export function parseBeerItemId(id: string): { beerId: string; serveId: string }
   return beerId && serveId ? { beerId, serveId } : null;
 }
 
+/** True when the venue sells this serve (a serve is sold everywhere unless the venue is in its `not_sold_at` list). */
+export function serveSoldAt(serve: BeerServe, venueId: number | null | undefined): boolean {
+  return venueId == null || !(serve.not_sold_at ?? []).includes(venueId);
+}
+
+/** The serves a venue sells, in the order given. */
+export function servesAt(serves: BeerServe[], venueId: number | null | undefined): BeerServe[] {
+  return serves.filter((s) => serveSoldAt(s, venueId));
+}
+
 export interface BeerModel {
   serves: BeerServe[];
   beers: Beer[];
@@ -40,6 +50,7 @@ export function buildBeer(input: { beers: Beer[]; serves: BeerServe[]; prices: B
   const lines: RecipeLine[] = [];
   for (const b of beers) {
     for (const s of serves) {
+      if (!serveSoldAt(s, b.venue_id)) continue; // this venue does not pour this size, so there is no item for it
       const p = priceOf.get(`${b.id}~${s.id}`);
       const id = beerItemId(b.id, s.id);
       items.push({

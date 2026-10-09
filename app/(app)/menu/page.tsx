@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Grid3x3, IceCreamCone, Plus, SlidersHorizontal } from "lucide-react";
 import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
-import { beerItemId } from "@/lib/beer";
+import { beerItemId, serveSoldAt, servesAt } from "@/lib/beer";
 import type { Prep } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { indexDoc, search } from "@/lib/search";
@@ -97,7 +97,7 @@ export default function MenuPage() {
       list = search(docs, q, 200).map((h) => h.doc.b);
     }
     const out = list.map((b) => {
-      const cs = store.beer.serves.map((s) => store.itemCosts.get(beerItemId(b.id, s.id))).filter((c): c is ItemCost => !!c);
+      const cs = servesAt(store.beer.serves, b.venue_id).map((s) => store.itemCosts.get(beerItemId(b.id, s.id))).filter((c): c is ItemCost => !!c);
       const worst = cs.reduce<ItemCost | null>((w, c) => (c.gpPct != null && (w == null || (w.gpPct ?? 9) > c.gpPct) ? c : w), null);
       return { b, cs, worst };
     });
@@ -220,7 +220,7 @@ export default function MenuPage() {
             <>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pb-1.5 pt-5">
                 <p className="text-[13px] text-label-2">
-                  {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.map((s) => s.name).join(", ")}
+                  {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.filter((s) => beerRows.some((r) => serveSoldAt(s, r.b.venue_id))).map((s) => s.name).join(", ")}
                 </p>
                 {showBeerTools ? (
                   <button type="button" className="btn-plain !min-h-[34px] !px-3 !text-[13px]" onClick={() => setSheet("beerServes")}>

@@ -12,6 +12,7 @@ import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { IngredientSheet, blankIngredient } from "./ingredient-sheet";
+import { SheetBack } from "./add-chooser";
 import { Banner, Chips, FieldRow, InlineInput, Group, Row, SearchField, Sheet } from "./ui";
 
 /** Pick the keg a beer pours from: ingredients priced per litre, best matches first. */
@@ -71,8 +72,8 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
   );
 }
 
-/** New tap beer: name, venue, keg and the serve prices. Opens the beer's own page when added. */
-export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: number | undefined; onClose: () => void }) {
+/** New tap beer: name, venue, keg and the serve prices. Opens the beer's own page when added. `onBack` (when opened from the "What Are You Adding?" chooser) shows a Back control. */
+export function NewBeerSheet({ defaultVenueId, onClose, onBack }: { defaultVenueId: number | undefined; onClose: () => void; onBack?: () => void }) {
   const store = useStore();
   const router = useRouter();
   const [name, setName] = useState("");
@@ -108,7 +109,8 @@ export function NewBeerSheet({ defaultVenueId, onClose }: { defaultVenueId: numb
 
   return (
     <Sheet open onClose={onClose} title="New Tap Beer" action={{ label: busy ? "Adding…" : "Add", onClick: () => void create(), disabled: !can }}>
-      <div className="space-y-5 pb-2 pt-3">
+      <div className={onBack ? "space-y-5 pb-2 pt-1" : "space-y-5 pb-2 pt-3"}>
+        {onBack ? <SheetBack onClick={onBack} /> : null}
         {error ? <Banner>{error}</Banner> : null}
         <input autoFocus className="field !text-[20px] font-semibold" placeholder="Beer name, e.g. Stone & Wood Pacific" value={name} onChange={(e) => setName(e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Beer name" />
         <NameSuggestRow nt={nt} className="!mt-2" />

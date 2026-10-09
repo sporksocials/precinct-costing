@@ -6,9 +6,10 @@ import { useStore } from "@/lib/store";
 import { FLAVOUR_PREP_TYPE, flavourName } from "@/lib/gelato";
 import { Banner, Sheet } from "@/components/ui";
 import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
+import { SheetBack } from "@/components/add-chooser";
 
 /** New gelato flavour: a name, then straight into its mix. Used from the Menu and the Price Grid. */
-export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose: () => void }) {
+export function NewFlavourSheet({ venueId, onClose, onBack }: { venueId: number; onClose: () => void; onBack?: () => void }) {
   const store = useStore();
   const router = useGuardedRouter();
   const [name, setName] = useState("");
@@ -36,12 +37,13 @@ export function NewFlavourSheet({ venueId, onClose }: { venueId: number; onClose
   return (
     <Sheet open onClose={onClose} title="New Flavour" action={{ label: busy ? "Adding…" : "Add", onClick: () => void create(), disabled: !clean || exists || busy }}>
       <form
-        className="space-y-4 pb-2 pt-3"
+        className={onBack ? "space-y-4 pb-2 pt-1" : "space-y-4 pb-2 pt-3"}
         onSubmit={(e) => {
           e.preventDefault();
           void create();
         }}
       >
+        {onBack ? <SheetBack onClick={onBack} /> : null}
         {error ? <Banner>{error}</Banner> : null}
         <input autoFocus className="field !text-[20px] font-semibold" placeholder="Flavour name, e.g. Lemon Sorbet" value={name} onChange={(e) => setName(e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Flavour Name" />
         <NameSuggestRow nt={nt} />

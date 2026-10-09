@@ -144,7 +144,7 @@ export function Dashboard() {
       <section className="rounded-3xl bg-surface px-5 py-6 lg:px-8">
         <p className="eyebrow text-[12px] text-label-2">{formatToday(store.today)}</p>
         <p className="mt-3 text-[20px] font-semibold tracking-tight">Add a recipe to start tracking GP.</p>
-        <button type="button" className="btn-tinted mt-4" onClick={() => newRecipe.open({ venueId: null })}>
+        <button type="button" className="btn-tinted mt-4" onClick={() => newRecipe.choose({ venueId: null })}>
           Add First Recipe
         </button>
       </section>

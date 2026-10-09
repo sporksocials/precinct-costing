@@ -4,21 +4,39 @@ import { useGuardedRouter } from "@/components/unsaved-guard";
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { initialResearchStatus } from "@/lib/research-drink";
-import { MENU_CATEGORIES, type MenuItem, type Prep } from "@/lib/types";
+import { type MenuItem, type Prep } from "@/lib/types";
 import { DRINK_CATEGORIES } from "@/lib/insights";
 import { parseServeCount, portionsForMode, type ServesMode } from "@/lib/serves";
+import { NEW_ITEM_CATEGORIES, beerDefaultVenueId, guessCategory, type AddChoice, type AddDestination } from "@/lib/add-choices";
 import { Banner, Chips, FieldRow, Sheet } from "./ui";
 import { ServesSegmented } from "./serves-choice";
 import { VENUE_SHORT } from "./venue";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
+import { AddChooserSheet, SheetBack } from "./add-chooser";
+import { NewBeerSheet } from "./beer-parts";
+import { NewFlavourSheet } from "./new-flavour";
 
 type RecipeType = "item" | "prep";
 interface OpenArgs {
   venueId?: number | null;
   type?: RecipeType;
+  /** New Menu Item only: start on this category (the person can still change it). Tap Beer and Gelato are ignored. */
+  category?: string;
 }
 
-const Ctx = createContext<{ open: (a?: OpenArgs) => void } | null>(null);
+/** Which step is showing. `back` is set when the form was reached from the "What Are You Adding?" chooser. */
+type Stage =
+  | { step: "choose"; venueId: number | null }
+  | { step: "recipe"; args: OpenArgs; back: boolean; venueId: number | null }
+  | { step: "beer"; venueId: number | undefined; back: boolean; chooserVenueId: number | null }
+  | { step: "flavour"; venueId: number; back: boolean; chooserVenueId: number | null };
+
+const Ctx = createContext<{
+  /** Open the New Menu Item (or New Prep) form directly. */
+  open: (a?: OpenArgs) => void;
+  /** Open the "What Are You Adding?" chooser, which goes on to the right form. */
+  choose: (a?: { venueId?: number | null }) => void;
+} | null>(null);
 
 export function useNewRecipe() {
   const c = useContext(Ctx);
@@ -27,17 +45,45 @@ export function useNewRecipe() {
 }
 
 export function NewRecipeProvider({ children }: { children: React.ReactNode }) {
-  const [args, setArgs] = useState<OpenArgs | null>(null);
-  const open = useCallback((a?: OpenArgs) => setArgs(a ?? {}), []);
+  const store = useStore();
+  const [stage, setStage] = useState<Stage | null>(null);
+  const gelatoVenueId = store.gelato.venue?.id;
+
+  /** The stage for a chooser tile, with the chooser's venue carried through. */
+  const stageFor = useCallback(
+    (d: AddDestination, venueId: number | null, back: boolean): Stage | null => {
+      if (d.kind === "beer") return { step: "beer", venueId: beerDefaultVenueId(store.venues.find((v) => v.id === venueId), store.venues), back, chooserVenueId: venueId };
+      if (d.kind === "flavour") return gelatoVenueId == null ? null : { step: "flavour", venueId: gelatoVenueId, back, chooserVenueId: venueId };
+      if (d.kind === "prep") return { step: "recipe", args: { venueId, type: "prep" }, back, venueId };
+      return { step: "recipe", args: { venueId, type: "item", category: d.category }, back, venueId };
+    },
+    [store.venues, gelatoVenueId],
+  );
+
+  const open = useCallback((a?: OpenArgs) => setStage({ step: "recipe", args: a ?? {}, back: false, venueId: a?.venueId ?? null }), []);
+  const choose = useCallback((a?: { venueId?: number | null }) => setStage({ step: "choose", venueId: a?.venueId ?? null }), []);
+  const value = useMemo(() => ({ open, choose }), [open, choose]);
+
+  const close = () => setStage(null);
+  const backToChooser = (venueId: number | null) => setStage({ step: "choose", venueId });
   return (
-    <Ctx.Provider value={{ open }}>
+    <Ctx.Provider value={value}>
       {children}
-      {args ? <NewRecipeSheet args={args} onClose={() => setArgs(null)} /> : null}
+      {stage?.step === "choose" ? (
+        <AddChooserSheet
+          onClose={close}
+          hide={(c: AddChoice) => c.destination.kind === "flavour" && gelatoVenueId == null}
+          onPick={(c) => setStage(stageFor(c.destination, stage.venueId, true))}
+        />
+      ) : null}
+      {stage?.step === "recipe" ? <NewRecipeSheet key={`${stage.args.type ?? "item"}:${stage.args.category ?? ""}`} args={stage.args} onClose={close} onBack={stage.back ? () => backToChooser(stage.venueId) : undefined} /> : null}
+      {stage?.step === "beer" ? <NewBeerSheet defaultVenueId={stage.venueId} onClose={close} onBack={stage.back ? () => backToChooser(stage.chooserVenueId) : undefined} /> : null}
+      {stage?.step === "flavour" ? <NewFlavourSheet venueId={stage.venueId} onClose={close} onBack={stage.back ? () => backToChooser(stage.chooserVenueId) : undefined} /> : null}
     </Ctx.Provider>
   );
 }
 
-function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void }) {
+function NewRecipeSheet({ args, onClose, onBack }: { args: OpenArgs; onClose: () => void; onBack?: () => void }) {
   const store = useStore();
   const router = useGuardedRouter();
   const [name, setName] = useState("");
@@ -53,11 +99,12 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
   // categories: those the venue already uses first, then the rest
   const cats = useMemo(() => {
     const used = new Set(store.items.filter((i) => i.venue_id === venueId).map((i) => i.category));
-    return [...MENU_CATEGORIES].sort((a, b) => Number(used.has(b)) - Number(used.has(a)));
+    return [...NEW_ITEM_CATEGORIES].sort((a, b) => Number(used.has(b)) - Number(used.has(a)));
   }, [store.items, venueId]);
   // category follows a guess from the name until it's picked by hand
-  const [picked, setPicked] = useState<string | null>(null);
-  const guessed = useMemo(() => guessCategory(name, store.venueById.get(venueId ?? -1)?.slug, store.items.filter((i) => i.venue_id === venueId)), [name, venueId, store.venueById, store.items]);
+  // (a category chosen on the "What Are You Adding?" step counts as picked by hand)
+  const [picked, setPicked] = useState<string | null>(args.category && NEW_ITEM_CATEGORIES.includes(args.category) ? args.category : null);
+  const guessed = useMemo(() => guessCategory(name, store.items.filter((i) => i.venue_id === venueId)), [name, venueId, store.items]);
   const category = picked ?? guessed;
   const setCategory = (c: string) => setPicked(c);
   // spelling and capitals: tidy on leaving the field, "Did you mean" under it (nothing is saved by it)
@@ -110,8 +157,9 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
           e.preventDefault();
           void create();
         }}
-        className="space-y-5 pb-2 pt-3"
+        className={onBack ? "space-y-5 pb-2 pt-1" : "space-y-5 pb-2 pt-3"}
       >
+        {onBack ? <SheetBack onClick={onBack} /> : null}
         {error ? <Banner>{error}</Banner> : null}
         <input
           autoFocus
@@ -173,36 +221,4 @@ function NewRecipeSheet({ args, onClose }: { args: OpenArgs; onClose: () => void
       </form>
     </Sheet>
   );
-}
-
-const KEYWORDS: [RegExp, string][] = [
-  [/\b(nip|30 ?ml|shot)\b/i, "Spirits"],
-  [/\b(pint|pot|schooner|jug|middy|tap)\b/i, "Tap Beer"],
-  [/\b(stubby|can|bottle of beer|cider|seltzer)\b/i, "Packaged Beer & Cider"],
-  [/\b(rtd|premix|cruiser|smirnoff)\b/i, "RTD"],
-  [/\b(merlot|shiraz|sauv|sauvignon|pinot|chardonnay|ros[eé]|prosecco|riesling|moscato|cabernet|tempranillo|glass|carafe|bubbles|champagne)\b/i, "Wine"],
-  [/\b(virgin|mocktail|lemonade|iced tea|soda)\b/i, "Mocktail"],
-  [/\b(smoothie|milkshake|shake|frapp[eé]|spider|iced (?:coffee|latte|mocha|chocolate|matcha))(?![a-z])/i, "Cold Drink"],
-  [/\b(margarita|spritz|martini|mojito|negroni|sour|daiquiri|colada|mule|paloma|old fashioned|cocktail|punch|highball|bellini|cosmo)\b/i, "Cocktail"],
-  [/\b(gelato|sorbet|scoop|cone|affogato)\b/i, "Gelato"],
-];
-
-/** Best guess at a new item's category: a similar existing name at this venue, then drink keywords, then the venue's usual. */
-function guessCategory(name: string, venueSlug: string | undefined, venueItems: MenuItem[]): string {
-  const n = name.trim().toLowerCase();
-  const fallback = venueSlug === "gelato" ? "Gelato" : venueItems.length ? mostCommon(venueItems.map((i) => i.category)) ?? "Food" : "Food";
-  if (n.length < 3) return fallback;
-  for (const [re, cat] of KEYWORDS) if (re.test(n)) return cat;
-  const words = n.split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-  const similar = venueItems.filter((i) => words.some((w) => i.name.toLowerCase().includes(w)));
-  return mostCommon(similar.map((i) => i.category)) ?? fallback;
-}
-
-function mostCommon(xs: string[]): string | null {
-  const m = new Map<string, number>();
-  for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
-  let best: string | null = null;
-  let n = 0;
-  for (const [k, v] of m) if (v > n) [best, n] = [k, v];
-  return best;
 }

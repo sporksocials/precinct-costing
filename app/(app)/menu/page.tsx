@@ -16,6 +16,7 @@ import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
 import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
+import { beerDefaultVenueId, destinationForCategory } from "@/lib/add-choices";
 import { PosListButton } from "@/components/pos-list-button";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
@@ -139,13 +140,21 @@ export default function MenuPage() {
   const sel = usePrintSelect("item", rows.map((c) => c.item.id));
   const total = rows.length + flavourRows.length + beerRows.length + (gelatoSummary ? 1 : 0);
 
-  // one add button, whatever you're looking at
+  // one add button, whatever you're looking at. A category chip skips the "What Are You Adding?" step and goes straight to
+  // that form (Tap Beer and Gelato to their own forms, any other category to New Menu Item with it chosen); in the All view
+  // (no chip) the button asks what is being added.
   const addKind: "beer" | "flavour" | "item" = cat === BEER ? "beer" : inGelato || cat === GELATO ? "flavour" : "item";
-  const addLabel = addKind === "beer" ? "New Tap Beer" : addKind === "flavour" ? "New Flavour" : "New Menu Item";
-  const add = () => (addKind === "item" ? newRecipe.open({ venueId: venue?.id ?? null, type: "item" }) : setSheet(addKind));
+  const chooses = addKind === "item" && destinationForCategory(cat) === null;
+  const addLabel = addKind === "beer" ? "New Tap Beer" : addKind === "flavour" ? "New Flavour" : chooses ? "Add To Menu" : "New Menu Item";
+  const add = () => {
+    if (addKind !== "item") return setSheet(addKind);
+    const d = destinationForCategory(cat);
+    if (d?.kind === "item") return newRecipe.open({ venueId: venue?.id ?? null, type: "item", category: d.category });
+    return newRecipe.choose({ venueId: venue?.id ?? null });
+  };
   const showGelatoTools = flavourRows.length > 0 && (inGelato || cat === GELATO);
   const showBeerTools = cat === BEER;
-  const beerDefaultVenue = (venue && venue.slug !== "gelato" ? venue.id : undefined) ?? store.venues.find((v) => v.slug === "drift")?.id ?? store.venues[0]?.id;
+  const beerDefaultVenue = beerDefaultVenueId(venue, store.venues);
 
   return (
     <div>

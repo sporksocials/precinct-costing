@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyHouseRules, cocktailSkewer, noSmackedGarnish, shakeUntilFrosted, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
+import { applyHouseRules, ensureCoupeChilled, cocktailSkewer, noSmackedGarnish, shakeUntilFrosted, dehydrateLimeWheels, doubleStrain, ensureRimWipe, wipeStepFor } from "@/lib/house-rules";
 
 describe("lime wheels are always dehydrated", () => {
   it("rewords a plain lime wheel and keeps the capital", () => {
@@ -94,6 +94,22 @@ describe("a garnish never says to smack mint", () => {
   });
   it("applies to a saved drink's garnish", () => {
     expect(applyHouseRules({ name: "Sunset Spritz", method: null, garnish: ["Mint (smack it between your hands first)", "Dehydrated lime wheel"] }).garnish).toEqual(["Mint", "Dehydrated lime wheel"]);
+  });
+});
+
+describe("Chiobu coupe drinks are pre-chilled", () => {
+  it("adds the chill step first on Chiobu only", () => {
+    expect(ensureCoupeChilled(["Shake", "Strain"], "Coupe Glass", 2)).toEqual(["Chill the coupe glass", "Shake", "Strain"]);
+    expect(ensureCoupeChilled(["Shake"], "Coupe Glass, Chilli Salt Rim", 2)[0]).toBe("Chill the coupe glass");
+    expect(ensureCoupeChilled(["Shake"], "Coupe Glass", 1)).toEqual(["Shake"]);
+  });
+  it("leaves a method that already chills, other glasses, and an empty method alone", () => {
+    expect(ensureCoupeChilled(["Wet and rim the glass", "Chill the glass", "Shake"], "Coupe Glass", 2)).toHaveLength(3);
+    expect(ensureCoupeChilled(["Fill with ice"], "Rocks Glass", 2)).toEqual(["Fill with ice"]);
+    expect(ensureCoupeChilled([], "Coupe Glass", 2)).toEqual([]);
+  });
+  it("is part of the rules a saved Chiobu drink gets", () => {
+    expect(applyHouseRules({ name: "X", venue_id: 2, glass: "Coupe Glass", method: ["Shake"], garnish: null }).method).toEqual(["Chill the coupe glass", "Shake"]);
   });
 });
 

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
 import { money, parseDecimal, unitShort } from "@/lib/format";
+import { applyKegHint } from "@/lib/keg";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
 import { Banner, Segmented, Sheet, Toggle } from "./ui";
@@ -82,6 +83,17 @@ export function IngredientSheet({
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof IngredientDraft>(k: K, v: IngredientDraft[K]) => setF((p) => ({ ...p, [k]: v }));
   const nt = useNameTidy({ kind: "ingredient", value: f.name, setValue: (v) => set("name", v), enabled: open });
+  // a name that says keg, on a form still at its blank defaults, becomes a Beer Keg (50 L, 99% yield); done once so the person can still change it
+  const kegHinted = useRef(false);
+  useEffect(() => {
+    if (kegHinted.current) return;
+    const hinted = applyKegHint(f, sizeText);
+    if (hinted.draft !== f) {
+      kegHinted.current = true;
+      setF(hinted.draft);
+      setSizeText(hinted.sizeText);
+    }
+  }, [f, sizeText]);
 
   const size = parseDecimal(sizeText) ?? 0;
   // a blank price is allowed (new items are often priced later); text that is not a price is not

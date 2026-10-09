@@ -4,18 +4,21 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { servesAt } from "@/lib/beer";
+import { KEG_CATEGORY, KEG_PACK_SIZE, KEG_PACK_UNIT, KEG_YIELD, kegNameFor } from "@/lib/keg";
 import { costPerBaseFromIndex } from "@/lib/costing";
 import { money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
+import { IngredientSheet, blankIngredient } from "./ingredient-sheet";
 import { Banner, Chips, FieldRow, InlineInput, Group, Row, SearchField, Sheet } from "./ui";
 
 /** Pick the keg a beer pours from: ingredients priced per litre, best matches first. */
 export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: boolean; onClose: () => void; onPick: (ingredientId: string) => void; initialQuery?: string }) {
   const store = useStore();
   const [q, setQ] = useState(initialQuery);
+  const [newKeg, setNewKeg] = useState(false);
   const docs = useMemo(
     () =>
       store.ingredients
@@ -28,10 +31,12 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
     return list.slice(0, 60);
   }, [docs, q]);
   return (
+    <>
     <Sheet open={open} onClose={onClose} title="Choose Keg" cancelLabel="Cancel">
       <div className="pb-2 pt-3">
         <SearchField value={q} onChange={setQ} placeholder="Search kegs" autoFocus />
         <div className="group-list mt-3">
+          <Row onClick={() => setNewKeg(true)} title="New Keg" sub="Not in the list? Add it here" trailing={<span className="text-accent">Add</span>} chevron />
           {rows.map(({ i }) => (
             <Row
               key={i.id}
@@ -44,10 +49,25 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
               trailing={<span className="text-label-2">{money(costPerBaseFromIndex(store.index, i, store.settings.gst_rate))}/L</span>}
             />
           ))}
-          {rows.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">No keg matches. Add the keg as an ingredient priced per litre first.</p> : null}
+          {rows.length === 0 ? <p className="px-4 py-3 text-[15px] text-label-2">No keg matches. Tap New Keg to add it.</p> : null}
         </div>
       </div>
     </Sheet>
+    {newKeg ? (
+      <IngredientSheet
+        open
+        title="New Keg"
+        note="Filed as a Beer Keg, priced per litre, with 1% wastage like every other keg."
+        initial={blankIngredient({ name: kegNameFor(q), category: KEG_CATEGORY, pack_size: KEG_PACK_SIZE, pack_unit: KEG_PACK_UNIT, yield_pct: KEG_YIELD })}
+        onClose={() => setNewKeg(false)}
+        onSaved={(ing) => {
+          setNewKeg(false);
+          onPick(ing.id);
+          onClose();
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 

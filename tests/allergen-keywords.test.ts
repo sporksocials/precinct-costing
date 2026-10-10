@@ -114,9 +114,9 @@ describe("groups, labels and order", () => {
   });
 });
 
-describe("drinks may list sulphites and nothing new", () => {
-  it("DRINK_ALLERGEN_IDS is egg, milk, nuts and sulphites, and showsAllergen follows it", () => {
-    expect([...DRINK_ALLERGEN_IDS]).toEqual(["egg", "milk", "peanuts", "tree_nuts", "sulphites"]);
+describe("drinks list egg, milk and nuts only", () => {
+  it("DRINK_ALLERGEN_IDS is egg, milk and nuts, and showsAllergen follows it", () => {
+    expect([...DRINK_ALLERGEN_IDS]).toEqual(["egg", "milk", "peanuts", "tree_nuts"]);
     for (const id of CONTAINS_IDS) expect(showsAllergen({ category: "Cocktail" }, id, FULL_ALLERGENS), id).toBe(DRINK_ALLERGEN_IDS.includes(id));
     expect(showsAllergen({ category: "Food" }, "nitrites", FULL_ALLERGENS)).toBe(true);
     expect(showsAllergen({ category: "Food" }, "sulphites", FULL_ALLERGENS)).toBe(true);
@@ -160,9 +160,9 @@ describe("the printed recipe sheet", () => {
     expect(r.allergens.mayContain).toBe("May contain (unconfirmed): Seeds, Sulphites, Nitrites");
     expect(r.allergens.notChecked).toMatch(/not been checked/);
   });
-  it("a drink prints sulphites but not nitrites, seeds or alcohol", () => {
+  it("a drink prints egg but not sulphites, nitrites, seeds or alcohol", () => {
     const r = printOf([ing("w", "Prosecco", { allergens: ["sulphites", "alcohol", "nitrites", "sesame"] }), ing("e", "Egg White", { allergens: ["egg"] })], item("sour", "Prosecco Sour", { category: "Cocktail" }));
-    expect(r.allergens.contains).toBe("Contains: Egg, Sulphites");
+    expect(r.allergens.contains).toBe("Contains: Egg");
   });
   it("the print model still carries no price, cost or supplier text", () => {
     const r = printOf([ing("a", "Streaky Bacon", { allergens: ["nitrites"], notes: "secret supplier note" })], item("d", "Toastie"));

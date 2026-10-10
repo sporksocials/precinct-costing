@@ -324,7 +324,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded
       return { ...d, allergen_notes: n };
     });
 
-  // drinks mark only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites): nothing else is listed, cleared or offered (Troy, 4 Oct 2026; sulphites added 10 Oct 2026)
+  // drinks mark only DRINK_ALLERGEN_IDS (egg, milk, nuts): nothing else is listed, cleared or offered (Troy, 4 Oct 2026)
   const drink = kind === "item" && isDrinkItem(rec as MenuItem);
   const marked = ALLERGENS.filter((a) => showsAllergen(kind === "item" ? (rec as MenuItem) : null, a.id));
   const rows = marked.filter((a) => r.cells[a.id].state !== "none");
@@ -467,7 +467,7 @@ function ReviewRow({ ing, ready, drink, onReview }: { ing: Ingredient; ready: bo
   const store = useStore();
   const [error, setError] = useState<string | null>(null);
   const st0 = ingredientAllergenState(ing);
-  // on a drink only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites) are suggested; the rest stay recorded but are not offered here
+  // on a drink only DRINK_ALLERGEN_IDS (egg, milk, nuts) are suggested; the rest stay recorded but are not offered here
   const st = { ...st0, suggested: st0.suggested.filter((s) => (drink ? DRINK_ALLERGEN_IDS : CONTAINS_IDS).includes(s.id)) };
   const confirm = async (id: AllergenId) => {
     setError(null);

@@ -99,7 +99,7 @@ export function UnreviewedSuggestions({ ingredients, ready, drink, onReview }: {
   const rows = useMemo(() => {
     if (flow.step !== "done") return [];
     return flow.result.items.flatMap((item0) => {
-      // on a drink only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites) are proposed: what is shown is exactly what Accept ticks
+      // on a drink only DRINK_ALLERGEN_IDS (egg, milk, nuts) are proposed: what is shown is exactly what Accept ticks
       const item = drink ? { ...item0, allergens: item0.allergens.filter((a) => DRINK_ALLERGEN_IDS.includes(a.id)), diet: [] } : item0;
       const ing = byId.get(item.key);
       if (!ing) return [];

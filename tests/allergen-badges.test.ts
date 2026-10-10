@@ -62,12 +62,12 @@ describe("allergen groups", () => {
   });
 });
 
-describe("badgeModel: drinks mark only egg, milk, nuts and sulphites", () => {
+describe("badgeModel: drinks mark only egg, milk and nuts", () => {
   const rich = () => [ing("w", "Amaretto", ok({ allergens: ["sulphites", "alcohol", "milk", "tree_nuts", "gluten", "soy", "egg", "fish"] }))];
-  it("lists egg, milk, nuts and sulphites and nothing else on a cocktail (a design call, 10 Oct 2026)", () => {
+  it("lists egg, milk and nuts and nothing else on a cocktail (Troy, 10 Oct 2026: no sulphites on drinks)", () => {
     const m = model(rich(), { category: "Cocktail" });
-    expect(m.contains).toEqual(["egg", "milk", "tree_nuts", "sulphites"]);
-    expect(DRINK_ALLERGEN_IDS).toEqual(["egg", "milk", "peanuts", "tree_nuts", "sulphites"]);
+    expect(m.contains).toEqual(["egg", "milk", "tree_nuts"]);
+    expect(DRINK_ALLERGEN_IDS).toEqual(["egg", "milk", "peanuts", "tree_nuts"]);
     expect(m.attributes).toEqual([]);
     expect(m.diet).toEqual([]);
     expect(m.options).toEqual([]);
@@ -81,9 +81,9 @@ describe("badgeModel: drinks mark only egg, milk, nuts and sulphites", () => {
       expect(m.options).toEqual([]);
     }
   });
-  it("an unreviewed wine drink may contain sulphites but never alcohol", () => {
+  it("an unreviewed wine drink lists no sulphites and never alcohol", () => {
     const m = model([ing("w", "Red Wine")], { category: "Wine" });
-    expect(m.mayContain).toEqual(["sulphites"]);
+    expect(m.mayContain).toEqual([]);
     expect(m.attributesMay).toEqual([]);
   });
   it("nitrites, seeds and the rest are never listed on a drink, even when ticked", () => {
@@ -91,7 +91,7 @@ describe("badgeModel: drinks mark only egg, milk, nuts and sulphites", () => {
     expect(m.contains).toEqual([]);
     expect(showsAllergen({ category: "Cocktail" }, "nitrites")).toBe(false);
     expect(showsAllergen({ category: "Cocktail" }, "sesame")).toBe(false);
-    expect(showsAllergen({ category: "Cocktail" }, "sulphites")).toBe(true);
+    expect(showsAllergen({ category: "Cocktail" }, "sulphites")).toBe(false);
   });
   it("still shows the declared allergens on food", () => {
     const m = model(rich(), { category: "Food" });
@@ -207,10 +207,10 @@ describe("badgeModel: nested preps", () => {
 });
 
 describe("badgeModel: sulphites are listed, alcohol never is", () => {
-  it("a wine with sulphites and alcohol ticked lists sulphites (not alcohol), on food and drinks", () => {
+  it("a wine with sulphites and alcohol ticked lists sulphites on food only (never on a drink), and never alcohol", () => {
     for (const category of ["Food", "Cocktail", "Wine"]) {
       const m = model([ing("w", "Sauvignon Blanc", ok({ allergens: ["sulphites", "alcohol"] }))], { category });
-      expect(m.contains).toEqual(["sulphites"]);
+      expect(m.contains).toEqual(category === "Food" ? ["sulphites"] : []);
       expect(m.attributes).toEqual([]);
       expect(m.attributesMay).toEqual([]);
     }

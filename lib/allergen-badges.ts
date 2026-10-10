@@ -87,7 +87,7 @@ export const DEFAULT_POLICY: BadgePolicy = MENU_ONLY;
 export interface BadgeModel {
   /** true when allergens are listed at all (false on a menu-only screen) */
   listsAllergens: boolean;
-  /** a drink: only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites) are marked, and there are no dietary or seafood badges */
+  /** a drink: only DRINK_ALLERGEN_IDS (egg, milk, nuts) are marked, and there are no dietary or seafood badges */
   drink: boolean;
   /** set when anything is unreviewed (or the recipe is empty): show this banner first, in every view */
   notReviewed: { unreviewedNames: string[] } | null;
@@ -117,13 +117,13 @@ export function isDrinkItem(item?: { category?: string | null } | null): boolean
 }
 
 /**
- * The ONLY allergens marked on a drink: egg, milk and nuts (Troy, 4 Oct 2026) plus sulphites (design call, 10 Oct 2026:
- * wine, prosecco, vermouth and cider based drinks genuinely contain them, and sulphites became a main allergen). Nitrites,
- * gluten, seeds and the rest are not listed on drinks, and there are no dietary badges. The ingredient data stays recorded.
+ * The ONLY allergens marked on a drink: egg, milk and nuts (Troy, 4 Oct 2026). Sulphites were listed on drinks for a day
+ * (design call, 10 Oct 2026) and taken off again the same day at Troy's word. Sulphites, nitrites, gluten, seeds and the
+ * rest are not listed on drinks, and there are no dietary badges. The ingredient data stays recorded.
  * This one list drives the printed sheet (showsAllergen), the allergen suggestions for a drink's ingredients
  * (components/allergen-suggest.tsx) and the dish card's suggestion chips (components/allergen-picker.tsx).
  */
-export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts", "sulphites"];
+export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts"];
 
 /**
  * True when this allergen may be listed on this item under the policy. Alcohol is never listed. Drinks list only

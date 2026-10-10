@@ -22,7 +22,7 @@ export const MAX_PRINT = 60;
 
 /**
  * Which allergens a printed recipe lists. A recipe on the wall is read by the cook who makes it, so it lists the main allergens
- * (the same roll-up and badge rules the Kitchen Station uses, lib/allergen-badges.ts: drinks mark only DRINK_ALLERGEN_IDS, egg, milk, nuts and sulphites) and
+ * (the same roll-up and badge rules the Kitchen Station uses, lib/allergen-badges.ts: drinks mark only DRINK_ALLERGEN_IDS, egg, milk and nuts) and
  * says so plainly when an ingredient has not been checked. This is its own switch: the Kitchen Station and the costing app
  * stay on the menu-only default (DEFAULT_POLICY). Change this one line to follow them instead.
  */

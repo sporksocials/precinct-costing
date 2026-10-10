@@ -330,11 +330,13 @@ describe("Finish Setting Up This Dish", () => {
     expect(kitchen).toContain('id="kitchen-method"');
     expect(readFileSync("components/editor/safety-card.tsx", "utf8")).toContain("data-flash");
   });
-  it("is one short card (the next step as a 52px button) that sits in the page flow, not over the bottom bar", () => {
+  it("lists all five steps, each tappable (48px), marks the next one, and sits in the page flow, not over the bottom bar", () => {
     const src = readFileSync("components/editor/finish-setup.tsx", "utf8");
-    expect(src).toContain("min-h-[52px]");
+    expect(src).toContain("min-h-[48px]");
     expect(src).not.toMatch(/\bfixed\b|\bsticky\b/);
-    // one row for the next step, never the whole list (it pushed the ingredients off the first phone screen)
-    expect(src).toContain("Next: ");
+    // every step is a button that jumps to its section (Troy, 10 Oct 2026), and only the next step shows its help line
+    expect(src).toContain("model.steps.map");
+    expect(src).toContain("scrollToSection(s.anchor)");
+    expect(src).toContain("isNext ?");
   });
 });

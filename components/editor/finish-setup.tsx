@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronRight, Circle } from "lucide-react";
+import { ChevronRight, Circle, CircleCheck } from "lucide-react";
 import type { SetupModel } from "@/lib/finish-setup";
 import { cx } from "../ui";
 
@@ -19,14 +19,13 @@ export function scrollToSection(id: string) {
 }
 
 /**
- * Finish Setting Up This Dish (lib/finish-setup.ts): a compact card at the top of a food dish's page until every step is done. It is ONE
- * short card (a five step progress strip and the next step as a single 52px button that scrolls to its section), so the ingredients stay
- * on the first screen of a phone; the page's sections already run in the checklist's own order (ingredients, allergens, Menu Labels,
- * method, Ready For Kitchen). It sits in the normal page flow, so it never covers or moves the bottom bar.
+ * Finish Setting Up This Dish (lib/finish-setup.ts): a short card at the top of a food dish's page until every step is done. All five
+ * steps are listed and any of them can be tapped to jump to its section (Troy, 10 Oct 2026); rows are 48px, the next step is marked
+ * and is the only one that shows its one line of help, so the card stays about half the height of the first version and the
+ * ingredients still show on the first phone screen. It sits in the normal page flow, so it never covers or moves the bottom bar.
  */
 export function FinishSetup({ model }: { model: SetupModel }) {
   if (model.complete) return null;
-  const next = model.steps.find((s) => s.id === model.next) ?? model.steps[0];
   return (
     <section aria-label="Finish setting up this dish" className="mt-5">
       <div className="flex items-baseline justify-between px-1 pb-1.5">
@@ -35,24 +34,29 @@ export function FinishSetup({ model }: { model: SetupModel }) {
           {model.doneCount} of {model.steps.length} done
         </span>
       </div>
-      <div className="group-list">
-        <div className="flex gap-1.5 px-4 pt-3" role="img" aria-label={`${model.doneCount} of ${model.steps.length} steps done`}>
-          {model.steps.map((s) => (
-            <span key={s.id} aria-hidden className={cx("h-1.5 flex-1 rounded-full", s.done ? "bg-good" : s.id === next.id ? "bg-accent-fill" : "bg-fill")} />
-          ))}
-        </div>
-        <button type="button" onClick={() => scrollToSection(next.anchor)} aria-current="step" className="flex min-h-[52px] w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-fill active:bg-fill">
-          <Circle aria-hidden className="h-[22px] w-[22px] shrink-0 text-accent" strokeWidth={2.25} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-[17px] font-semibold leading-snug sm:text-[15px]">
-              <span className="text-accent">Next: </span>
-              {next.label}
-            </span>
-            <span className="block text-[13px] leading-snug text-label-2">{next.sub}</span>
-          </span>
-          <ChevronRight aria-hidden className="h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} />
-        </button>
-      </div>
+      <ul className="group-list divide-y divide-[color:var(--separator)]">
+        {model.steps.map((s) => {
+          const isNext = s.id === model.next;
+          return (
+            <li key={s.id}>
+              <button
+                type="button"
+                onClick={() => scrollToSection(s.anchor)}
+                aria-current={isNext ? "step" : undefined}
+                className={cx("flex min-h-[48px] w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-fill active:bg-fill", isNext && "bg-fill")}
+              >
+                {s.done ? <CircleCheck aria-hidden className="h-[22px] w-[22px] shrink-0 text-good" strokeWidth={2.25} /> : <Circle aria-hidden className="h-[22px] w-[22px] shrink-0 text-label-3" strokeWidth={2.25} />}
+                <span className="min-w-0 flex-1">
+                  <span className={cx("block text-[17px] leading-snug sm:text-[15px]", s.done ? "text-label-2" : "font-semibold")}>{s.label}</span>
+                  {isNext ? <span className="block text-[13px] leading-snug text-label-2">{s.sub}</span> : null}
+                </span>
+                {isNext ? <span className="text-[13px] font-semibold text-accent">Next</span> : null}
+                <ChevronRight aria-hidden className="h-[18px] w-[18px] shrink-0 text-label-3" strokeWidth={2.5} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

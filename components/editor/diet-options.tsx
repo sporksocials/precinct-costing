@@ -141,7 +141,7 @@ export function DietOptionsGroup({ item, lines, onPatch, card }: { item: MenuIte
       card={card}
       id={MENU_LABELS_ID}
       title="Menu Labels"
-      explain="Ticked by hand, never worked out by the app: GF, V and VG as served, and the swaps the kitchen offers (GFO, VO, VGO, DFO), with no check on what is left."
+      explain="Ticked by hand: GF, V and VG as served, and the swaps the kitchen offers (GFO, VO, VGO, DFO)."
       trailing={needNote.length ? <span className="text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
     >
       {!ready ? <p className="px-4 py-3 text-[13px] text-label-2">Menu Labels can’t be saved until the database has its menu labels update.</p> : null}

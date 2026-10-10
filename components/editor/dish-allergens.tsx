@@ -97,8 +97,7 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
   return (
     <SafetyBlock
       title="Dish Allergens"
-      explain="Worked out from the ingredients. Signed off by a person."
-      footer="Allergens are ticked on ingredients, never on the dish. To change one, fix the ingredient. The Allergy Matrix reads what is confirmed here and nothing else."
+      explain="Worked out from the ingredients, so to change one, fix the ingredient. A person confirms it."
     >
       <div className="space-y-5 px-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">Dish allergens can’t be saved until the database has its dish allergens update.</p> : null}
@@ -112,7 +111,7 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
           <p className="text-[13px] font-medium text-warn">Changed. Confirm again when you are done.</p>
         ) : null}
         <p className="text-[13px] text-label-2">
-          {confirmed ? (dirty ? "Save to keep this on the matrix." : "This dish shows its real answers on the matrix.") : "Until it is confirmed, this dish shows Not Checked on the matrix."}
+          {confirmed ? (dirty ? "Save to keep this on the matrix." : "On the matrix.") : "Shows Not Checked on the matrix until confirmed."}
         </p>
 
         <BlockerNotice check={check} dishId={item.id} />
@@ -128,7 +127,7 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
         {check.contains.length ? (
           <div>
             <p className="text-[13px] font-medium text-label-2">Can Be Made Without</p>
-            <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how. That cell turns yellow on the matrix with your words in it.</p>
+            <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how.</p>
             <ul className="divide-y divide-[color:var(--separator)]">
               {check.contains.map((id) => (
                 <li key={id} className="py-2.5">
@@ -140,9 +139,8 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
         ) : null}
 
         {!confirmed && !check.blocked && !check.contains.length && ready ? (
-          <p className="text-[13px] text-label-2">The ingredients list none of the 15 allergens. Confirming says this dish contains none of them, and the matrix shows Yes for every allergen.</p>
+          <p className="text-[13px] text-label-2">Confirming says this dish contains none of them.</p>
         ) : null}
-        {!confirmed && !check.blocked && check.contains.length ? <p className="text-[13px] text-label-2">Check the list above against the menu, then confirm.</p> : null}
 
         {!confirmed ? (
           <div className="flex flex-wrap gap-2">
@@ -289,7 +287,7 @@ export function AddAllergen({ contained, disabled, onAdd }: { contained: readonl
       </button>
       {open ? (
         <div className="anim-fade">
-          <p className="pb-2 text-[13px] text-label-2">Only for an allergen the ingredients do not show, such as cross-contact. To take one off, fix the ingredient.</p>
+          <p className="pb-2 text-[13px] text-label-2">Only for something the ingredients do not show, such as cross-contact.</p>
           <div className="flex flex-wrap gap-2" role="group" aria-label="Add an allergen to this dish">
             {options.map((id) => (
               <button

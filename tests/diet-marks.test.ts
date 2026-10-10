@@ -231,9 +231,11 @@ describe("draft, conflict, undo and history carry the swaps and marks", () => {
 
 describe("Menu Labels, recipe card and legend show the marks and DFO", () => {
   const src2 = (f: string) => readFileSync(f, "utf8");
-  it("the grid has a Dietary Marks column beside the options column", () => {
+  it("the grid has a Marks column beside the Options column (the page is Menu Labels, so neither says Dietary)", () => {
     const t = src2("components/allergen-matrix.tsx");
-    expect(t).toMatch(/Dietary Marks/);
+    expect(t).toMatch(/>Marks</);
+    expect(t).toMatch(/>Options</);
+    expect(t).not.toMatch(/Dietary Marks|Dietary Options/);
     expect(t).toMatch(/MarksCell/);
     expect(t).toMatch(/GF, V, VG, GFO, VO, VGO, DFO/);
     expect(t).not.toMatch(/\bDF\b/);

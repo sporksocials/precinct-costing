@@ -158,7 +158,7 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
 
 /**
  * The whole food safety section of a food dish (Troy, 10 Oct 2026): ONE shared card, "Allergens And Dietary", holding Dish Allergens,
- * Dietary Marks and Dietary Options as sibling blocks (same headings, spacing, helper text and 44px controls), with a status line in
+ * Menu Labels (the GF, V, VG marks and GFO, VO, VGO, DFO options, one block) as sibling blocks (same headings, spacing, helper text and 44px controls), with a status line in
  * the header that says whether the section is done. Nothing is collapsed. Below it, "What The Ingredients Say" keeps the worked-out
  * roll-up as a collapsed read-only reference (the only collapsed thing).
  */

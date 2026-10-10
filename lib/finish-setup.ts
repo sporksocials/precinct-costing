@@ -8,7 +8,8 @@ import type { SignOffState } from "./dish-allergens";
  *   1 Ingredients Added            at least one ingredient or prep on the recipe
  *   2 Dish Allergens Confirmed     a VALID sign-off (a dish whose ingredients changed since reads "Re-check"; ingredients nobody has
  *                                  checked for allergens block it and are counted in the line under the label)
- *   3 Dietary Marks And Options    informational: "2 set" or "None set". It is done once the allergens are confirmed (no flag of its own)
+ *   3 Menu Labels                  informational: "2 set" or "None set" (the GF, V, VG marks and GFO, VO, VGO, DFO options). It is done once the
+ *                                  allergens are confirmed (no flag of its own)
  *   4 Kitchen Method Written       at least one assembly step
  *   5 Ready For Kitchen            the head chef's switch is on
  * The first step that is not done is the highlighted one.
@@ -28,9 +29,9 @@ export interface SetupStep {
 
 export const SETUP_ANCHORS: Record<SetupStepId, string> = {
   ingredients: "setup-ingredients",
-  // Dish Allergens, Dietary Marks and Dietary Options are blocks of ONE card (Allergens And Dietary), so both rows go to it
+  // Dish Allergens and Menu Labels are two blocks of ONE card (Allergens And Dietary); each row goes to its own block
   allergens: "allergens-dietary",
-  marks: "allergens-dietary",
+  marks: "menu-labels",
   method: "kitchen-method",
   ready: "kitchen-ready",
 };
@@ -54,8 +55,8 @@ export interface SetupModel {
   doneCount: number;
 }
 
-/** "2 set" or "None set": the marks (GF, V, VG) and options (GFO, VO, VGO, DFO) the dish has. */
-export function marksAndOptionsSummary(dietOptions: unknown): string {
+/** "2 set" or "None set": the Menu Labels the dish has, its marks (GF, V, VG) and options (GFO, VO, VGO, DFO). */
+export function menuLabelsSummary(dietOptions: unknown): string {
   const n = readMarks(dietOptions).length + readOptions(dietOptions).length;
   return n ? `${n} set` : "None set";
 }
@@ -78,7 +79,7 @@ export function setupModel(i: SetupInput): SetupModel {
             : "Check what the ingredients give, then confirm",
       anchor: SETUP_ANCHORS.allergens,
     },
-    { id: "marks", label: "Dietary Marks And Options", done: allergensDone, sub: marksAndOptionsSummary(i.dietOptions), anchor: SETUP_ANCHORS.marks },
+    { id: "marks", label: "Menu Labels", done: allergensDone, sub: menuLabelsSummary(i.dietOptions), anchor: SETUP_ANCHORS.marks },
     { id: "method", label: "Kitchen Method Written", done: methodDone, sub: methodDone ? "Written" : "Add the assembly steps", anchor: SETUP_ANCHORS.method },
     { id: "ready", label: "Ready For Kitchen", done: !!i.kitchenReady, sub: i.kitchenReady ? "On" : "Switch on when the head chef has checked it", anchor: SETUP_ANCHORS.ready },
   ];

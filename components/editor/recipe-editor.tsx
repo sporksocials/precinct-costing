@@ -234,6 +234,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         setStatus("idle");
         if (opts.settle) toast.show({ message: opts.settle.choice === "mine" ? "Saved with your version" : `Saved with ${whoOf(outcome.theirs)}’s version` });
         else if (outcome.theirs.changed) toast.show({ message: mergedToast(whoOf(outcome.theirs), outcome.theirs.updatedAt) }, 7000);
+        // the Save bar disappears once nothing is unsaved, so a quiet toast says it worked (a Research Notes write has its own message)
+        else if (!opts.quiet) toast.show({ message: "Saved" }, 2500);
         // the post-save nudge: a signed-off food dish whose ingredients changed no longer counts as confirmed
         if (kind === "item" && (outcome.record as MenuItem).category === "Food" && lostSignOff({ item: b.draft as MenuItem, lines: b.lines }, { item: outcome.record as MenuItem, lines: outcome.lines }, s.index)) {
           toast.show({ message: NUDGE_TEXT, action: { label: "Open Allergens", onClick: () => scrollToSection(DISH_ALLERGENS_ID) } }, 12000);
@@ -599,7 +601,9 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const listFallback = isFlavour ? "/menu?venue=gelato" : kind === "item" ? `/menu${venue ? `?venue=${venue.slug}` : ""}` : `/ingredients?type=preps${venue ? `&venue=${venue.slug}` : ""}`;
   const backHref = useBackHref(listPath, listFallback, { venue: venue?.slug, require: kind === "prep" && !isFlavour ? { key: "type", value: "preps" } : undefined });
 
-  const phoneSaveBar = <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="px-4 pb-1 pt-2" />;
+  // ONE bar at the bottom (Troy, 10 Oct 2026): the Save bar only exists while something is unsaved (or saving, or failed); a quiet "Saved" toast says it worked
+  const showSaveBar = saveState !== "saved";
+  const phoneSaveBar = showSaveBar ? <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="anim-fade px-4 pb-1 pt-2" /> : null;
 
   const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
@@ -774,8 +778,28 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           </Group>
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
-          {/* food dishes: Dish Allergens, Dietary Marks and Dietary Options together in one card, right under the ingredients */}
+          {/*
+            Section order follows what a person does (Troy, 10 Oct 2026): 1 the recipe's own suggestions, 2 what is in it (allergens and Menu
+            Labels), 3 what the kitchen or bar sees (method, plating, Ready For Kitchen), 4 pricing and notes, 5 History and Price History last.
+          */}
+          {kind === "item" ? <ResearchDrinkCard item={saved as MenuItem} dirty={dirty} /> : null}
+          <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
+
+          {/* food dishes: Dish Allergens and Menu Labels together in one card, right under the ingredients; everything else keeps its own panel here */}
           {item && isFood ? <AllergensDietaryCard item={item} saved={saved as MenuItem} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+          {isFlavour ? (
+            <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} />
+          ) : isFood ? null : (
+            <>
+              {/* a menu item that is not food or a drink sets its Menu Labels here; the worked-out panel then reads below with its own heading (never two Menu Labels) */}
+              {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+              <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} title={item && !isDrinkItem(item) ? "What The Ingredients Say" : undefined} />
+            </>
+          )}
+
+          {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+          {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+
           {itemCost && item && (itemCost.needsCheck || itemCost.hhSellInc != null) ? (
             <div className="mt-6 space-y-2 lg:hidden">
               <CheckCostBanner cost={itemCost} />
@@ -824,23 +848,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             </div>
           ) : null}
 
-          {kind === "item" ? <ResearchDrinkCard item={saved as MenuItem} dirty={dirty} /> : null}
-          <RecordResearchNotes kind={kind} id={id} editor={noteTarget} />
-          <RecordHistory
-            table={RECORD_TABLE[kind]}
-            rowKey={id}
-            undo={{ kind, draft, lines, setDraft, setLines }}
-            refreshKey={`${dirty}|${saved.updated_at ?? ""}`}
-          />
-
-          {/* a food dish's allergen section is the shared card under Ingredients (above); everything else keeps its panel here */}
-          {isFlavour ? <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} /> : isFood ? null : <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />}
-          {item && !isFood && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
-
-          {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
-          {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
-
-          {/* details */}
+          {/* details and notes */}
           <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.menu_group ? `Group: ${item.menu_group}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}${itemCost?.hhBelowCost ? " (below cost)" : itemCost?.hhUnderTarget ? " (below target)" : ""}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
             <div className="group-list">
               {item ? (
@@ -905,6 +913,12 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               </div>
             </div>
           </Disclosure>
+          <RecordHistory
+            table={RECORD_TABLE[kind]}
+            rowKey={id}
+            undo={{ kind, draft, lines, setDraft, setLines }}
+            refreshKey={`${dirty}|${saved.updated_at ?? ""}`}
+          />
           {item ? <PriceHistory filter={{ kind: "item", itemId: item.id }} refreshKey={`${item.sell_price_inc}|${item.hh_price_inc}`} cost={itemCost?.costPerPortion} gst={store.settings.gst_rate} /> : null}
 
           <div className="mt-8">
@@ -928,7 +942,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       </div>
 
       {/* save bar: sticky at the bottom on desktop; on phones it sits at the top of the fixed summary bar */}
-      <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="sticky bottom-0 z-30 mt-8 hidden rounded-t-2xl bg-surface px-4 py-3 shadow-float ring-1 ring-[color:var(--separator)] lg:flex" />
+      {showSaveBar ? <SaveBar state={saveState} note={notice} onSave={() => void save()} onDiscard={() => setSheet("discard")} className="anim-fade sticky bottom-0 z-30 mt-8 hidden rounded-t-2xl bg-surface px-4 py-3 shadow-float ring-1 ring-[color:var(--separator)] lg:flex" /> : null}
       <div className={cx("lg:hidden", notice ? "h-28" : "h-14")} aria-hidden />
 
       {/* summary: phone bar */}

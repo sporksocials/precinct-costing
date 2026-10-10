@@ -166,7 +166,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
 
       {m.listsAllergens || m.options.length || m.marks.length ? (
       <div>
-        <TierLabel>{m.listsAllergens ? "Dietary" : "Dietary Options"}</TierLabel>
+        <TierLabel>Dietary</TierLabel>
         {m.diet.length ? (
           <div className="flex flex-wrap gap-2">
             {m.diet.map((d) => (
@@ -199,7 +199,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
       </div>
       ) : null}
 
-      {!m.listsAllergens && !m.options.length && !m.marks.length && !(seafood || seafoodLabel) ? <p className="text-[15px] text-label-2">{m.drink ? "Drinks carry no menu labels." : "No menu labels set. Add GF, V, VG, GFO, VO, VGO or DFO under Dietary Options."}</p> : null}
+      {!m.listsAllergens && !m.options.length && !m.marks.length && !(seafood || seafoodLabel) ? <p className="text-[15px] text-label-2">{m.drink ? "Drinks carry no menu labels." : "No menu labels set. Add GF, V, VG, GFO, VO, VGO or DFO under Menu Labels."}</p> : null}
 
       {!m.drink && (seafood || seafoodLabel) ? (
         <div>

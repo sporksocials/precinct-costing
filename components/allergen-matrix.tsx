@@ -174,7 +174,7 @@ function DietCell({ m, id }: { m: BadgeModel; id: DietId }) {
 
 /** The hand-set marks for the dish (GF, V, VG; VG alone when both are set), a person's own declaration. */
 function MarksCell({ m }: { m: BadgeModel }) {
-  if (!m.marks.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No dietary marks">-</span>;
+  if (!m.marks.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No marks">-</span>;
   return (
     <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-good" title={m.marks.map((k) => `${k.letter}: ${k.label}`).join("\n")}>
       {m.marks.map((k) => (
@@ -186,7 +186,7 @@ function MarksCell({ m }: { m: BadgeModel }) {
 
 /** Dietary option letters for the dish (GFO, VO, VGO, DFO), each with its note in the tooltip. */
 function OptionsCell({ m }: { m: BadgeModel }) {
-  if (!m.options.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No dietary options">-</span>;
+  if (!m.options.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No options">-</span>;
   return (
     <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-accent" title={m.options.map((o) => `${o.letter}: ${o.note}`).join("\n")}>
       {m.options.map((o) => (
@@ -276,7 +276,7 @@ export function AllergenMatrix() {
           </button>
         }
       />
-      {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GF, V, VG, GFO, VO, VGO, DFO and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
+      {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GF, V, VG, GFO, VO, VGO, DFO and the seafood origin letters. Set them on each dish, under Menu Labels.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
       <div className="print:hidden">
         {MENU_ONLY_VIEW ? <AllergenTabs current="labels" venueSlug={venue?.slug} /> : null}
         <VenueFilter className="mb-3" stats={false} compact />
@@ -349,10 +349,10 @@ export function AllergenMatrix() {
                     </th>
                   ))}
                   <th scope="col" className="h-[132px] w-[40px] min-w-[40px] border-l border-[color:var(--separator)] px-0.5 align-bottom text-[12px] font-medium text-label-2">
-                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Dietary Marks</span>
+                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Marks</span>
                   </th>
                   <th scope="col" className="h-[132px] w-[56px] min-w-[56px] border-l border-[color:var(--separator)] px-0.5 align-bottom text-[12px] font-medium text-label-2">
-                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Dietary Options</span>
+                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Options</span>
                   </th>
                   <th scope="col" className="h-[132px] w-[40px] min-w-[40px] px-0.5 align-bottom text-[12px] font-medium text-label-2">
                     <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Seafood Origin</span>

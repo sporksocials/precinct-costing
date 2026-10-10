@@ -8,9 +8,9 @@ import { FieldRow, Group, InlineInput, Toggle } from "../ui";
 import { OrderedList, PhotoRow } from "./bar-fields";
 
 /**
- * Kitchen display card for a food dish or a prep: the assembly / plating steps, a plated photo and storage line the
+ * Kitchen display card for a food dish or a prep: the assembly / plating steps first, then the "Kitchen Display" group (Ready For Kitchen, plated photo and storage line) the
  * venue's kitchen station iPad shows (/kitchen/<venue>). Nothing reaches the station until the head chef turns on
- * "Ready For Kitchen". Edits go through the recipe editor's draft, so they autosave with everything else.
+ * "Ready For Kitchen", which is last because it is the last thing done. Edits go through the recipe editor's draft, so they save with everything else.
  */
 export function KitchenDisplayFields({ kind, rec, venueSlug, onPatch }: { kind: "item" | "prep"; rec: MenuItem | Prep; venueSlug: string | undefined; onPatch: (p: Partial<MenuItem> & Partial<Prep>) => void }) {
   const station = venueSlug && isKitchenVenue(venueSlug) ? `/kitchen/${venueSlug}` : null;
@@ -23,10 +23,20 @@ export function KitchenDisplayFields({ kind, rec, venueSlug, onPatch }: { kind: 
 
   return (
     <>
+      <div id="kitchen-method" className="scroll-mt-20" />
+      <OrderedList
+        title={item ? "Assembly" : "Method"}
+        noun="Step"
+        placeholder={item ? "e.g. Toast the bun and spread the aioli" : "e.g. Sweat the onion until soft, about 8 minutes"}
+        value={method}
+        onChange={(v) => onPatch({ kitchen_method: v })}
+        className="mt-4"
+      />
+      {item ? <OrderedList title="Plating" noun="Point" placeholder="e.g. Chips in the cone, sauce on the side" value={item.kitchen_plating} onChange={(v) => onPatch({ kitchen_plating: v })} className="mt-4" /> : null}
       <div id="kitchen-ready" className="scroll-mt-20" />
       <Group
         title="Kitchen Display"
-        className="mt-6"
+        className="mt-4"
         trailing={
           station ? (
             <a href={station} target="_blank" rel="noopener noreferrer" className="pb-0.5 text-[13px] font-medium text-accent hover:underline">
@@ -66,16 +76,6 @@ export function KitchenDisplayFields({ kind, rec, venueSlug, onPatch }: { kind: 
           </FieldRow>
         ) : null}
       </Group>
-      <div id="kitchen-method" className="scroll-mt-20" />
-      <OrderedList
-        title={item ? "Assembly" : "Method"}
-        noun="Step"
-        placeholder={item ? "e.g. Toast the bun and spread the aioli" : "e.g. Sweat the onion until soft, about 8 minutes"}
-        value={method}
-        onChange={(v) => onPatch({ kitchen_method: v })}
-        className="mt-4"
-      />
-      {item ? <OrderedList title="Plating" noun="Point" placeholder="e.g. Chips in the cone, sauce on the side" value={item.kitchen_plating} onChange={(v) => onPatch({ kitchen_plating: v })} className="mt-4" /> : null}
     </>
   );
 }

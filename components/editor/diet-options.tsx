@@ -11,14 +11,17 @@ import { useBadgeModel } from "../allergen-picker";
 import { OptionSwapPanel } from "./diet-option-swap";
 import { SafetyBlock } from "./safety-card";
 
+/** The id the Finish Setting Up "Menu Labels" step scrolls to. */
+export const MENU_LABELS_ID = "menu-labels";
+
 /**
- * One block of this panel. On a food dish (`card`) it is a sibling block inside the shared Allergens And Dietary card (same heading,
+ * The block of this panel. On a food dish (`card`) it is a sibling block inside the shared Allergens And Dietary card (same heading,
  * explanation and spacing as Dish Allergens); anywhere else it is the plain grouped list it always was.
  */
-function Section({ card, title, explain, trailing, footer, children }: { card?: boolean; title: string; explain: string; trailing?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) {
+function Section({ card, id, title, explain, trailing, footer, children }: { card?: boolean; id?: string; title: string; explain: string; trailing?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) {
   if (card)
     return (
-      <SafetyBlock title={title} explain={explain} trailing={trailing} footer={footer}>
+      <SafetyBlock id={id} title={title} explain={explain} trailing={trailing} footer={footer}>
         {children}
       </SafetyBlock>
     );
@@ -32,7 +35,8 @@ function Section({ card, title, explain, trailing, footer, children }: { card?: 
 type Options = NonNullable<MenuItem["diet_options"]>;
 
 /**
- * Dietary Marks and Dietary Options for a menu item, and "Marketed As Seafood". Edits go through the recipe editor's draft
+ * Menu Labels for a menu item (Troy, 10 Oct 2026: ONE name and ONE block for the marks and the options, the same words the Allergens tab uses
+ * for its Menu Labels view), and "Marketed As Seafood". Edits go through the recipe editor's draft
  * (manual Save, leave guard, conflict check), like every other field.
  *
  * MARKS (GF, V, VG; Troy, 10 Oct 2026): three visible switches a chef or manager ticks. The app never works them out and
@@ -133,8 +137,14 @@ export function DietOptionsGroup({ item, lines, onPatch, card }: { item: MenuIte
   const seafood = model.seafood;
 
   return (
-    <>
-    <Section card={card} title="Dietary Marks" explain="GF, V and VG as served." footer="Ticked by hand. The app never works these out. A dish marked Vegan prints VG only.">
+    <Section
+      card={card}
+      id={MENU_LABELS_ID}
+      title="Menu Labels"
+      explain="Ticked by hand, never worked out by the app: GF, V and VG as served, and the swaps the kitchen offers (GFO, VO, VGO, DFO), with no check on what is left."
+      trailing={needNote.length ? <span className="text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
+    >
+      {!ready ? <p className="px-4 py-3 text-[13px] text-label-2">Menu Labels can’t be saved until the database has its menu labels update.</p> : null}
       {DIET_MARKS.map((m) => {
         const on = marksOn.includes(m.id);
         // vegan includes vegetarian: say so on the Vegetarian row rather than leaving it looking untouched
@@ -153,16 +163,6 @@ export function DietOptionsGroup({ item, lines, onPatch, card }: { item: MenuIte
           />
         );
       })}
-    </Section>
-
-    <Section
-      card={card}
-      title="Dietary Options"
-      explain="GFO, VO, VGO and DFO swaps, with their own costing."
-      trailing={needNote.length ? <span className="text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
-      footer="These say what the kitchen can change on request, and what that costs. The app does not check what is left."
-    >
-      {!ready ? <p className="px-4 py-3 text-[13px] text-label-2">Dietary options can’t be saved until the database has its dietary options update.</p> : null}
       {DIET_OPTIONS.map((o) => {
         const on = isOn(o.id);
         const entry = saved[o.id];
@@ -233,7 +233,6 @@ export function DietOptionsGroup({ item, lines, onPatch, card }: { item: MenuIte
         <BadgeLegend className="mt-2" />
       </details>
     </Section>
-    </>
   );
 }
 

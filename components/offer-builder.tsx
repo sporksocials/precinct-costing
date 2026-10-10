@@ -15,6 +15,8 @@ import { VenueAccent, VENUE_SHORT } from "./venue";
 import { OfferSimulator, priceBreakEvenLabel, simInputFrom } from "./offer-simulator";
 import { ComponentPicker, StatusPill, type NewOfferLine } from "./offers-parts";
 import { ActiveToggle, DeleteRecordSheet } from "./active-parts";
+import { useAllergenIndex } from "./allergen-picker";
+import { offerAllergenBlockers, offerAllergenMessage } from "@/lib/offer-allergens";
 import { Banner, Chips, cx, FieldRow, Group, InlineInput, Row, Stepper, useToast } from "./ui";
 
 export interface Draft {
@@ -92,6 +94,9 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   const simInput = useMemo(() => simInputFrom(c, d.assumptions, store.settings.gst_rate), [c, d.assumptions, store.settings.gst_rate]);
   const savedCost = offerId ? store.offerCosts.get(offerId) : undefined;
   const windowKind = d.kind !== "combo";
+  const allergenIdx = useAllergenIndex();
+  const blockers = useMemo(() => offerAllergenBlockers(d.lines, store.items, allergenIdx), [d.lines, store.items, allergenIdx]);
+  const liveBlocked = blockers.length > 0 ? offerAllergenMessage(blockers) : null;
   const canSave = !!d.name.trim() && d.venueId != null && d.lines.length > 0 && !busy;
   const good = c.gpPct != null && !c.underTarget;
 
@@ -106,6 +111,10 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
   /** Resolves true only when the offer is saved (the leave guard waits on it). */
   async function save(): Promise<boolean> {
     if (!canSave || d.venueId == null) return false;
+    if (d.status === "live" && saved?.status !== "live" && liveBlocked) {
+      setError(liveBlocked);
+      return false;
+    }
     setBusy(true);
     setError(null);
     const row = {
@@ -145,6 +154,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
 
   async function changeStatus(status: OfferStatus) {
     if (status === d.status) return;
+    if (status === "live" && liveBlocked) return setError(liveBlocked);
     if (!offerId) return set({ status });
     setError(null);
     try {
@@ -358,6 +368,11 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
                 <p className="section-label !px-1 mt-6">Status</p>
                 <Chips ariaLabel="Status" value={d.status} onChange={(s) => void changeStatus(s)} options={OFFER_STATUSES.filter((s) => s.value !== "retired").map((s) => ({ value: s.value, label: s.label }))} />
               </>
+            ) : null}
+            {liveBlocked ? (
+              <p className="px-1 pt-1.5 text-[13px] text-warn" role="status">
+                {liveBlocked}
+              </p>
             ) : null}
             <p className="px-1 pt-1.5 text-[13px] text-label-2">
               {d.status === "live" ? "Live offers that slip below target show on Home." : d.status === "retired" ? "Retired offers are inactive: kept for reference, hidden from the list and never flagged. Turn Active on to bring it back as a Draft." : "Drafts are private workings. Set Live when it goes on the menu."}

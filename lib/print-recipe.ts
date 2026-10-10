@@ -3,6 +3,7 @@ import { badgeModel, FULL_ALLERGENS, isDrinkItem, type BadgeModel, type BadgePol
 import { barIngredientName, barPhotoSrc, isBarCategory, textList } from "./bar";
 import { parentKey } from "./costing";
 import { BADGE_LABELS, seafoodDef } from "./diet-legend";
+import { optionText, readOption, swapSentence, swapWords } from "./diet-options";
 import { kitchenPhotoSrc, yieldText } from "./kitchen";
 import { formatQty } from "./parse-qty";
 import type { MenuItem, Prep, RecipeLine, Venue } from "./types";
@@ -58,8 +59,20 @@ export interface PrintLine {
 
 export interface PrintOption {
   letter: string;
+  /** the option's printed name: "Gluten Free Option Available", "Dairy Free Option" */
   label: string;
+  /** the dish's own note on what changes */
   note: string;
+  /** the ingredient swap in plain words ("Leave out Soy Sauce. Add Tamari 15 ml."), or null when the option only has a note. Never a cost, price or surcharge. */
+  swap: string | null;
+  /** the line as printed after the name: the swap, then the note */
+  text: string;
+}
+
+/** A hand-set mark (GF, V, VG) as printed. */
+export interface PrintMark {
+  letter: string;
+  label: string;
 }
 
 export interface PrintAllergens {
@@ -69,8 +82,8 @@ export interface PrintAllergens {
   mayContain: string | null;
   /** the chef's "made without" notes on the allergens that are listed */
   notes: string[];
-  /** the dish's menu options (GFO, VO, VGO, DF), each with what changes */
-  options: PrintOption[];
+  /** the hand-set marks that print (GF, V, VG; VG alone when both V and VG are set) */
+  marks: PrintMark[];
   /** the seafood origin letter or its "not confirmed" line, only on a dish the menu markets as seafood */
   seafood: string | null;
   /** NOT_CHECKED_LINE when any ingredient is unreviewed (or the recipe is empty), else null */
@@ -92,6 +105,11 @@ export interface PrintRecipe {
   /** the method steps; empty = the Method section is left out */
   method: string[];
   plating: string[];
+  /**
+   * the dish's dietary options (GFO, VO, VGO, DFO) in that order, each with what changes: the "Options" block between the
+   * method and the Allergens block. Empty for a prep, a drink, or a dish with no options (then there is no block).
+   */
+  options: PrintOption[];
   glass: string | null;
   garnish: string[];
   storage: string | null;
@@ -184,7 +202,7 @@ export function printAllergens(m: BadgeModel): PrintAllergens {
     contains: `${BADGE_LABELS.contains}: ${m.contains.length ? labels(m.contains) : sentence(none)}`,
     mayContain: m.mayContain.length ? `May contain (unconfirmed): ${labels(m.mayContain)}` : null,
     notes: m.notes.map((n) => `${n.label}: ${n.note}`),
-    options: m.options.map((o) => ({ letter: o.letter, label: o.label, note: o.note })),
+    marks: m.marks.map((k) => ({ letter: k.letter, label: k.label })),
     seafood: seafoodLine(m),
     notChecked: m.notReviewed ? NOT_CHECKED_LINE : null,
     notice: ALLERGEN_NOTICE,
@@ -217,6 +235,33 @@ function recipeLines(kind: PrintKind, id: string, index: AllergenIndex): PrintLi
   return out;
 }
 
+/**
+ * The Options block of a dish: one entry per option in the order GFO, VO, VGO, DFO, each with the option's name and, in plain
+ * words, what it leaves out and adds (the same formatter as the ingredients), then the option's own note. An option with only a
+ * note reads "<name>: <note>". Amounts only: never a cost, price, surcharge or GP.
+ */
+export function printOptions(m: BadgeModel, item: MenuItem | undefined, index: AllergenIndex): PrintOption[] {
+  if (!item) return [];
+  const own = new Map((index.linesByParent.get(parentKey("item", item.id)) ?? []).map((l) => [l.id, l]));
+  const nameOf = (type: "ingredient" | "prep", cid: string): string | null =>
+    type === "prep" ? index.preps.get(cid)?.name ?? null : index.ingredients.get(cid)?.name ? barIngredientName(index.ingredients.get(cid)!.name) : null;
+  return m.options.map((o) => {
+    const read = readOption(item.diet_options, o.id);
+    const swap = read
+      ? swapSentence(
+          swapWords(read, {
+            lineName: (id) => {
+              const l = own.get(id);
+              return l ? nameOf(l.component_type, l.component_id) : null;
+            },
+            addedName: (a) => nameOf(a.component_type, a.component_id),
+          }),
+        )
+      : null;
+    return { letter: o.letter, label: o.label, note: o.note, swap, text: optionText(o.note, swap) };
+  });
+}
+
 /** The printable model for one dish, drink or prep, or null when the record is not in the index. Reads only; never writes. */
 export function buildPrintRecipe(kind: PrintKind, id: string, src: PrintSource, policy: BadgePolicy = PRINT_POLICY): PrintRecipe | null {
   const { index } = src;
@@ -239,6 +284,7 @@ export function buildPrintRecipe(kind: PrintKind, id: string, src: PrintSource, 
       lines,
       method: textList(prep.kitchen_method),
       plating: [],
+      options: [],
       glass: null,
       garnish: [],
       storage: prep.kitchen_storage?.trim() || null,
@@ -256,6 +302,7 @@ export function buildPrintRecipe(kind: PrintKind, id: string, src: PrintSource, 
   const drink = isDrinkItem(item);
   const updated = formatUpdated(item.updated_at);
   const portions = Number(item.portions);
+  const itemBadges = badgeModel(rollup({ kind: "item", id }, index), item, policy);
   return {
     id,
     kind,
@@ -269,7 +316,8 @@ export function buildPrintRecipe(kind: PrintKind, id: string, src: PrintSource, 
     glass: drink ? item.glass?.trim() || null : null,
     garnish: drink ? textList(item.garnish) : [],
     storage: null,
-    allergens: printAllergens(badgeModel(rollup({ kind: "item", id }, index), item, policy)),
+    options: drink ? [] : printOptions(itemBadges, item, index),
+    allergens: printAllergens(itemBadges),
     photo: photoOf(item, drink),
     updated,
     footer: footerOf(v.name, updated),

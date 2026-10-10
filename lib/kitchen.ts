@@ -1,5 +1,6 @@
 import { isUploadedPhoto, textList } from "./bar";
-import { DIET_OPTION_IDS, type DietOptionId } from "./diet-legend";
+import { DIET_MARK_IDS, DIET_OPTION_IDS, type DietMarkId, type DietOptionId } from "./diet-legend";
+import type { DietOptionAdded } from "./types";
 
 /**
  * Kitchen station (the public iPad recipe screen at /kitchen/<venue>): data shape and pure display helpers.
@@ -27,6 +28,14 @@ export function isKitchenPath(pathname: string): boolean {
 
 export type YieldUnit = "kg" | "L" | "each";
 
+export interface KitchenOption {
+  note: string;
+  /** recipe line ids of the dish's own lines the option leaves out (only present when there are some) */
+  removed?: string[];
+  /** extra components the option adds (only present when there are some) */
+  added?: DietOptionAdded[];
+}
+
 export interface KitchenDish {
   id: string;
   name: string;
@@ -40,8 +49,14 @@ export interface KitchenDish {
   allergenAdd: string[];
   allergenRemove: string[];
   allergenNotes: Record<string, string> | null;
-  /** the dish's dietary options (GFO, VO, VGO, DFO), each with the note saying what changes. Only known keys with a non-empty note are kept */
-  dietOptions: Partial<Record<DietOptionId, { note: string }>>;
+  /**
+   * the dish's dietary options (GFO, VO, VGO, DFO), each with the note saying what changes and, when set, the lines it leaves
+   * out and adds (recipe line ids, extra components). Only known keys with a non-empty note are kept. NEVER a surcharge or
+   * any price: this feed is public (the database function strips it and this parser never reads it).
+   */
+  dietOptions: Partial<Record<DietOptionId, KitchenOption>>;
+  /** the hand-set marks the dish carries (GF, V, VG), as stored (the badge model prints VG alone when both V and VG are set) */
+  dietMarks: DietMarkId[];
   /** the menu wording markets this dish as seafood, so it needs an origin letter */
   seafoodLabel: boolean;
 }
@@ -77,6 +92,8 @@ export interface KitchenIngredient {
 }
 
 export interface KitchenLine {
+  /** the recipe line's own id (null from a feed that has not had the diet swaps update yet) */
+  lineId: string | null;
   parentType: "item" | "prep";
   parentId: string;
   componentType: "ingredient" | "prep";
@@ -127,16 +144,32 @@ function noteMap(v: unknown): Record<string, string> | null {
 }
 
 /** The dietary options: only the four known keys, each needing a non-empty string note (an option without one is not shown). */
-function dietOptionMap(v: unknown): Partial<Record<DietOptionId, { note: string }>> {
+function dietOptionMap(v: unknown): Partial<Record<DietOptionId, KitchenOption>> {
   const o = obj(v);
-  const out: Partial<Record<DietOptionId, { note: string }>> = {};
+  const out: Partial<Record<DietOptionId, KitchenOption>> = {};
   if (!o) return out;
   for (const id of DIET_OPTION_IDS) {
     const entry = obj(o[id]);
     const note = entry && textOrNull(entry.note);
-    if (note) out[id] = { note };
+    if (!entry || !note) continue;
+    const removed = stringList(entry.removed).map((x) => x.trim()).filter(Boolean);
+    const added: DietOptionAdded[] = [];
+    for (const x of Array.isArray(entry.added) ? entry.added : []) {
+      const a = obj(x);
+      const cid = a && idOf(a.component_id);
+      const unit = a && typeof a.unit === "string" ? a.unit : "";
+      if (!a || !cid || (a.component_type !== "ingredient" && a.component_type !== "prep") || !["g", "kg", "ml", "L", "each"].includes(unit)) continue;
+      added.push({ component_type: a.component_type, component_id: cid, qty: Math.max(0, numberOr(a.qty, 0)), unit: unit as DietOptionAdded["unit"] });
+    }
+    out[id] = { note, ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}) };
   }
   return out;
+}
+
+/** The hand-set marks (gf, v, vg): a key holding an object. */
+function dietMarkList(v: unknown): DietMarkId[] {
+  const o = obj(v);
+  return o ? DIET_MARK_IDS.filter((id) => obj(o[id]) !== null) : [];
 }
 
 function parseDish(x: unknown): KitchenDish | null {
@@ -157,6 +190,7 @@ function parseDish(x: unknown): KitchenDish | null {
     allergenRemove: stringList(d.allergen_remove),
     allergenNotes: noteMap(d.allergen_notes),
     dietOptions: dietOptionMap(d.diet_options),
+    dietMarks: dietMarkList(d.diet_options),
     seafoodLabel: d.seafood_label === true,
   };
 }
@@ -195,7 +229,7 @@ function parseLine(x: unknown): KitchenLine | null {
   const componentId = l && idOf(l.component_id);
   if (!l || !parentId || !componentId) return null;
   if ((l.parent_type !== "item" && l.parent_type !== "prep") || (l.component_type !== "ingredient" && l.component_type !== "prep")) return null;
-  return { parentType: l.parent_type, parentId, componentType: l.component_type, componentId, qty: numberOr(l.qty, 0), unit: typeof l.unit === "string" ? l.unit : "", note: textOrNull(l.note), sort: numberOr(l.sort, 0) };
+  return { lineId: idOf(l.id), parentType: l.parent_type, parentId, componentType: l.component_type, componentId, qty: numberOr(l.qty, 0), unit: typeof l.unit === "string" ? l.unit : "", note: textOrNull(l.note), sort: numberOr(l.sort, 0) };
 }
 
 function list<T>(v: unknown, parse: (x: unknown) => T | null): T[] {

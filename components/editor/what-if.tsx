@@ -2,7 +2,8 @@
 
 import { useGuardedRouter } from "@/components/unsaved-guard";
 import { useMemo, useState } from "react";
-import { useStore } from "@/lib/store";
+import { newId, useStore } from "@/lib/store";
+import { copyDietOptions } from "@/lib/diet-options";
 import type { ItemCost } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { gpForPrice, parsePriceInput, priceForGp } from "@/lib/solver";
@@ -53,10 +54,13 @@ export function WhatIfSheet({
     try {
       const { id: _i, ...rest } = item;
       void _i;
+      const own = lines.filter((l) => l.component_id);
+      // the copy's lines get new ids: a dietary option's left-out line ids follow them, and its added amounts scale with the portion
+      const idMap = new Map(own.map((l) => [l.id, newId()] as const));
       const id = await store.insertItem(
         // a variation of an existing drink is not a new build: it is never offered Research This Drink, and it does not join the original's menu group
-        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if", research_status: null, ...("menu_group" in item ? { menu_group: null } : {}) },
-        lines.filter((l) => l.component_id).map((l, i) => ({ component_type: l.component_type, component_id: l.component_id, qty: Math.round(Number(l.qty) * k * 1000) / 1000, unit: l.unit, note: l.note, sort: i + 1 })),
+        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if", research_status: null, ...("menu_group" in item ? { menu_group: null } : {}), ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap, k) } : {}) },
+        own.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: Math.round(Number(l.qty) * k * 1000) / 1000, unit: l.unit, note: l.note, sort: i + 1 })),
       );
       onClose();
       router.push(`/items/${id}`);

@@ -5,7 +5,8 @@ import {
   type AllergenId,
   type Rollup,
 } from "./allergens";
-import { BADGE_LABELS, DIET_OPTION_IDS, dietOptionDef, type DietOptionId, type SeafoodLetter } from "./diet-legend";
+import { BADGE_LABELS, DIET_OPTION_IDS, dietMarkDef, dietOptionDef, type DietMarkId, type DietOptionId, type SeafoodLetter } from "./diet-legend";
+import { printedMarks } from "./diet-options";
 import { DRINK_CATEGORIES } from "./insights";
 import type { MenuItem } from "./types";
 
@@ -16,15 +17,16 @@ import type { MenuItem } from "./types";
  *
  *  - A recipe with any unreviewed ingredient (through every nested prep) gets `notReviewed` set. Screens show that first
  *    and print no positive free-from or diet badge: every diet entry is `not_confirmed` until everything is reviewed.
- *  - "Gluten Free" is never claimed. `no_gluten_ingredients` is derived (fully reviewed, gluten absent through every
+ *  - The APP never decides "Gluten Free". `no_gluten_ingredients` is derived (fully reviewed, gluten absent through every
  *    nested prep, not cleared by hand); a dish the chef offers a swap for carries the `gfo` option instead, with its note.
- *    Same for dairy.
+ *    There is no derived dairy free badge at all (Troy, 10 Oct 2026): dairy shows only as the Dairy Free Option (DFO).
+ *    The hand-set MARKS GF, V and VG (`marks`) are a person's own declaration, never worked out here.
  *  - A diet that is definitely ruled out (the dish contains gluten, or meat for Vegetarian) has no entry at all.
  *  - Sulphites and nitrites are main allergens (in `contains` / `mayContain`, in the fixed order, when the policy lists them).
  *    Alcohol is an `attributes` entry, never in `contains`, and never listed.
  */
 
-export type DietBadgeId = "no_gluten_ingredients" | "no_dairy_ingredients" | "vegetarian" | "vegan";
+export type DietBadgeId = "no_gluten_ingredients" | "vegetarian" | "vegan";
 
 export interface DietBadge {
   id: DietBadgeId;
@@ -40,6 +42,15 @@ export interface OptionBadge {
   label: string;
   /** what changes (always non-empty: an option without a note is not shown as an option) */
   note: string;
+  /** the ingredient swap in plain words ("Leave out Soy Sauce. Add Tamari 15 ml."), set by the kitchen and print builders; never a cost */
+  swap?: string;
+}
+
+/** A hand-set mark (GF, V, VG): a person's declaration, printed as its letters. */
+export interface MarkBadge {
+  id: DietMarkId;
+  letter: string;
+  label: string;
 }
 
 export type SeafoodBadge =
@@ -57,14 +68,14 @@ export type SeafoodBadge =
 
 /**
  * What a screen is allowed to list. Troy, 4 Oct 2026: ONLY what the printed menu shows is listed, and the menu shows no
- * allergens: just the option letters (GFO, VO, VGO, DF) and the seafood origin letters (A, I, M). So by default no
+ * allergens: just the option letters (GFO, VO, VGO, DFO), the hand-set marks (GF, V, VG) and the seafood origin letters (A, I, M). So by default no
  * allergen, no computed "No Gluten Ingredients / Vegetarian / Vegan" badge and no "Allergens Not Reviewed" banner is
  * shown anywhere. The ingredient allergen ticks stay recorded. To list allergens again, change `DEFAULT_POLICY`.
  */
 export interface BadgePolicy {
   /** allergen ids that may be listed (drinks are further limited to DRINK_ALLERGEN_IDS) */
   allergens: readonly AllergenId[];
-  /** the computed No Gluten Ingredients, No Dairy Ingredients, Vegetarian and Vegan badges */
+  /** the computed No Gluten Ingredients, Vegetarian and Vegan badges */
   computedDiet: boolean;
   /** the Allergens Not Reviewed banner and its review lists */
   reviewBanner: boolean;
@@ -89,6 +100,8 @@ export interface BadgeModel {
   attributesMay: "alcohol"[];
   diet: DietBadge[];
   options: OptionBadge[];
+  /** hand-set marks that print (GF, V, VG; VG alone when both V and VG are set). Independent of the policy; none on a drink */
+  marks: MarkBadge[];
   /** option keys that are on but have no note: the editor must not save these, a screen must not show them */
   optionsMissingNote: DietOptionId[];
   seafood: SeafoodBadge | null;
@@ -145,8 +158,6 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
   const diet: DietBadge[] = [];
   const gluten = absentState(r, "gluten");
   if (gluten) diet.push({ id: "no_gluten_ingredients", label: BADGE_LABELS.noGlutenIngredients, state: gluten });
-  const milk = absentState(r, "milk");
-  if (milk) diet.push({ id: "no_dairy_ingredients", label: BADGE_LABELS.noDairyIngredients, state: milk });
   for (const t of [r.diet.vegetarian, r.diet.vegan]) {
     if (t.state === "no") continue;
     diet.push({ id: t.id, label: t.label, state: t.state === "yes" ? "is" : "not_confirmed" });
@@ -166,6 +177,8 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     options.push({ id, letter: def.letter, label: def.label, note });
   }
 
+  const marks: MarkBadge[] = printedMarks(item?.diet_options).map((id) => ({ id, letter: dietMarkDef(id).letter, label: dietMarkDef(id).label }));
+
   const drink = isDrinkItem(item);
   // alcohol is not an allergen and is never listed (the ingredient data stays recorded)
   s.attributes = [];
@@ -176,6 +189,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
   if (drink) {
     diet.length = 0;
     options.length = 0;
+    marks.length = 0;
     optionsMissingNote.length = 0;
   }
   const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.attributes, ...s.attributesMay]);
@@ -193,6 +207,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     attributesMay: s.attributesMay.filter((a): a is "alcohol" => a === "alcohol"),
     diet,
     options,
+    marks,
     optionsMissingNote,
     seafood: drink ? null : seafoodBadge(r, !!item?.seafood_label),
     notes,

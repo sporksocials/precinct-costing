@@ -93,7 +93,7 @@ describe("parseKitchenData", () => {
     expect(d.dishes[1].name).toBe("Fine");
     expect(d.preps.map((x) => x.id)).toEqual(["p1"]);
     expect(d.ingredients.map((x) => x.id)).toEqual(["i"]);
-    expect(d.lines).toEqual([{ parentType: "item", parentId: "ok", componentType: "ingredient", componentId: "i", qty: 0, unit: "", note: null, sort: 0 }]);
+    expect(d.lines).toEqual([{ lineId: null, parentType: "item", parentId: "ok", componentType: "ingredient", componentId: "i", qty: 0, unit: "", note: null, sort: 0 }]);
   });
 
   it("only keeps a photo that is a valid upload path", () => {
@@ -256,7 +256,7 @@ describe("kitchen model", () => {
     const m = dishBadges(model, "d-toast");
     expect(m.notReviewed).toBeNull();
     expect(m.contains).toEqual(["gluten"]);
-    expect(m.diet).toEqual([{ id: "no_dairy_ingredients", label: "No Dairy Ingredients", state: "is" }, { id: "vegetarian", label: "Vegetarian", state: "is" }, { id: "vegan", label: "Vegan", state: "is" }]);
+    expect(m.diet).toEqual([{ id: "vegetarian", label: "Vegetarian", state: "is" }, { id: "vegan", label: "Vegan", state: "is" }]);
   });
 
   it("never calls a dish clear while an ingredient is unreviewed, even one buried in a prep", () => {
@@ -293,7 +293,7 @@ describe("kitchen model", () => {
     const m = buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D" }], ingredients: [{ id: "i", name: "Lettuce", allergens: [], allergens_reviewed: true }], lines: [{ parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "i", qty: 50, unit: "g" }] }, SYNCED)!);
     const b = dishBadges(m, "d");
     expect(b).toMatchObject({ notReviewed: null, contains: [], mayContain: [], attributes: [] });
-    expect(b.diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:is", "vegan:is"]);
+    expect(b.diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "vegetarian:is", "vegan:is"]);
   });
 
   it("never claims anything is free from or clear for an unreviewed recipe, whatever the allergens", () => {
@@ -356,7 +356,7 @@ describe("kitchen badges for the new feed fields", () => {
 
   it("a wine sauce with only the alcohol tick (no category in the feed) is never Vegan or Vegetarian", () => {
     const m = feed({ dishes: [{ id: "d", name: "Sauce" }], ingredients: [rev("a", "Stock Concentrate", { allergens: ["alcohol"] })], lines: [ln("d", "a")] });
-    expect(dishBadges(m, "d").diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:not_confirmed", "vegan:not_confirmed"]);
+    expect(dishBadges(m, "d").diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "vegetarian:not_confirmed", "vegan:not_confirmed"]);
   });
 
   it("carries a GFO and a VGO option with their notes", () => {

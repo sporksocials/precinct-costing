@@ -269,7 +269,7 @@ export interface StoreValue extends StoreData {
   usedIn: (componentType: "ingredient" | "prep", componentId: string) => UsedIn;
   // mutations
   updateItem: (id: string, patch: Partial<MenuItem>) => Promise<void>;
-  insertItem: (item: Omit<MenuItem, "id">, lines: Omit<RecipeLine, "id" | "parent_id" | "parent_type">[]) => Promise<string>;
+  insertItem: (item: Omit<MenuItem, "id">, lines: (Omit<RecipeLine, "id" | "parent_id" | "parent_type"> & { id?: string })[]) => Promise<string>;
   deleteItem: (id: string) => Promise<void>;
   updatePrep: (id: string, patch: Partial<Prep>) => Promise<void>;
   insertPrep: (prep: Omit<Prep, "id">) => Promise<string>;
@@ -1176,10 +1176,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const insertItem = useCallback(
-    async (item: Omit<MenuItem, "id">, lines: Omit<RecipeLine, "id" | "parent_id" | "parent_type">[]) => {
+    async (item: Omit<MenuItem, "id">, lines: (Omit<RecipeLine, "id" | "parent_id" | "parent_type"> & { id?: string })[]) => {
       const id = newId();
       const row = await insertMenuItemRow(sb, { ...item, id });
-      const newLines: RecipeLine[] = lines.map((l) => ({ ...l, id: newId(), parent_type: "item", parent_id: id }));
+      const newLines: RecipeLine[] = lines.map((l) => ({ ...l, id: l.id ?? newId(), parent_type: "item", parent_id: id }));
       if (newLines.length) {
         const { error: e2 } = await insertRows(sb, "cost_recipe_lines", newLines);
         if (e2) {

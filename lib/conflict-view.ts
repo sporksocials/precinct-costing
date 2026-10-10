@@ -44,7 +44,15 @@ function valueLines(key: string, v: unknown, ctx: ViewCtx): string[] {
     return entries.map(([k, x]) => {
       const note = x && typeof x === "object" && "note" in (x as object) ? String((x as { note: unknown }).note ?? "") : x == null ? "" : String(x);
       const name = k.length <= 3 ? k.toUpperCase() : k; // diet option codes (gfo, vo) read as capitals
-      return note ? `${name}: ${note}` : name;
+      // a dietary option also carries its ingredient swap and surcharge: say so, so two different swaps never look identical
+      const e = x && typeof x === "object" ? (x as { removed?: unknown; added?: unknown; surcharge_inc?: unknown }) : null;
+      const extra = [
+        Array.isArray(e?.removed) && e.removed.length ? `${e.removed.length} left out` : "",
+        Array.isArray(e?.added) && e.added.length ? `${e.added.length} added` : "",
+        Number(e?.surcharge_inc) > 0 ? `${money(Number(e?.surcharge_inc))} surcharge` : "",
+      ].filter(Boolean);
+      const text = [note, extra.length ? `(${extra.join(", ")})` : ""].filter(Boolean).join(" ");
+      return text ? `${name}: ${text}` : name;
     });
   }
   return [String(v)];

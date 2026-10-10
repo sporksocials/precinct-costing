@@ -34,6 +34,7 @@ import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { applyHouseRules } from "@/lib/house-rules";
+import { copyDietOptions, pruneStaleRemoved } from "@/lib/diet-options";
 import { ResearchDrinkCard } from "./research-drink";
 import { RecordHistory } from "./record-history";
 import { printHref } from "@/lib/print-job";
@@ -187,6 +188,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         }
         // house wording (lib/house-rules.ts), only on a save that already has an edit: dehydrated lime wheels, and the wipe step after a salted margarita rim
         if (kind === "item") d = applyHouseRules(d as MenuItem) as Rec;
+        // a dietary option's left-out line that has since been deleted from the dish is dropped here (lib/diet-options.ts)
+        if (kind === "item") {
+          const pruned = pruneStaleRemoved((d as MenuItem).diet_options, ls.map((l) => l.id));
+          if (pruned !== (d as MenuItem).diet_options) d = { ...d, diet_options: pruned } as Rec;
+        }
         setStatus("saving");
         const s = storeRef.current;
         const outcome = await checkedSave<Rec>(
@@ -948,16 +954,20 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           lines={lines}
           onClose={() => setSheet(null)}
           onApply={(price, k) => {
-            const prev = { price: item.sell_price_inc, lines: linesRef.current };
+            const prev = { price: item.sell_price_inc, lines: linesRef.current, diet: item.diet_options };
             setDraft((d) => ({ ...d, sell_price_inc: price }));
-            if (k !== 1) setLines((ls) => ls.map((l) => ({ ...l, qty: Math.round(Number(l.qty) * k * 1000) / 1000 })));
+            if (k !== 1) {
+              setLines((ls) => ls.map((l) => ({ ...l, qty: Math.round(Number(l.qty) * k * 1000) / 1000 })));
+              // a dietary option's added amounts are quantities of the same recipe, so they scale with it
+              setDraft((d) => ((d as MenuItem).diet_options ? ({ ...d, diet_options: copyDietOptions((d as MenuItem).diet_options, identityMap((d as MenuItem).diet_options), k) } as Rec) : d));
+            }
             setSheet(null);
             toast.show({
               message: k !== 1 ? `Portion ${k > 1 ? "+" : "−"}${Math.round(Math.abs(k - 1) * 100)}% and price applied` : "Price applied",
               action: {
                 label: "Undo",
                 onClick: () => {
-                  setDraft((d) => ({ ...d, sell_price_inc: prev.price }));
+                  setDraft((d) => ({ ...d, sell_price_inc: prev.price, ...(k !== 1 ? { diet_options: prev.diet } : {}) }) as Rec);
                   if (k !== 1) setLines(() => prev.lines);
                 },
               },
@@ -1037,6 +1047,13 @@ function MobileAutofocus() {
   return null;
 }
 
+/** old line id to itself for every left-out id in the column: lets copyDietOptions scale the added amounts and keep the ids. */
+function identityMap(raw: MenuItem["diet_options"]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const e of Object.values(raw ?? {})) for (const id of (e as { removed?: string[] } | null)?.removed ?? []) m.set(id, id);
+  return m;
+}
+
 function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Rec; lines: RecipeLine[]; onClose: () => void }) {
   const store = useStore();
   const router = useGuardedRouter();
@@ -1054,10 +1071,12 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
       if (kind === "item") {
         const { id: _i, ...rest } = draft as MenuItem;
         void _i;
+        // the copy's lines get new ids, so a dietary option's left-out line ids are translated to them
+        const idMap = new Map(clean.map((l) => [l.id, newId()] as const));
         const nid = await store.insertItem(
           // a copy of an existing drink is not a new build: it is never offered Research This Drink
-          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null },
-          clean.map((l, i) => ({ component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
+          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null, ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap) } : {}) },
+          clean.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
         );
         onClose();
         router.push(`/items/${nid}`);

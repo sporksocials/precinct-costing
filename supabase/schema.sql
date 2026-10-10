@@ -2157,21 +2157,26 @@ alter table public.cost_settings add column if not exists text_value text;
 
 comment on column public.cost_settings.text_value is 'Text settings: key cross_contact_<venue slug> holds that venue''s standing cross-contact line (value is 0 for these rows).';
 
--- ---- Kitchen Allergy Matrix feed (re-check rule, cross-contact line); supersedes 20261010140000_kitchen_matrix.sql, see supabase/migrations/20261010170000_kitchen_matrix_recheck.sql ----
--- Kitchen Allergy Matrix feed, round two (Troy, 10 Oct 2026). Replaces cost_kitchen_matrix (20261010140000) with two additions:
+-- ---- Kitchen Allergy Matrix feed (re-check rule on components AND allergen ticks, cross-contact line); supersedes 20261010170000_kitchen_matrix_recheck.sql (and 20261010140000_kitchen_matrix.sql), see supabase/migrations/20261010180000_kitchen_matrix_ticks.sql ----
+-- Kitchen Allergy Matrix feed, ingredient-first allergens (Troy, 10 Oct 2026). Replaces cost_kitchen_matrix (20261010170000) with ONE addition
+-- to the re-check rule, so the public iPad can never show green for a dish whose allergen ticks changed after it was confirmed.
 --
--- 1. THE RE-CHECK RULE, server side, so the public iPad can never show green for a dish whose ingredients changed after it was signed off.
---    A sign-off is only valid while the set of components the dish is made from is exactly the set stored when it was signed off
---    (dish_allergens.components: "ingredient:<id>" / "prep:<id>"). The set is the dish's own recipe lines plus the lines of every prep
---    they use, recursively (cycle safe, capped at 8 levels like COMPONENT_DEPTH in lib/dish-allergens.ts). The two sets are compared
---    as SETS (order and repeats do not matter, and no collation can reorder them). If they differ, or the stored list is missing
---    (a sign-off made before this rule), the dish is sent with NO confirmed_at, so the iPad reads grey Not checked. Amounts never
---    matter: only which ingredients and preps.
--- 2. cross_contact: the venue's standing cross-contact line from cost_settings (key cross_contact_<slug>, text_value; migration
---    20261010160000), or null when unset (the app then uses its default line).
+-- Allergens are now ticked only on ingredients and a dish's allergens are worked out from them, so a sign-off is valid only while BOTH hold:
+--   1. the dish's components (ingredients and preps, through nested preps, depth 8) equal dish_allergens.components, as before; AND
+--   2. dish_allergens.ticks (the snapshot stored at Confirm) EQUALS the live snapshot built here from the live tables:
+--        "ingredient:<id>" -> { a: allergens of the ingredient limited to the 15 main ids, r: allergens_reviewed is true }
+--        "prep:<id>"       -> { add: allergen_add limited to the 15 main ids, rem: allergen_remove limited to the 15 main ids }
+--        "item:<dishId>"   -> the dish itself, same shape as a prep
+--      every id array is sorted in the fixed CONTAINS_IDS order (gluten, crustacea, egg, fish, milk, peanuts, sesame, soy, tree_nuts,
+--      lupin, molluscs, sulphites, chilli, onion_garlic, nitrites; never alcohol) and is [] when empty. The comparison is jsonb equality:
+--      key order does not matter, array order does, so the app must store the arrays in that order (lib/dish-allergens.ts).
+--   A sign-off with no ticks key, or ticks that are not an object, is NOT valid (fail safe, grey). As a second fail-safe, every ingredient
+--   in the dish's closure must have allergens_reviewed = true in the live data, whatever the stored snapshot says.
+-- A sign-off that is not valid is sent with NO confirmed_at, so the iPad reads grey Not checked. Amounts never matter.
 --
--- Still an allow-list of display fields: never a price, surcharge, cost, target, supplier, who signed off, or the components list.
--- Apply AFTER 20261010160000_cross_contact_setting.sql (it reads cost_settings.text_value). Idempotent.
+-- Everything else is identical to 20261010170000: the output shape, cross_contact (cost_settings.text_value, migration 20261010160000),
+-- the allow-list of display fields (never a price, surcharge, cost, target, supplier, who signed off, the components list or the ticks),
+-- the grants and the comment. Apply AFTER 20261010170000_kitchen_matrix_recheck.sql. Idempotent.
 create or replace function public.cost_kitchen_matrix(p_venue text)
 returns json
 language sql
@@ -2182,7 +2187,7 @@ as $$
   with recursive
   v as (select id, slug, name from cost_venues where slug = p_venue),
   dishes as (
-    select mi.id, mi.name, mi.section, mi.dish_allergens, mi.diet_options
+    select mi.id, mi.name, mi.section, mi.dish_allergens, mi.diet_options, mi.allergen_add, mi.allergen_remove
     from cost_menu_items mi
     join v on mi.venue_id = v.id
     where mi.active and mi.category = 'Food'
@@ -2212,16 +2217,54 @@ as $$
     from dishes d
     where jsonb_typeof(d.dish_allergens) = 'object'
   ),
-  -- a sign-off counts only when it has a time and its stored components equal the dish's components now
+  -- the 15 main allergen ids in the fixed order (CONTAINS_IDS in lib/allergens.ts); alcohol is never part of the snapshot
+  main(id, ord) as (
+    select * from unnest(array['gluten','crustacea','egg','fish','milk','peanuts','sesame','soy','tree_nuts','lupin','molluscs','sulphites','chilli','onion_garlic','nitrites']) with ordinality
+  ),
+  -- the LIVE snapshot rows: each distinct ingredient and prep of each dish, plus the dish itself
+  live_src as (
+    select w.dish_id,
+           w.component_type || ':' || w.component_id::text as key,
+           case when w.component_type = 'ingredient'
+                then jsonb_build_object(
+                       'a', coalesce((select jsonb_agg(m.id order by m.ord) from main m where m.id = any(coalesce(i.allergens, '{}'::text[]))), '[]'::jsonb),
+                       'r', coalesce(i.allergens_reviewed, false))
+                else jsonb_build_object(
+                       'add', coalesce((select jsonb_agg(m.id order by m.ord) from main m where m.id = any(coalesce(p.allergen_add, '{}'::text[]))), '[]'::jsonb),
+                       'rem', coalesce((select jsonb_agg(m.id order by m.ord) from main m where m.id = any(coalesce(p.allergen_remove, '{}'::text[]))), '[]'::jsonb))
+           end as sig,
+           (w.component_type = 'ingredient' and not coalesce(i.allergens_reviewed, false)) as unreviewed
+    from (select distinct dish_id, component_type, component_id from walk where component_id is not null) w
+    left join cost_ingredients i on w.component_type = 'ingredient' and i.id = w.component_id
+    left join cost_preps p on w.component_type = 'prep' and p.id = w.component_id
+    union all
+    select d.id, 'item:' || d.id::text,
+           jsonb_build_object(
+             'add', coalesce((select jsonb_agg(m.id order by m.ord) from main m where m.id = any(coalesce(d.allergen_add, '{}'::text[]))), '[]'::jsonb),
+             'rem', coalesce((select jsonb_agg(m.id order by m.ord) from main m where m.id = any(coalesce(d.allergen_remove, '{}'::text[]))), '[]'::jsonb)),
+           false
+    from dishes d
+  ),
+  live as (
+    select dish_id, jsonb_object_agg(key, sig) as ticks, bool_or(unreviewed) as has_unreviewed
+    from live_src
+    group by dish_id
+  ),
+  -- a sign-off counts only when it has a time, its stored components equal the dish's components now, its stored ticks equal the live
+  -- snapshot, and every ingredient in the dish is reviewed now
   sign as (
     select d.id as dish_id,
            coalesce(nullif(d.dish_allergens ->> 'confirmed_at', '') is not null
                     and s.keys is not null
                     and s.keys @> coalesce(c.keys, '{}'::text[])
-                    and coalesce(c.keys, '{}'::text[]) @> s.keys, false) as valid
+                    and coalesce(c.keys, '{}'::text[]) @> s.keys
+                    and jsonb_typeof(d.dish_allergens -> 'ticks') = 'object'
+                    and (d.dish_allergens -> 'ticks') = lv.ticks
+                    and not coalesce(lv.has_unreviewed, true), false) as valid
     from dishes d
     left join stored s on s.dish_id = d.id
     left join closure c on c.dish_id = d.id
+    left join live lv on lv.dish_id = d.id
   ),
   -- one row per dietary option a dish offers
   opts as (
@@ -2299,4 +2342,4 @@ $$;
 revoke all on function public.cost_kitchen_matrix(text) from public;
 grant execute on function public.cost_kitchen_matrix(text) to anon, authenticated;
 
-comment on function public.cost_kitchen_matrix(text) is 'Kitchen display (public iPad Allergy Matrix): one venue''s active Food dishes with their own allergens (contains, can-be-made-without notes, sign-off time ONLY while the sign-off is still valid: the dish''s components, through nested preps, must equal those stored at sign-off), hand-set marks and dietary options with the swap resolved to names, and the venue''s cross-contact line. Display fields only: never a price, surcharge, cost, who signed off or the components list. Null when the venue slug does not exist.';
+comment on function public.cost_kitchen_matrix(text) is 'Kitchen display (public iPad Allergy Matrix): one venue''s active Food dishes with their own allergens (contains, can-be-made-without notes, sign-off time ONLY while the sign-off is still valid: the dish''s components, through nested preps, and the allergen ticks on its ingredients, preps and the dish itself must equal those stored at sign-off, with every ingredient reviewed), hand-set marks and dietary options with the swap resolved to names, and the venue''s cross-contact line. Display fields only: never a price, surcharge, cost, who signed off, the components list or the ticks. Null when the venue slug does not exist.';

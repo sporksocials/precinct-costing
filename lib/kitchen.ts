@@ -29,6 +29,7 @@ export function isKitchenPath(pathname: string): boolean {
 export type YieldUnit = "kg" | "L" | "each";
 
 export interface KitchenOption {
+  /** the option's own extra note, "" when it only swaps ingredients */
   note: string;
   /** recipe line ids of the dish's own lines the option leaves out (only present when there are some) */
   removed?: string[];
@@ -51,7 +52,7 @@ export interface KitchenDish {
   allergenNotes: Record<string, string> | null;
   /**
    * the dish's dietary options (GFO, VO, VGO, DFO), each with the note saying what changes and, when set, the lines it leaves
-   * out and adds (recipe line ids, extra components). Only known keys with a non-empty note are kept. NEVER a surcharge or
+   * out and adds (recipe line ids, extra components). Only known keys with a note or a swap are kept. NEVER a surcharge or
    * any price: this feed is public (the database function strips it and this parser never reads it).
    */
   dietOptions: Partial<Record<DietOptionId, KitchenOption>>;
@@ -143,15 +144,16 @@ function noteMap(v: unknown): Record<string, string> | null {
   return Object.keys(out).length ? out : null;
 }
 
-/** The dietary options: only the four known keys, each needing a non-empty string note (an option without one is not shown). */
+/** The dietary options: only the four known keys, each kept when it has a note or a swap (left out or added lines). */
 function dietOptionMap(v: unknown): Partial<Record<DietOptionId, KitchenOption>> {
   const o = obj(v);
   const out: Partial<Record<DietOptionId, KitchenOption>> = {};
   if (!o) return out;
   for (const id of DIET_OPTION_IDS) {
     const entry = obj(o[id]);
-    const note = entry && textOrNull(entry.note);
-    if (!entry || !note) continue;
+    if (!entry) continue;
+    // the extra note is optional (Troy, 10 Oct 2026): an option is kept when it has a note OR a swap
+    const note = textOrNull(entry.note) ?? "";
     const removed = stringList(entry.removed).map((x) => x.trim()).filter(Boolean);
     const added: DietOptionAdded[] = [];
     for (const x of Array.isArray(entry.added) ? entry.added : []) {
@@ -161,6 +163,7 @@ function dietOptionMap(v: unknown): Partial<Record<DietOptionId, KitchenOption>>
       if (!a || !cid || (a.component_type !== "ingredient" && a.component_type !== "prep") || !["g", "kg", "ml", "L", "each"].includes(unit)) continue;
       added.push({ component_type: a.component_type, component_id: cid, qty: Math.max(0, numberOr(a.qty, 0)), unit: unit as DietOptionAdded["unit"] });
     }
+    if (!note && !removed.length && !added.length) continue;
     out[id] = { note, ...(removed.length ? { removed } : {}), ...(added.length ? { added } : {}) };
   }
   return out;

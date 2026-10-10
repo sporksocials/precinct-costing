@@ -1,6 +1,9 @@
 import { costItem, type CostingIndex, type ItemCost, type PrepCost } from "./costing";
 import type { DietOptionId } from "./diet-legend";
-import { addedAsLines, readOption, type OptionRead } from "./diet-options";
+import { barIngredientName } from "./bar";
+import { ADDED_LINE_PREFIX, addedAsLines, optionText, readOption, swapSentence, swapWords, type OptionRead } from "./diet-options";
+import { gp } from "./format";
+import { priceForGp } from "./solver";
 import type { CostingSettings, MenuItem, RecipeLine, Target } from "./types";
 
 /**
@@ -134,4 +137,50 @@ export function describeOptionDiff(oc: Pick<OptionCost, "costDiff" | "gpDiff" | 
   const pts = oc.gpDiff == null ? null : Math.round(oc.gpDiff * 1000) / 10;
   const gp = pts == null ? null : pts === 0 ? "Same GP as the standard dish" : `GP ${pointsText(pts)} ${pts > 0 ? "higher" : "lower"}`;
   return { cost, gp, same: false };
+}
+
+
+/**
+ * The words the kitchen will see for an option, built from its swap and then its own extra note ("Leave out Pizza Base. Add GF
+ * Pizza Base 1 ea. No cheese."). Names come from the costed lines, so a renamed ingredient reads right at once. Never a price.
+ * An empty string when the option says nothing yet.
+ */
+export function optionWording(oc: Pick<OptionCost, "option" | "standard" | "cost">): string {
+  const lineNames = new Map(oc.standard.recipe.lines.map((c) => [c.line.id, c.componentName]));
+  const addedNames = new Map(oc.cost.recipe.lines.filter((c) => c.line.id.startsWith(ADDED_LINE_PREFIX)).map((c) => [`${c.line.component_type}:${c.line.component_id}`, c.componentName]));
+  const clean = (n: string | undefined): string | null => (n ? barIngredientName(n) : null);
+  const swap = swapSentence(swapWords(oc.option, { lineName: (id) => clean(lineNames.get(id)), addedName: (a) => clean(addedNames.get(`${a.component_type}:${a.component_id}`)) }));
+  return optionText(oc.option.note, swap);
+}
+
+export interface SurchargeSuggestion {
+  /** the option price inc GST that reaches the dish's target GP, rounded up to the rounding step */
+  price: number;
+  /** dollars inc GST to add to the dish price to get there, never below zero (0 = already on target with no surcharge) */
+  surcharge: number;
+}
+
+/**
+ * The surcharge that brings the option up to its target GP. It is the app's suggested price rule (cost / (1 - target) x GST,
+ * rounded UP to the rounding step, `priceForGp`) for the option's cost, minus the dish's own price, never below zero. Null when
+ * the dish has no price or the target cannot be reached. A suggestion only: one tap in the editor, undoable.
+ */
+export function suggestedSurcharge(oc: Pick<OptionCost, "costPerPortion" | "targetGp">, dishPriceInc: number | null | undefined, settings: Pick<CostingSettings, "gst_rate" | "round_to">): SurchargeSuggestion | null {
+  const base = dishPriceInc != null ? Number(dishPriceInc) : NaN;
+  if (!Number.isFinite(base) || base <= 0) return null;
+  const price = priceForGp(oc.costPerPortion, oc.targetGp, settings.gst_rate, settings.round_to);
+  if (price == null) return null;
+  return { price, surcharge: Math.max(0, Math.round((price - base) * 100) / 100) };
+}
+
+/**
+ * The one line under an option's switch on the dish card: the wording, then the surcharge and the GP, e.g.
+ * "Leave out Pizza Base. Add GF Pizza Base 1 ea. +$3.00 · GP 71.2%". `fmt` formats a dollar amount. Plain text, no colour.
+ */
+export function optionSummary(oc: Pick<OptionCost, "option" | "standard" | "cost" | "surcharge" | "gpPct" | "targetGp">, fmt: (n: number) => string): string {
+  const words = optionWording(oc);
+  const tail = [oc.surcharge > 0 ? `+${fmt(oc.surcharge)}` : "", oc.gpPct != null ? `GP ${gp(oc.gpPct, 1, oc.targetGp)}` : ""].filter(Boolean).join(" · ");
+  // a note-only option ends with its own words: close the sentence so the surcharge and GP read as a separate part
+  const sentence = words && !/[.!?]$/.test(words) ? `${words}.` : words;
+  return [sentence, tail].filter(Boolean).join(" ") || "Nothing set yet. Tap Edit.";
 }

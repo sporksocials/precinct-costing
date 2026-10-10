@@ -131,7 +131,7 @@ export function HappyHourNote({ cost, className }: { cost: ItemCost; className?:
 }
 
 /** Sticky summary card (desktop, right column). */
-export function ItemSummaryCard(m: PriceModel) {
+export function ItemSummaryCard({ children, ...m }: PriceModel & { children?: React.ReactNode }) {
   const l = useLinked(m);
   return (
     <div className="rounded-2xl bg-surface p-5">
@@ -174,6 +174,7 @@ export function ItemSummaryCard(m: PriceModel) {
         <p className="text-[12px] text-label-3">Prices include GST</p>
       </div>
       {m.cost.hhSellInc != null ? <HappyHourNote cost={m.cost} className="mt-3 !bg-fill" /> : null}
+      {children ? <div className="mt-4 border-t-[0.5px] border-sep pt-4 empty:hidden">{children}</div> : null}
     </div>
   );
 }

@@ -253,10 +253,10 @@ describe("badgeModel: dietary options", () => {
     // a dish that contains gluten and offers a GFO still has no 'No Gluten Ingredients' badge
     expect(m.diet.find((d) => d.id === "no_gluten_ingredients")).toBeUndefined();
   });
-  it("an option without a note is not shown as an option (and is reported)", () => {
-    const m = model(base, { diet_options: { gfo: { note: "  " }, vo: { note: "No bacon" } } });
-    expect(m.options.map((o) => o.id)).toEqual(["vo"]);
-    expect(m.optionsMissingNote).toEqual(["gfo"]);
+  it("an option with neither a note nor a swap is not shown as an option (and is reported); a swap alone is enough", () => {
+    const m = model(base, { diet_options: { gfo: { note: "  " }, vo: { note: "No bacon" }, vgo: { note: "", removed: ["l1"] } } });
+    expect(m.options.map((o) => o.id)).toEqual(["vo", "vgo"]);
+    expect(m.optionsEmpty).toEqual(["gfo"]);
   });
   it("copes with null, empty and malformed diet_options", () => {
     expect(model(base, { diet_options: null }).options).toEqual([]);

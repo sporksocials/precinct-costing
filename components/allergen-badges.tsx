@@ -3,6 +3,7 @@
 import { Check, CircleHelp, Fish, Minus, OctagonAlert, Replace, TriangleAlert, Wine } from "lucide-react";
 import { allergenLabel, type AllergenId } from "@/lib/allergens";
 import type { BadgeModel, DietBadge, MarkBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
+import { optionText } from "@/lib/diet-options";
 import { BADGE_LABELS, dietLegendLines, markLegendLines, LEGEND_INVITATION, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
 import { cx } from "./ui";
 
@@ -188,10 +189,12 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
             {m.options.map((o) => (
               <li key={o.id}>
                 <OptionChip o={o} />
-                <p className="mt-1 pl-1 text-[14px] text-label">
-                  <span className="font-medium">What changes: </span>
-                  {o.note}
-                </p>
+                {optionText(o.note, o.swap ?? null) ? (
+                  <p className="mt-1 pl-1 text-[14px] text-label">
+                    <span className="font-medium">What changes: </span>
+                    {optionText(o.note, o.swap ?? null)}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>

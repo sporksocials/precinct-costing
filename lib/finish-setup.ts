@@ -1,4 +1,4 @@
-import { readMarks, readOptions } from "./diet-options";
+import { readMarks, readOfferedOptions } from "./diet-options";
 import type { SignOffState } from "./dish-allergens";
 
 /**
@@ -57,7 +57,7 @@ export interface SetupModel {
 
 /** "2 set" or "None set": the Menu Labels the dish has, its marks (GF, V, VG) and options (GFO, VO, VGO, DFO). */
 export function menuLabelsSummary(dietOptions: unknown): string {
-  const n = readMarks(dietOptions).length + readOptions(dietOptions).length;
+  const n = readMarks(dietOptions).length + readOfferedOptions(dietOptions).length;
   return n ? `${n} set` : "None set";
 }
 

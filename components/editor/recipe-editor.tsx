@@ -26,6 +26,8 @@ import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
 import { GelatoDietary } from "./gelato-dietary";
 import { DietOptionsGroup } from "./diet-options";
+import { OptionEditorProvider } from "./option-sheet";
+import { OptionPrices } from "./option-prices";
 import { AllergensDietaryCard, DISH_ALLERGENS_ID, useDishSignOff } from "./dish-allergens";
 import { FinishSetup, scrollToSection } from "./finish-setup";
 import { setupModel } from "@/lib/finish-setup";
@@ -612,7 +614,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     ...(kind === "prep" ? [{ label: `Used In (${usedIn.items.length + usedIn.preps.length})`, onClick: () => setSheet("usedin") }] : []),
   ];
 
-  return (
+  const page = (
     <div className="lg:pt-6">
       <VenueAccent slug={venue?.slug} />
       {/* nav bar */}
@@ -806,6 +808,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               <HappyHourNote cost={itemCost} />
             </div>
           ) : null}
+          {itemCost && item && !isDrinkItem(item) ? <OptionPrices item={item} lines={lines} className="mt-6 rounded-2xl bg-surface px-4 py-3 lg:hidden" /> : null}
           {itemCost && item ? <PricePicker cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} /> : null}
 
           {itemCost && item ? (
@@ -933,7 +936,9 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         <aside className="hidden lg:block">
           <div className="sticky top-8 mt-2">
             {itemCost && item ? (
-              <ItemSummaryCard cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))} />
+              <ItemSummaryCard cost={itemCost} settings={store.settings} setPrice={(p) => setDraft((d) => ({ ...d, sell_price_inc: p }))}>
+                {!isDrinkItem(item) ? <OptionPrices item={item} lines={lines} /> : null}
+              </ItemSummaryCard>
             ) : prep ? (
               <PrepSummary variant="card" batchCost={recipe.total} costPerUnit={prepCostPerUnit} unit={prep.yield_unit} perShot={costPerShot({ costPerUnit: prepCostPerUnit, prep })} />
             ) : null}
@@ -1118,6 +1123,14 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         )}
       </Sheet>
     </div>
+  );
+  // food dishes and other menu items share one guided option sheet, opened from Menu Labels or from the Options list under the price
+  return item && !isDrinkItem(item) ? (
+    <OptionEditorProvider item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)}>
+      {page}
+    </OptionEditorProvider>
+  ) : (
+    page
   );
 }
 

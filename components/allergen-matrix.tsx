@@ -16,6 +16,8 @@ import {
 } from "@/lib/allergens";
 import { badgeModel, DEFAULT_POLICY, isDrinkItem, showsAllergen, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
 import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
+import { optionText } from "@/lib/diet-options";
+import { withOptionSwaps } from "@/lib/allergy-matrix-store";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
 import { AllergenTabs } from "./matrix/allergen-tabs";
 import { useAllergenIndex } from "./allergen-picker";
@@ -188,7 +190,7 @@ function MarksCell({ m }: { m: BadgeModel }) {
 function OptionsCell({ m }: { m: BadgeModel }) {
   if (!m.options.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No options">-</span>;
   return (
-    <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-accent" title={m.options.map((o) => `${o.letter}: ${o.note}`).join("\n")}>
+    <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-accent" title={m.options.map((o) => `${o.letter}: ${optionText(o.note, o.swap ?? null) || o.label}`).join("\n")}>
       {m.options.map((o) => (
         <span key={o.id}>{o.letter}</span>
       ))}
@@ -231,7 +233,7 @@ export function AllergenMatrix() {
 
   const all = useMemo(() => {
     const items = store.items.filter((i) => i.active && (!venue || i.venue_id === venue.id));
-    return matrixRows(items, idx).map((row): Row => ({ ...row, model: badgeModel(row.rollup, row.item) }));
+    return matrixRows(items, idx).map((row): Row => ({ ...row, model: withOptionSwaps(badgeModel(row.rollup, row.item), row.item, idx) }));
   }, [store.items, idx, venue]);
 
   const needle = q.trim().toLowerCase();

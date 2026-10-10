@@ -271,7 +271,8 @@ textarea:focus-visible {
 
 /* sheets sit one level up: in dark mode they and their grouped cells are lighter than the page */
 .sheet {
-  background: #17171a;
+  --sheet-bg: #17171a;
+  background: var(--sheet-bg);
   --surface: #222226;
   --elevated: #2c2c31;
 }

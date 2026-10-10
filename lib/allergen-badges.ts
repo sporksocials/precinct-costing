@@ -6,7 +6,7 @@ import {
   type Rollup,
 } from "./allergens";
 import { BADGE_LABELS, DIET_OPTION_IDS, dietMarkDef, dietOptionDef, type DietMarkId, type DietOptionId, type SeafoodLetter } from "./diet-legend";
-import { printedMarks } from "./diet-options";
+import { optionHasContent, printedMarks, readOption } from "./diet-options";
 import { DRINK_CATEGORIES } from "./insights";
 import type { MenuItem } from "./types";
 
@@ -40,7 +40,7 @@ export interface OptionBadge {
   /** the printed menu letters: GFO, VO, VGO, DFO */
   letter: string;
   label: string;
-  /** what changes (always non-empty: an option without a note is not shown as an option) */
+  /** the option's own extra note. May be empty: a swap-only option (leave out the base, add a gluten free base) has none, and its words come from `swap` */
   note: string;
   /** the ingredient swap in plain words ("Leave out Soy Sauce. Add Tamari 15 ml."), set by the kitchen and print builders; never a cost */
   swap?: string;
@@ -102,8 +102,8 @@ export interface BadgeModel {
   options: OptionBadge[];
   /** hand-set marks that print (GF, V, VG; VG alone when both V and VG are set). Independent of the policy; none on a drink */
   marks: MarkBadge[];
-  /** option keys that are on but have no note: the editor must not save these, a screen must not show them */
-  optionsMissingNote: DietOptionId[];
+  /** option keys present with neither a note nor a swap: the editor never saves these, a screen must not show them */
+  optionsEmpty: DietOptionId[];
   seafood: SeafoodBadge | null;
   /** chef "made without" notes on the allergens that are shown */
   notes: { id: AllergenId; label: string; note: string }[];
@@ -164,17 +164,17 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
   }
 
   const options: OptionBadge[] = [];
-  const optionsMissingNote: DietOptionId[] = [];
-  const raw = item?.diet_options && typeof item.diet_options === "object" ? item.diet_options : {};
+  const optionsEmpty: DietOptionId[] = [];
   for (const id of DIET_OPTION_IDS) {
-    if (!Object.prototype.hasOwnProperty.call(raw, id) || raw[id] == null) continue;
-    const note = typeof raw[id]?.note === "string" ? (raw[id]?.note as string).trim() : "";
-    if (!note) {
-      optionsMissingNote.push(id);
+    const read = readOption(item?.diet_options, id);
+    if (!read) continue;
+    // offered when it has a note OR a swap (Troy, 10 Oct 2026); an entry with neither says nothing and is reported
+    if (!optionHasContent(read)) {
+      optionsEmpty.push(id);
       continue;
     }
     const def = dietOptionDef(id);
-    options.push({ id, letter: def.letter, label: def.label, note });
+    options.push({ id, letter: def.letter, label: def.label, note: read.note });
   }
 
   const marks: MarkBadge[] = printedMarks(item?.diet_options).map((id) => ({ id, letter: dietMarkDef(id).letter, label: dietMarkDef(id).label }));
@@ -190,7 +190,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     diet.length = 0;
     options.length = 0;
     marks.length = 0;
-    optionsMissingNote.length = 0;
+    optionsEmpty.length = 0;
   }
   const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.attributes, ...s.attributesMay]);
   const notes = [...CONTAINS_IDS, ...s.attributes]
@@ -208,7 +208,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     diet,
     options,
     marks,
-    optionsMissingNote,
+    optionsEmpty,
     seafood: drink ? null : seafoodBadge(r, !!item?.seafood_label),
     notes,
   };

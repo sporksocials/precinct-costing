@@ -282,11 +282,11 @@ describe("the option costing is display only", () => {
       expect(text, f).not.toMatch(/diet_options|surcharge|diet-option-cost|diet-options/);
     }
   });
-  it("only the recipe editor's option panel imports the option costing", () => {
+  it("only the dish page's option sheet and Options list import the option costing", () => {
     const out = execSync(`grep -rlE 'diet-option-cost"' app components lib tests --include=*.ts --include=*.tsx || true`, { encoding: "utf8" })
       .split("\n")
       .filter(Boolean)
       .sort();
-    expect(out).toEqual(["components/editor/diet-option-swap.tsx", "tests/diet-option-cost.test.ts"].sort());
+    expect(out).toEqual(["components/editor/option-prices.tsx", "components/editor/option-sheet.tsx", "tests/diet-option-cost.test.ts", "tests/option-sheet.test.ts"].sort());
   });
 });

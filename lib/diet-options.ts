@@ -5,9 +5,11 @@ import { LINE_UNITS, type ComponentType, type DietOptionAdded, type DietOptions,
 /**
  * The pure rules for what `cost_menu_items.diet_options` holds (Troy, 10 Oct 2026). One jsonb column, no schema change:
  *
- *  - OPTIONS gfo, vo, vgo, dfo: `{ note, removed?, added?, surcharge_inc? }`. The note says what changes. `removed` holds
- *    recipe line ids the option leaves out, `added` holds extra component lines, `surcharge_inc` is dollars inc GST on top of
- *    the dish price. The swap and surcharge feed the option costing only (lib/diet-option-cost.ts), which is display only.
+ *  - OPTIONS gfo, vo, vgo, dfo: `{ note, removed?, added?, surcharge_inc? }`. `removed` holds recipe line ids the option
+ *    leaves out, `added` holds extra component lines, `surcharge_inc` is dollars inc GST on top of the dish price. The `note`
+ *    is the OPTIONAL extra wording a person adds (it may be ""): the kitchen sentence is built from the swap, then the note
+ *    (`optionText`). An option is kept when it has a note OR a swap (`optionHasContent`), so "Leave out the base, add a gluten
+ *    free base" needs no typing at all. The swap and surcharge feed the option costing (lib/diet-option-cost.ts), display only.
  *  - MARKS gf, v, vg: `{ note? }`, hand-set by a person and never worked out or ticked by the app.
  *
  * Every reader here is tolerant: a row saved before the swaps and marks existed, a null entry or a malformed value reads as
@@ -16,7 +18,7 @@ import { LINE_UNITS, type ComponentType, type DietOptionAdded, type DietOptions,
 
 export type RawDietOptions = Record<string, unknown>;
 
-/** A dietary option read tolerantly. `note` is trimmed and may be empty (the editor never saves an option without one). */
+/** A dietary option read tolerantly. `note` is trimmed and may be empty (a swap-only option has no note). */
 export interface OptionRead {
   id: DietOptionId;
   note: string;
@@ -81,6 +83,20 @@ export function readOptions(raw: unknown): OptionRead[] {
 
 export function hasSwap(o: Pick<OptionRead, "removed" | "added">): boolean {
   return o.removed.length > 0 || o.added.length > 0;
+}
+
+/**
+ * True when an option says something: its own note, or a swap (something left out or added). This is THE rule for "the dish
+ * offers this option" in every reader (badges, print, kitchen, matrix, Finish Setting Up). A surcharge alone is not enough, it
+ * only prices a change. The editor never saves an option that fails it.
+ */
+export function optionHasContent(o: Pick<OptionRead, "note" | "removed" | "added"> | null | undefined): boolean {
+  return !!o && (o.note.trim() !== "" || hasSwap(o));
+}
+
+/** The options a dish really offers (present and with content), in the fixed order GFO, VO, VGO, DFO. */
+export function readOfferedOptions(raw: unknown): OptionRead[] {
+  return readOptions(raw).filter(optionHasContent);
 }
 
 /** The marks that are set (a key holding an object), in the fixed order GF, V, VG. */

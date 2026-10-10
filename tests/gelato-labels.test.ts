@@ -346,7 +346,7 @@ describe("gelato flavour page", () => {
   const editor = read("components/editor/recipe-editor.tsx");
   it("shows Dietary Requirements for a flavour and no longer the generic allergen group", () => {
     // a flavour gets Dietary Requirements; a food dish has its own Allergens And Dietary card; everything else keeps the roll-up panel
-    expect(editor).toMatch(/\{isFlavour\s*\?\s*<GelatoDietary[^>]*\/>\s*:\s*isFood\s*\?\s*null\s*:\s*<RecipeAllergens/);
+    expect(editor).toMatch(/isFlavour\s*\?\s*\(\s*<GelatoDietary[^>]*\/>\s*\)\s*:\s*isFood\s*\?\s*null\s*:\s*\(\s*<>[\s\S]*?<RecipeAllergens/);
     expect(editor.match(/<RecipeAllergens/g)).toHaveLength(1);
   });
   it("the draft diff names the new field", () => {

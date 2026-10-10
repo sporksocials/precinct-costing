@@ -301,7 +301,7 @@ type Rec = MenuItem | Prep;
  * The badge panel on top is the answer (tiers in a fixed order); below it the chef can add or remove an allergen and
  * write a "made without" note. Anything not reviewed is flagged first, and nothing here ever says "gluten free".
  */
-export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded }: { kind: "item" | "prep"; rec: Rec; lines: RecipeLine[]; setDraft?: (fn: (d: Rec) => Rec) => void; readOnly?: boolean; embedded?: boolean }) {
+export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded, title }: { kind: "item" | "prep"; rec: Rec; lines: RecipeLine[]; setDraft?: (fn: (d: Rec) => Rec) => void; readOnly?: boolean; embedded?: boolean; title?: string }) {
   const store = useStore();
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -345,7 +345,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded
 
   return (
     <Group
-      title={embedded ? undefined : model.listsAllergens ? "Allergens" : "Menu Labels"}
+      title={embedded ? undefined : (title ?? (model.listsAllergens ? "Allergens" : "Menu Labels"))}
       className={embedded ? "!mt-0" : "mt-6"}
       trailing={model.listsAllergens && r.reviewed ? <span className="pb-0.5 text-[13px] font-medium text-good">All ingredients reviewed</span> : null}
       footer={model.listsAllergens ? ALLERGEN_NOTICE : undefined}

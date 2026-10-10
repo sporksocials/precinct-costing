@@ -9,7 +9,7 @@ import { cx } from "../ui";
 export const SAFETY_CARD_ID = "allergens-dietary";
 
 /**
- * The shared food safety card on a food dish (Troy, 10 Oct 2026): Dish Allergens, Dietary Marks and Dietary Options sit together in
+ * The shared food safety card on a food dish (Troy, 10 Oct 2026): Dish Allergens and Menu Labels (the GF, V, VG marks and the GFO, VO, VGO, DFO options) sit together in
  * ONE card, "Allergens And Dietary", on a slightly tinted background with a quiet border, so it reads as its own important section.
  * Only existing tokens: the venue accent's soft tint (`bg-accent-soft`) and the separator line. Nothing in it is collapsed.
  * The header answers "is this section done?" in words, an icon and the existing status colours (never colour alone).
@@ -30,18 +30,18 @@ export function SafetyCard({ status, children, className }: { status: React.Reac
 }
 
 /**
- * One block inside the card. All three blocks use the same heading, the same one-line explanation, the same spacing and the same
+ * One block inside the card. Both blocks use the same heading, the same one-line explanation, the same spacing and the same
  * footer helper text, so they read as siblings. Children manage their own side padding (toggle rows and chip areas use px-4).
  */
-export function SafetyBlock({ title, explain, trailing, footer, children }: { title: string; explain: string; trailing?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) {
+export function SafetyBlock({ id, title, explain, trailing, footer, children }: { id?: string; title: string; explain: string; trailing?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="pb-4 pt-4">
-      <div className="flex items-start justify-between gap-3 px-4">
-        <div className="min-w-0">
+    <div id={id} data-flash={id ? "" : undefined} className={cx("pb-4 pt-4", id && "scroll-mt-20 transition-shadow duration-300")}>
+      <div className="px-4">
+        <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-[15px] font-semibold">{title}</h3>
-          <p className="mt-0.5 text-[13px] leading-snug text-label-2">{explain}</p>
+          {trailing ? <div className="shrink-0">{trailing}</div> : null}
         </div>
-        {trailing ? <div className="shrink-0">{trailing}</div> : null}
+        <p className="mt-0.5 text-[13px] leading-snug text-label-2">{explain}</p>
       </div>
       <div className="mt-3 divide-y divide-[color:var(--separator)]">{children}</div>
       {footer ? <p className="mt-2 px-4 text-[13px] leading-snug text-label-2">{footer}</p> : null}

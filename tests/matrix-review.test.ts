@@ -19,7 +19,7 @@ import {
 } from "@/lib/matrix-review";
 import { reviewHref, venueTodo } from "@/lib/matrix-todo";
 import { prepSaveImpact, confirmedDishesUsing, impactHeadline, impactNames, lostSignOff } from "@/lib/allergy-recheck";
-import { setupModel, marksAndOptionsSummary, SETUP_ANCHORS } from "@/lib/finish-setup";
+import { setupModel, menuLabelsSummary, SETUP_ANCHORS } from "@/lib/finish-setup";
 import { buildIndex } from "@/lib/costing";
 import type { AllergenIndex } from "@/lib/allergens";
 import type { Ingredient, MenuItem, Prep, RecipeLine, Venue } from "@/lib/types";
@@ -308,16 +308,21 @@ describe("Finish Setting Up This Dish", () => {
     expect(setupModel({ ...base, signOff: "never", unreviewed: 1 }).steps.find((s) => s.id === "allergens")?.sub).toBe("1 ingredient needs their allergens checked first");
     expect(setupModel({ ...base, signOff: "never" }).steps.find((s) => s.id === "allergens")?.sub).toBe("Check what the ingredients give, then confirm");
   });
-  it("Dietary Marks And Options is informational, done once the allergens are confirmed, with no flag of its own", () => {
-    expect(marksAndOptionsSummary(null)).toBe("None set");
-    expect(marksAndOptionsSummary({ gf: {}, gfo: { note: "x" }, dfo: { note: "y" } })).toBe("3 set");
+  it("Menu Labels is informational, done once the allergens are confirmed, with no flag of its own", () => {
+    expect(menuLabelsSummary(null)).toBe("None set");
+    expect(menuLabelsSummary({ gf: {}, gfo: { note: "x" }, dfo: { note: "y" } })).toBe("3 set");
     const steps = setupModel({ ...base, dietOptions: { vg: {} } }).steps;
     expect(steps.find((s) => s.id === "marks")).toMatchObject({ done: true, sub: "1 set" });
     expect(setupModel({ ...base, signOff: "never" }).steps.find((s) => s.id === "marks")?.done).toBe(false);
   });
-  it("each row scrolls to its section; allergens and dietary go to the one shared card", () => {
+  it("the step is called Menu Labels, the one name the Allergens tab uses too", () => {
+    expect(setupModel(base).steps.map((s) => s.label)).toEqual(["Ingredients Added", "Dish Allergens Confirmed", "Menu Labels", "Kitchen Method Written", "Ready For Kitchen"]);
+    expect(readFileSync("lib/finish-setup.ts", "utf8")).not.toMatch(/Dietary Marks|Dietary Options/);
+  });
+  it("each row scrolls to its section; allergens go to the shared card and Menu Labels to its block inside it", () => {
     expect(SETUP_ANCHORS.allergens).toBe("allergens-dietary");
-    expect(SETUP_ANCHORS.marks).toBe("allergens-dietary");
+    expect(SETUP_ANCHORS.marks).toBe("menu-labels");
+    expect(readFileSync("components/editor/diet-options.tsx", "utf8")).toContain('MENU_LABELS_ID = "menu-labels"');
     const editor = readFileSync("components/editor/recipe-editor.tsx", "utf8");
     const kitchen = readFileSync("components/editor/kitchen-fields.tsx", "utf8");
     expect(editor).toContain('id="setup-ingredients"');
@@ -325,9 +330,11 @@ describe("Finish Setting Up This Dish", () => {
     expect(kitchen).toContain('id="kitchen-method"');
     expect(readFileSync("components/editor/safety-card.tsx", "utf8")).toContain("data-flash");
   });
-  it("rows are at least 44px and the list sits in the page flow, not over the Save bar", () => {
+  it("is one short card (the next step as a 52px button) that sits in the page flow, not over the bottom bar", () => {
     const src = readFileSync("components/editor/finish-setup.tsx", "utf8");
     expect(src).toContain("min-h-[52px]");
     expect(src).not.toMatch(/\bfixed\b|\bsticky\b/);
+    // one row for the next step, never the whole list (it pushed the ingredients off the first phone screen)
+    expect(src).toContain("Next: ");
   });
 });

@@ -303,10 +303,10 @@ export function MatrixReviewPage() {
             ) : null}
           </section>
 
-          <section className="mt-5 overflow-hidden rounded-2xl border border-[color:var(--separator)] bg-accent-soft" aria-label="Dietary marks">
+          <section className="mt-5 overflow-hidden rounded-2xl border border-[color:var(--separator)] bg-accent-soft" aria-label="Menu labels">
             <div className="px-4 pt-4">
-              <h2 className="text-[17px] font-semibold">Dietary Marks</h2>
-              <p className="text-[13px] text-label-2">GF, V and VG as served.</p>
+              <h2 className="text-[17px] font-semibold">Menu Labels</h2>
+              <p className="text-[13px] text-label-2">GF, V and VG as served. Options are set on the dish.</p>
             </div>
             <div className="mt-1 divide-y divide-[color:var(--separator)] pb-1">
               {DIET_MARKS.map((m) => (

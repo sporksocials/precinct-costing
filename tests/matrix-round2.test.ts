@@ -255,7 +255,7 @@ describe("creation flows and the editor", () => {
     expect(read("components/offer-builder.tsx")).not.toMatch(/insertItem/);
   });
   it("a food dish has ONE allergen section: the shared card, with the roll-up collapsed beneath it as the only collapsed thing", () => {
-    expect(editor).toMatch(/isFood \? null : <RecipeAllergens/);
+    expect(editor).toMatch(/isFood \? null : \(\s*<>[\s\S]*?<RecipeAllergens/);
     const card = read("components/editor/dish-allergens.tsx");
     expect(card).toContain("What The Ingredients Say");
     expect(card.match(/<Disclosure/g)).toHaveLength(1);

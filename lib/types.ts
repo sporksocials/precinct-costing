@@ -143,6 +143,11 @@ export interface MenuItem {
   kitchen_plating?: string[] | null;
   kitchen_photo?: string | null;
   kitchen_ready?: boolean;
+  /**
+   * Display grouping only (Drinks Station): items at the same venue sharing this name show as one card that opens to the
+   * flavours. Null/empty = stands alone. Absent until the menu groups migration is applied; nothing in costing reads it.
+   */
+  menu_group?: string | null;
   /** Research This Drink (cocktails and mocktails only): null/absent = never offered, offered = new drink awaiting a choice, done = researched, skipped = skipped */
   research_status?: ResearchOffer | null;
   /** who last changed it (the signed-in email) and when; filled by the database, absent until the edit stamps migration is applied */

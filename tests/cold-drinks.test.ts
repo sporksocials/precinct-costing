@@ -200,7 +200,8 @@ describe("migration 20261005200000_bar_menu_cold_drinks", () => {
   });
   it("is mirrored in schema.sql", () => {
     expect(schema).toContain("20261005200000_bar_menu_cold_drinks.sql");
-    expect(schema.match(/mi\.category in \('Cocktail', 'Mocktail', 'Cold Drink'\)/g)).toHaveLength(3);
+    // three from the cold drinks update itself, plus one in the later redefinition that adds the menu group (20261010110000)
+    expect(schema.match(/mi\.category in \('Cocktail', 'Mocktail', 'Cold Drink'\)/g)).toHaveLength(4);
   });
   it("changes nothing but the category list from the previous definitions", () => {
     const strip = (s: string) =>

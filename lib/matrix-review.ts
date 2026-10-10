@@ -1,21 +1,22 @@
 import { markOff, markOn, readMarks } from "./diet-options";
 import type { DietMarkId } from "./diet-legend";
 import { allergenLabel, type AllergenId } from "./allergens";
-import { DISH_ALLERGEN_IDS, confirmAllergens, proposeContains, readDishAllergens, toStored, type DishAllergens } from "./dish-allergens";
+import { DISH_ALLERGEN_IDS, NOTE_MAX, confirmAllergens, extrasOf, readDishAllergens, type DishCheck } from "./dish-allergens";
 import { ALL_SECTIONS } from "./matrix-prints";
 import type { VenueTodo } from "./matrix-todo";
 import { groupLabel } from "./kitchen";
 import type { DishAllergensEntry, MenuItem, RecipeLine } from "./types";
-import type { Rollup } from "./allergens";
 
 /**
  * Review mode (Troy, 10 Oct 2026): /matrix/review steps through the dishes that need approval one at a time. Pure rules; the page
  * (components/matrix/review-page.tsx) draws them and the store writes the result.
  *
- * Nothing is trusted from the ingredients: the chips are PRE-FILLED from the Start From Ingredients proposal (plus whatever the dish
- * already listed) and marked "Suggested: check every one" until a person taps something. Any tap counts as reviewing. Confirming
- * writes the dish's own allergens section with the sign-off and its components, and the three marks, after re-reading the dish from
- * the database: if it changed underneath, nothing is written ("This dish was just changed by someone else. Reload it.").
+ * Ingredient first (Troy, 10 Oct 2026): the dish's allergens are worked out from its ingredients, so Review mode shows them as read-only chips
+ * (nobody ticks them), lets a person add an EXTRA allergen, fill the can-be-made-without notes and set the three marks, then Confirm And Next
+ * accepts the computed result. A dish with any unreviewed ingredient cannot be confirmed (the page names them and links to the ingredient
+ * review). Confirming writes the dish's allergens section with the sign-off, its components and the ticks snapshot, after re-reading the
+ * dish and its ingredients from the database: if the dish changed underneath, or what the ingredients give is no longer what was shown,
+ * nothing is written ("This dish was just changed by someone else. Reload it.").
  */
 
 export interface ReviewItem {
@@ -29,7 +30,7 @@ export interface ReviewItem {
 }
 
 /**
- * The dishes to review: never confirmed and re-check dishes, venue by venue (venue order), sections A to Z ("Other" last), dishes A to Z.
+ * The dishes to review: never confirmed and re-check dishes that are READY (every ingredient reviewed), venue by venue (venue order), sections A to Z ("Other" last), dishes A to Z.
  * `venueId` limits it to one venue; `section` of `*` (or nothing) is every section, otherwise that section only.
  */
 export function reviewQueue(todos: readonly VenueTodo[], opts: { venueId?: number | null; section?: string | null }): ReviewItem[] {
@@ -38,7 +39,8 @@ export function reviewQueue(todos: readonly VenueTodo[], opts: { venueId?: numbe
   for (const t of todos) {
     if (opts.venueId != null && t.venue.id !== opts.venueId) continue;
     // todo rows are already in section then dish order; keep that order
-    const waiting = new Set([...t.never, ...t.changed].map((r) => r.dish.id));
+    // only dishes that can be confirmed now (every ingredient reviewed): a dish waiting on ingredients cannot be confirmed here
+    const waiting = new Set(t.ready.map((r) => r.dish.id));
     for (const r of t.rows) {
       if (!waiting.has(r.dish.id)) continue;
       const section = groupLabel(r.dish.section);
@@ -65,39 +67,44 @@ export function venueBreak(queue: readonly ReviewItem[], index: number): { done:
 /* ------------------------------------------------------------------ one dish's draft */
 
 export interface ReviewDraft {
-  contains: AllergenId[];
+  /** the dish's extras: allergens the ingredients do not show (the only allergen edit a person makes) */
+  added: AllergenId[];
   without: Partial<Record<AllergenId, string>>;
   marks: DietMarkId[];
   /** the diet_options column as the review leaves it (marks switched; an option a mark pushes out is dropped) */
   dietOptions: MenuItem["diet_options"];
-  /** ids that came only from a keyword guess on an unreviewed ingredient */
-  suggestedOnly: AllergenId[];
-  /** a person tapped something: the "Suggested" warning goes away (any tap counts as reviewing) */
+  /** a person changed something on this dish (an extra, a note or a mark) */
   touched: boolean;
 }
 
-/** The starting point for a dish: what it already lists plus the ingredient proposal, nothing confirmed, nothing touched. */
-export function initialReviewDraft(item: Pick<MenuItem, "dish_allergens" | "diet_options">, rollup: Pick<Rollup, "cells">): ReviewDraft {
-  const da = readDishAllergens(item.dish_allergens);
-  const prop = proposeContains(rollup);
-  const contains = DISH_ALLERGEN_IDS.filter((id) => (da?.contains ?? []).includes(id) || prop.ids.includes(id));
-  const without: Partial<Record<AllergenId, string>> = {};
-  for (const id of contains) if (da?.without[id]) without[id] = da.without[id];
-  return { contains, without, marks: readMarks(item.diet_options), dietOptions: item.diet_options, suggestedOnly: prop.suggestedOnly, touched: false };
+/** What the dish contains right now: derived from the ingredients plus the draft's extras, in the fixed order. */
+export function reviewContains(d: Pick<ReviewDraft, "added">, derived: readonly AllergenId[]): AllergenId[] {
+  return DISH_ALLERGEN_IDS.filter((id) => derived.includes(id) || d.added.includes(id));
 }
 
-export function toggleReviewAllergen(d: ReviewDraft, id: AllergenId): ReviewDraft {
-  const on = d.contains.includes(id);
-  const contains = DISH_ALLERGEN_IDS.filter((x) => (x === id ? !on : d.contains.includes(x)));
+/** The starting point for a dish: its stored extras and notes. The allergens themselves come from the ingredients, not from here. */
+export function initialReviewDraft(item: Pick<MenuItem, "dish_allergens" | "diet_options">, derived: readonly AllergenId[]): ReviewDraft {
+  const da = readDishAllergens(item.dish_allergens);
+  const added = extrasOf(da?.added ?? [], derived);
+  const without: Partial<Record<AllergenId, string>> = {};
+  for (const id of reviewContains({ added }, derived)) if (da?.without[id]) without[id] = da.without[id];
+  return { added, without, marks: readMarks(item.diet_options), dietOptions: item.diet_options, touched: false };
+}
+
+/** Adds or removes an EXTRA allergen. An allergen the ingredients show cannot be switched off here: fix the ingredient. */
+export function toggleReviewExtra(d: ReviewDraft, id: AllergenId, derived: readonly AllergenId[]): ReviewDraft {
+  if (derived.includes(id)) return d;
+  const on = d.added.includes(id);
+  const added = DISH_ALLERGEN_IDS.filter((x) => (x === id ? !on : d.added.includes(x)));
   const without = { ...d.without };
   if (on) delete without[id];
-  return { ...d, contains, without, touched: true };
+  return { ...d, added, without, touched: true };
 }
 
-export function setReviewNote(d: ReviewDraft, id: AllergenId, text: string): ReviewDraft {
-  if (!d.contains.includes(id)) return d;
+export function setReviewNote(d: ReviewDraft, id: AllergenId, text: string, derived: readonly AllergenId[]): ReviewDraft {
+  if (!reviewContains(d, derived).includes(id)) return d;
   const without = { ...d.without };
-  const t = text.trim().replace(/\s+/g, " ").slice(0, 120);
+  const t = text.trim().replace(/\s+/g, " ").slice(0, NOTE_MAX);
   if (t) without[id] = t;
   else delete without[id];
   return { ...d, without, touched: true };
@@ -113,35 +120,26 @@ export function toggleReviewMark(d: ReviewDraft, id: DietMarkId): { draft: Revie
   return { draft: { ...d, marks: readMarks(next), dietOptions: next, touched: true }, clearedOption };
 }
 
-/**
- * The chips that are still only a suggestion: until a person taps something, EVERY pre-filled chip is one (filled in from the
- * ingredients and the dish's old list, "Suggested: check every one"). `suggestedOnly` says which of them are a name guess alone.
- */
-export function stillSuggested(d: ReviewDraft): AllergenId[] {
-  return d.touched ? [] : [...d.contains];
-}
-
 /* ------------------------------------------------------------------ writing */
 
-/** The patch a confirm writes: the dish's own allergens section with the sign-off and its components, and the marks if they changed. */
-export function confirmPatch(args: { item: Pick<MenuItem, "dish_allergens" | "diet_options">; draft: ReviewDraft; email: string | null; nowIso: string; components: readonly string[] }): Pick<MenuItem, "dish_allergens"> & Partial<Pick<MenuItem, "diet_options">> {
+/**
+ * The patch a confirm writes: the dish's allergens section (derived from the ingredients, plus the extras and notes in the draft)
+ * with the sign-off, the components and the ticks snapshot, and the marks if they changed. `check` is the dish's check worked out
+ * from the FRESH data in the store, never from what the screen showed.
+ */
+export function confirmPatch(args: { item: Pick<MenuItem, "dish_allergens" | "diet_options">; draft: ReviewDraft; email: string | null; nowIso: string; check: Pick<DishCheck, "derived" | "live"> }): Pick<MenuItem, "dish_allergens"> & Partial<Pick<MenuItem, "diet_options">> {
+  const { derived, live } = args.check;
   const cur = readDishAllergens(args.item.dish_allergens);
-  const section: DishAllergens = {
-    contains: args.draft.contains,
-    without: args.draft.without,
-    confirmedAt: null,
-    confirmedBy: null,
-    components: null,
-    needsSignoff: cur?.needsSignoff ?? false,
-  };
-  const dish_allergens: DishAllergensEntry = confirmAllergens(toStored(section), args.email, args.nowIso, args.components);
+  const section: DishAllergensEntry = { contains: reviewContains(args.draft, derived), without: args.draft.without, added: args.draft.added, ...(cur?.needsSignoff ? { needs_signoff: true } : {}) };
+  const dish_allergens: DishAllergensEntry = confirmAllergens(section, args.email, args.nowIso, { derived, components: live.components, ticks: live.ticks });
   const marksChanged = JSON.stringify(args.draft.dietOptions ?? null) !== JSON.stringify(args.item.diet_options ?? null);
   return marksChanged ? { dish_allergens, diet_options: args.draft.dietOptions } : { dish_allergens };
 }
 
-export type FreshVerdict = { ok: true } | { ok: false; reason: "gone" | "changed" };
+export type FreshVerdict = { ok: true } | { ok: false; reason: "gone" | "changed" | "unreviewed" };
 
 export const REVIEW_CHANGED_TEXT = "This dish was just changed by someone else. Reload it.";
+export const REVIEW_UNREVIEWED_TEXT = "This dish has ingredients that still need their allergens checked, so it cannot be confirmed yet.";
 export const REVIEW_GONE_TEXT = "This dish is no longer there. Skip it.";
 
 /**

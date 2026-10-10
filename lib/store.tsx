@@ -9,7 +9,8 @@ import { latestPortalRows } from "@/lib/insights";
 import { latestPrints, readPrint, type MatrixPrint } from "@/lib/matrix-prints";
 import { freshVerdict, type FreshVerdict } from "@/lib/matrix-review";
 import { groupLines, withLines } from "@/lib/allergy-recheck";
-import { currentComponents } from "@/lib/dish-allergens";
+import { confirmVerdict, currentComponents, dishCheck, type DishCheck, type Ticks } from "@/lib/dish-allergens";
+import type { AllergenId } from "@/lib/allergens";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "./supabase/client";
@@ -250,11 +251,17 @@ export interface StoreValue extends StoreData {
    */
   logMatrixPrint: (row: Omit<MatrixPrint, "id" | "printed_at">) => Promise<MatrixPrint>;
   /**
-   * Review mode's confirm (Troy, 10 Oct 2026): re-reads the dish and its lines fresh from the database, refuses (writes nothing) when it
-   * is gone or changed since the review showed it (`shown`), otherwise writes `make(components, freshRow)` guarded by the fresh
-   * updated_at, so history, edit stamps and the local copy stay right. Throws when the database cannot be reached: never a blind write.
+   * Review mode's confirm (Troy, 10 Oct 2026): re-reads the dish, its lines and the ingredients and preps it is made from fresh from the
+   * database, refuses (writes nothing) when the dish is gone, changed since the review showed it (`shown`: its updated_at, its own
+   * components, the allergens the ingredients gave and the ticks snapshot), or has an ingredient nobody has reviewed; otherwise writes
+   * `make(check, freshRow)` guarded by the fresh updated_at, so history, edit stamps and the local copy stay right. Throws when the
+   * database cannot be reached: never a blind write.
    */
-  confirmDish: (itemId: string, shown: { updatedAt: string | null | undefined; ownComponents: readonly string[] }, make: (components: string[], fresh: MenuItem) => Partial<MenuItem>) => Promise<FreshVerdict>;
+  confirmDish: (
+    itemId: string,
+    shown: { updatedAt: string | null | undefined; ownComponents: readonly string[]; derived: readonly AllergenId[]; ticks: Ticks },
+    make: (check: DishCheck, fresh: MenuItem) => Partial<MenuItem>,
+  ) => Promise<FreshVerdict>;
   userEmail: string | null;
   accessDenied: boolean;
   reload: () => Promise<void>;
@@ -1076,14 +1083,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const confirmDish = useCallback(
-    async (itemId: string, shown: { updatedAt: string | null | undefined; ownComponents: readonly string[] }, make: (components: string[], fresh: MenuItem) => Partial<MenuItem>): Promise<FreshVerdict> => {
+    async (
+      itemId: string,
+      shown: { updatedAt: string | null | undefined; ownComponents: readonly string[]; derived: readonly AllergenId[]; ticks: Ticks },
+      make: (check: DishCheck, fresh: MenuItem) => Partial<MenuItem>,
+    ): Promise<FreshVerdict> => {
       const fresh = await fetchFreshRecord<MenuItem>(sb, "item", itemId);
       const verdict = freshVerdict(fresh, shown);
       if (!verdict.ok) return verdict;
       const row = fresh.row as MenuItem;
-      // the components are worked out from the fresh lines of the dish and the stored lines of every prep under it
-      const components = currentComponents("item", itemId, withLines(groupLines(dataRef.current.lines), "item", itemId, fresh.lines));
-      const r = await guardedUpdate<MenuItem>(sb, "item", itemId, make(components, row), row.updated_at ?? null);
+      // the dish's allergens are worked out from the fresh dish and lines, the stored lines of every prep under it, and the FRESH
+      // ingredient and prep rows (ticks, reviewed flags and overrides) in that closure, never from what the screen last loaded
+      const d = dataRef.current;
+      const linesByParent = withLines(groupLines(d.lines), "item", itemId, fresh.lines);
+      const comps = currentComponents("item", itemId, linesByParent);
+      const idsOf = (type: string) => comps.filter((k) => k.startsWith(`${type}:`)).map((k) => k.slice(type.length + 1));
+      const [ingRes, prepRes] = await Promise.all([
+        idsOf("ingredient").length ? sb.from("cost_ingredients").select("*").in("id", idsOf("ingredient")) : Promise.resolve({ data: [] as Ingredient[], error: null }),
+        idsOf("prep").length ? sb.from("cost_preps").select("*").in("id", idsOf("prep")) : Promise.resolve({ data: [] as Prep[], error: null }),
+      ]);
+      if (ingRes.error) throw new Error(ingRes.error.message);
+      if (prepRes.error) throw new Error(prepRes.error.message);
+      const freshIng = new Map(((ingRes.data as Ingredient[] | null) ?? []).map((i) => [i.id, i]));
+      const freshPrep = new Map(((prepRes.data as Prep[] | null) ?? []).map((p) => [p.id, p]));
+      const base = buildIndex(
+        d.ingredients.map((i) => (freshIng.has(i.id) ? { ...i, ...freshIng.get(i.id) } : i)),
+        d.preps.map((p) => (freshPrep.has(p.id) ? { ...p, ...freshPrep.get(p.id) } : p)),
+        [],
+      );
+      const check = dishCheck(row, { ...base, linesByParent: new Map(linesByParent) as typeof base.linesByParent, items: new Map(d.items.map((i) => [i.id, i])) });
+      const gate = confirmVerdict(check, { derived: shown.derived, ticks: shown.ticks });
+      if (gate === "unreviewed") return { ok: false, reason: "unreviewed" };
+      if (gate === "changed") return { ok: false, reason: "changed" };
+      const r = await guardedUpdate<MenuItem>(sb, "item", itemId, make(check, row), row.updated_at ?? null);
       if (!r.row) return { ok: false, reason: "changed" };
       const saved = r.row;
       setData((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, ...saved } : i)) }));

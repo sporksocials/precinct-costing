@@ -23,17 +23,17 @@ import {
   shortHash,
   type MatrixPrint,
 } from "@/lib/matrix-prints";
-import { allTodos, allergenApprovalAlerts, reprintAlerts, venueTodo } from "@/lib/matrix-todo";
+import { allTodos, allergenApprovalAlerts, approvalSub, reprintAlerts, venueTodo, waitingText } from "@/lib/matrix-todo";
 import { buildIndex } from "@/lib/costing";
 import type { AllergenIndex } from "@/lib/allergens";
-import { confirmAllergens } from "@/lib/dish-allergens";
+import { confirmAllergens, liveCheck } from "@/lib/dish-allergens";
 import type { Ingredient, MenuItem, RecipeLine, Venue } from "@/lib/types";
 
 const NOW = "2026-10-10T03:00:00.000Z";
 
 function dish(id: string, name: string, section: string | null, over: Partial<MatrixDish> & { contains?: string[]; signed?: boolean } = {}): MatrixDish {
   const { contains = [], signed = true, ...rest } = over;
-  return { id, name, section, allergens: { contains: contains as never, without: {}, confirmedAt: signed ? NOW : null, confirmedBy: null, components: null, needsSignoff: false }, signOff: signed ? "valid" : "never", marks: [], options: {}, ...rest };
+  return { id, name, section, allergens: { contains: contains as never, without: {}, confirmedAt: signed ? NOW : null, confirmedBy: null, added: [], basis: null, components: null, ticks: null, needsSignoff: false }, signOff: signed ? "valid" : "never", marks: [], options: {}, ...rest };
 }
 const rowsOf = (...d: MatrixDish[]) => buildRows(d);
 const print = (venue: number, key: string, version: number, rows = rowsOf(), at = NOW): MatrixPrint => ({ id: `p${venue}${key}${version}`, venue_id: venue, section: key, version, printed_at: at, printed_by: "a@b.c", snapshot: buildSnapshot(rowsForKey(rows, key)) });
@@ -52,7 +52,7 @@ describe("hash and snapshot", () => {
     expect(dishRowHash(rowsOf(dish("a", "Burger", "Snacks", { contains: ["milk"] }))[0])).not.toBe(h);
     expect(dishRowHash(rowsOf(dish("a", "Burger", "Mains", { contains: ["milk", "egg"] }))[0])).not.toBe(h);
     expect(dishRowHash(rowsOf(dish("a", "Burger", "Mains", { contains: ["milk"], signed: false }))[0])).not.toBe(h);
-    const withNote = rowsOf({ ...dish("a", "Burger", "Mains", { contains: ["milk"] }), allergens: { contains: ["milk"], without: { milk: "no cheese" }, confirmedAt: NOW, confirmedBy: null, components: null, needsSignoff: false } })[0];
+    const withNote = rowsOf({ ...dish("a", "Burger", "Mains", { contains: ["milk"] }), allergens: { contains: ["milk"], without: { milk: "no cheese" }, confirmedAt: NOW, confirmedBy: null, added: [], basis: null, components: null, ticks: null, needsSignoff: false } })[0];
     expect(dishRowHash(withNote)).not.toBe(h);
   });
   it("snapshots a map of dish id to hash, for the rows of the key only", () => {
@@ -178,29 +178,53 @@ const item = (id: string, name: string, venue_id: number, over: Partial<MenuItem
 const ln = (parent: string, comp: string, id = `${parent}-${comp}`): RecipeLine => ({ id, parent_type: "item", parent_id: parent, component_type: "ingredient", component_id: comp, qty: 5, unit: "g", note: null, sort: 1 });
 
 describe("To Do lists and the two Home alerts", () => {
-  const lines = [ln("a", "i1"), ln("b", "i1"), ln("c", "i1"), ln("d", "i1"), ln("e", "i1"), ln("x", "i1")];
-  const signedA = confirmAllergens({ contains: [], without: {} }, "c@d.e", NOW, ["ingredient:i1"]); // valid
-  const signedB = confirmAllergens({ contains: [], without: {} }, "c@d.e", NOW, ["ingredient:i-old"]); // ingredients changed
-  const legacyC = { contains: [], without: {}, confirmed_at: NOW }; // before the rule
-  const signedMarks = confirmAllergens({ contains: ["milk"], without: {} }, "c@d.e", NOW, ["ingredient:i1"]);
-  const items = [
-    item("a", "Alpha", 1, { dish_allergens: signedA }),
-    item("b", "Bravo", 1, { dish_allergens: signedB }),
-    item("c", "Charlie", 1, { dish_allergens: legacyC }),
-    item("d", "Delta", 1, { dish_allergens: null }),
-    item("e", "Echo", 1, { dish_allergens: signedMarks, diet_options: { vg: { } } as never }), // vegan mark, but milk is ticked
-    item("x", "Chiobu Dish", 2, { dish_allergens: signedA }),
+  const lines = [ln("a", "i1"), ln("b", "i1"), ln("c", "i1"), ln("d", "i1"), ln("e", "i1"), ln("x", "i1"), ln("f", "i2"), ln("f", "i1"), ln("g", "i2")];
+  const ingredients = [ing("i1"), { ...ing("i2"), allergens_reviewed: false } as Ingredient];
+  const plain = [
+    item("a", "Alpha", 1),
+    item("b", "Bravo", 1),
+    item("c", "Charlie", 1),
+    item("d", "Delta", 1),
+    item("e", "Echo", 1, { diet_options: { vg: {} } as never }), // vegan mark, but milk is listed
+    item("f", "Foxtrot", 1), // uses i2, which nobody has reviewed: cannot be confirmed yet
+    item("g", "Golf", 1), // also waits on i2
+    item("x", "Chiobu Dish", 2),
     item("off", "Switched Off", 1, { active: false }),
     item("drink", "Mojito", 1, { category: "Cocktail" }),
   ];
-  const idx: AllergenIndex = { ...buildIndex([ing("i1")], [], lines), items: new Map(items.map((m) => [m.id, m])) };
+  const plainIdx: AllergenIndex = { ...buildIndex(ingredients, [], lines), items: new Map(plain.map((m) => [m.id, m])) };
+  /** a sign-off made from the dish's live ticks, optionally with other components or extras */
+  const signOff = (id: string, over: { components?: string[]; extras?: string[]; derived?: never[] } = {}) => {
+    const m = plain.find((x) => x.id === id) as MenuItem;
+    const live = liveCheck(m, plainIdx);
+    return confirmAllergens({ contains: [], without: {}, added: over.extras ?? [] }, "c@d.e", NOW, { derived: over.derived ?? [], components: over.components ?? live.components, ticks: live.ticks });
+  };
+  const legacyC = { contains: [], without: {}, confirmed_at: NOW }; // before the rule
+  const items = plain.map((m) => {
+    if (m.id === "a" || m.id === "x") return { ...m, dish_allergens: signOff(m.id) }; // valid
+    if (m.id === "b") return { ...m, dish_allergens: signOff("b", { components: ["ingredient:i-old"] }) }; // ingredients changed
+    if (m.id === "c") return { ...m, dish_allergens: legacyC };
+    if (m.id === "e") return { ...m, dish_allergens: signOff("e", { extras: ["milk"] }) };
+    return m;
+  });
+  const idx: AllergenIndex = { ...buildIndex(ingredients, [], lines), items: new Map(items.map((m) => [m.id, m])) };
   const todos = allTodos(V, items, idx, null);
   const drift = todos[0];
 
   it("lists only active food dishes, split into new and re-check, A to Z", () => {
-    expect(drift.rows.map((r) => r.dish.name)).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo"]);
-    expect(drift.never.map((r) => r.dish.name)).toEqual(["Delta"]);
+    expect(drift.rows.map((r) => r.dish.name)).toEqual(["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf"]);
+    expect(drift.never.map((r) => r.dish.name)).toEqual(["Delta", "Foxtrot", "Golf"]);
     expect(drift.changed.map((r) => r.dish.name)).toEqual(["Bravo", "Charlie"]); // ingredients changed + signed before tracking
+  });
+  it("splits the dishes that need approval into ready to confirm and waiting on ingredients", () => {
+    expect(drift.ready.map((r) => r.dish.name)).toEqual(["Bravo", "Charlie", "Delta"]);
+    expect(drift.blocked.map((b) => b.row.dish.name)).toEqual(["Foxtrot", "Golf"]);
+    expect(drift.blocked[0].unreviewed).toEqual([{ id: "i2", name: "i2" }]);
+    expect(drift.blockedIngredients).toEqual([{ id: "i2", name: "i2" }]); // one ingredient to check, two dishes waiting on it
+    expect(drift.ready.length + drift.blocked.length).toBe(drift.never.length + drift.changed.length);
+    // the Chiobu dish is valid, so nothing is ready or waiting there
+    expect(todos[1].ready).toEqual([]);
+    expect(todos[1].blocked).toEqual([]);
   });
   it("Marks Disagree lists a signed dish whose allergens contradict its mark", () => {
     expect(drift.marks.map((r) => r.dish.name)).toEqual(["Echo"]);
@@ -208,7 +232,7 @@ describe("To Do lists and the two Home alerts", () => {
   });
   it("one allergen approval alert per venue that has any, with the counts in it", () => {
     const a = allergenApprovalAlerts(todos);
-    expect(a.map((x) => `${x.venueSlug}:${x.count}:${x.never}:${x.changed}`)).toEqual(["drift:3:1:2"]); // chiobu's one dish is valid
+    expect(a.map((x) => `${x.venueSlug}:${x.count}:${x.never}:${x.changed}:${x.ready}:${x.blocked}:${x.ingredients}`)).toEqual(["drift:5:3:2:3:2:1"]); // chiobu's one dish is valid
     expect(a[0].href).toBe("/matrix/todo?venue=drift");
     expect(a[0].key).toBe("allergen_approval:drift");
     expect(allergenApprovalAlerts(todos, 2)).toEqual([]);
@@ -220,7 +244,7 @@ describe("To Do lists and the two Home alerts", () => {
     const old = [print(1, "Mains", 1, rows), print(1, "*", 1, rows)];
     expect(reprintAlerts(allTodos(V, items, idx, old))).toEqual([]); // printed and unchanged
     const changedItems = items.map((m) => (m.id === "d" ? { ...m, name: "Delta Renamed" } : m));
-    const idx2: AllergenIndex = { ...buildIndex([ing("i1")], [], lines), items: new Map(changedItems.map((m) => [m.id, m])) };
+    const idx2: AllergenIndex = { ...buildIndex(ingredients, [], lines), items: new Map(changedItems.map((m) => [m.id, m])) };
     const a = reprintAlerts(allTodos(V, changedItems, idx2, old));
     expect(a).toHaveLength(1);
     expect(a[0]).toMatchObject({ kind: "matrix_reprint", venueSlug: "drift", count: 2, href: "/matrix/todo?venue=drift" }); // All Sections and Mains
@@ -228,8 +252,18 @@ describe("To Do lists and the two Home alerts", () => {
   it("a Home count equals the list behind it: the hub's rows are the alert's count", () => {
     const a = allergenApprovalAlerts(todos)[0];
     expect(a.count).toBe(drift.never.length + drift.changed.length);
+    expect(a.count).toBe(a.ready + a.blocked);
   });
-  it("venueTodo with no prints loaded reports no reprints", () => {
-    expect(venueTodo(V[0], drift.rows, null).reprint).toEqual([]);
+  it("venueTodo with no prints loaded reports no reprints, and with no blockers every waiting dish is ready", () => {
+    const t = venueTodo(V[0], drift.rows, null);
+    expect(t.reprint).toEqual([]);
+    expect(t.blocked).toEqual([]);
+    expect(t.ready.length).toBe(t.never.length + t.changed.length);
+  });
+  it("the alert wording names what is ready and what waits on how many ingredients", () => {
+    expect(approvalSub({ ready: 3, blocked: 2, ingredients: 1 })).toBe("3 ready to confirm, 2 waiting on 1 ingredient to check");
+    expect(approvalSub({ ready: 0, blocked: 4, ingredients: 6 })).toBe("4 waiting on 6 ingredients to check");
+    expect(approvalSub({ ready: 5, blocked: 0, ingredients: 0 })).toBe("5 ready to confirm");
+    expect(waitingText(2, 0)).toBe("2 waiting on ingredients");
   });
 });

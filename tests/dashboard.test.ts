@@ -47,7 +47,7 @@ const VENUES = [venue(1, "drift", "Drift Bar"), venue(2, "chiobu", "Chiobu")];
 const ings = [ing("beef", { pack_price: 10 })];
 
 const empty: OpenAlerts = { under: [], missing: [], rises: [], check: [], stale: [], gaps: [], happy: [], deals: [], offersBelow: [], offersCheck: [], allergenApproval: [], reprint: [] };
-const safety = (kind: SafetyAlert["kind"], venueId: number, slug: string, count: number, over: Partial<SafetyAlert> = {}): SafetyAlert => ({ kind, key: `${kind}:${slug}`, venueId, venueSlug: slug, venueName: slug, count, never: kind === ALLERGEN_APPROVAL ? count : 0, changed: 0, href: `/matrix/todo?venue=${slug}`, ...over });
+const safety = (kind: SafetyAlert["kind"], venueId: number, slug: string, count: number, over: Partial<SafetyAlert> = {}): SafetyAlert => ({ kind, key: `${kind}:${slug}`, venueId, venueSlug: slug, venueName: slug, count, never: kind === ALLERGEN_APPROVAL ? count : 0, changed: 0, ready: kind === ALLERGEN_APPROVAL ? count : 0, blocked: 0, ingredients: 0, href: `/matrix/todo?venue=${slug}`, ...over });
 const ctx = { venueName: (id: number) => (id === 1 ? "Drift" : "Chiobu"), showVenue: false };
 
 /* ---------- synthetic alert rows (the shapes lib/insights.ts returns) ---------- */
@@ -316,7 +316,7 @@ describe("allergen approval and matrix reprint alerts", () => {
     ...empty,
     under: [under("worst", 0.5)],
     missing: [missing("noprice")],
-    allergenApproval: [safety(ALLERGEN_APPROVAL, 1, "drift", 3, { never: 2, changed: 1 }), safety(ALLERGEN_APPROVAL, 2, "chiobu", 5, { never: 5 })],
+    allergenApproval: [safety(ALLERGEN_APPROVAL, 1, "drift", 3, { never: 2, changed: 1, ready: 2, blocked: 1, ingredients: 2 }), safety(ALLERGEN_APPROVAL, 2, "chiobu", 5, { never: 5 })],
     reprint: [safety(MATRIX_REPRINT, 1, "drift", 2)],
   };
   const ranked = rankAttention(withSafety, ctx);
@@ -338,8 +338,8 @@ describe("allergen approval and matrix reprint alerts", () => {
   it("opens the To Do hub for that venue and names the venue and what is waiting", () => {
     const first = ranked[0];
     expect(first.href).toBe("/matrix/todo?venue=chiobu");
-    expect(first.sub).toBe("Chiobu · 5 new");
-    expect(ranked[1].sub).toBe("Drift · 2 new, 1 to re-check");
+    expect(first.sub).toBe("Chiobu · 5 ready to confirm");
+    expect(ranked[1].sub).toBe("Drift · 2 ready to confirm, 1 waiting on 2 ingredients to check");
     expect(ranked[ranked.length - 1].title).toBe("Drift matrix needs reprinting");
     expect(ranked[ranked.length - 1].sub).toBe("2 sheets have changed since printed");
   });

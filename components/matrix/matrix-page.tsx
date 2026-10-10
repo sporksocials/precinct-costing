@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Printer, TriangleAlert } from "lucide-react";
+import { ListChecks, Printer } from "lucide-react";
 import { buildRows, matrixProgress, matrixSections, progressLine } from "@/lib/allergy-matrix";
 import { matrixPrintHref } from "@/lib/allergy-matrix-print";
 import { matrixDishesForVenue } from "@/lib/allergy-matrix-store";
@@ -152,31 +152,6 @@ export function MatrixPage() {
                     <p className="text-[17px] font-medium sm:text-[15px]">{sheetName(k)}</p>
                     <PrintStatusBlock status={printStatus(matrixPrints, venue.id, k, current.rows, (id) => itemName.get(id) ?? null)} venueSlug={venue.slug} sheetKey={k} />
                   </div>
-                ))}
-              </Group>
-            </div>
-          ) : null}
-
-          {progress && progress.review.length ? (
-            <div className="mt-6">
-              <Group
-                title={`Check Again (${progress.review.length})`}
-                className="mt-0"
-                footer="The ingredients now list an allergen that is not on the dish. The sheet keeps showing what the dish lists until someone updates it."
-              >
-                {progress.review.map((r) => (
-                  <Row
-                    key={r.dish.id}
-                    href={`/items/${r.dish.id}`}
-                    title={r.dish.name}
-                    sub={r.dish.section ?? undefined}
-                    trailing={
-                      <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-warn">
-                        <TriangleAlert aria-hidden className="h-3.5 w-3.5" strokeWidth={2.5} /> Ingredients changed
-                      </span>
-                    }
-                    chevron
-                  />
                 ))}
               </Group>
             </div>

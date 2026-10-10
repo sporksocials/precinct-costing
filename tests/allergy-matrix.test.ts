@@ -32,7 +32,7 @@ import {
 } from "@/lib/allergy-matrix-print";
 import { matrixDishFromItem, matrixDishesForVenue, optionWordsFor } from "@/lib/allergy-matrix-store";
 import { rollup, type AllergenId, type AllergenIndex } from "@/lib/allergens";
-import { DISH_ALLERGEN_IDS, applyProposal, confirmAllergens, describeDishAllergens, isConfirmed, proposeContains, readDishAllergens, reviewMissing, reviewWarningText, setWithoutNote, toStored, toggleAllergen, unconfirmedCopy } from "@/lib/dish-allergens";
+import { DISH_ALLERGEN_IDS, addExtra, confirmAllergens, describeDishAllergens, dishCheck, isConfirmed, liveCheck, readDishAllergens, removeExtra, setWithoutNote, toStored, unconfirmedCopy } from "@/lib/dish-allergens";
 import { buildIndex } from "@/lib/costing";
 import { fieldLabel, patchOf } from "@/lib/draft-changes";
 import { threeWay } from "@/lib/edit-conflict";
@@ -46,7 +46,7 @@ const NOW = "2026-10-10T03:00:00.000Z";
 /** a dish whose allergens section is signed off */
 function dish(over: Partial<MatrixDish> & { contains?: AllergenId[]; without?: Partial<Record<AllergenId, string>>; signed?: boolean | null } = {}): MatrixDish {
   const { contains = [], without = {}, signed = true, ...rest } = over;
-  const allergens = signed === null ? null : { contains, without, confirmedAt: signed ? NOW : null, confirmedBy: signed ? "chef@example.com" : null, components: null, needsSignoff: false };
+  const allergens = signed === null ? null : { contains, without, confirmedAt: signed ? NOW : null, confirmedBy: signed ? "chef@example.com" : null, added: [] as AllergenId[], basis: null, components: null, ticks: null, needsSignoff: false };
   return { id: "d1", name: "Test Dish", section: "Mains", allergens, marks: [], options: {}, ...rest };
 }
 const state = (d: MatrixDish, c: MatrixColumnId) => cell(d, c).state;
@@ -222,12 +222,6 @@ describe("rows, warnings and review", () => {
     expect(r.confirmed).toBe(true);
     expect(buildRow(dish({ signed: false })).confirmed).toBe(false);
   });
-  it("needsReview is carried for the staff view and changes no cell", () => {
-    const a = buildRow(dish({ contains: ["milk"], needsReview: false }));
-    const b = buildRow(dish({ contains: ["milk"], needsReview: true }));
-    expect(b.needsReview).toBe(true);
-    expect(b.cells).toEqual(a.cells);
-  });
   it("warns, without changing a cell, when a mark disagrees with the dish's allergens", () => {
     expect(buildRow(dish({ contains: ["gluten"], marks: ["gf"] })).warnings[0]).toMatch(/Gluten Free/);
     expect(buildRow(dish({ contains: ["milk", "egg"], marks: ["vg"] })).warnings[0]).toMatch(/Milk, Egg/);
@@ -257,10 +251,6 @@ describe("sections, order and progress", () => {
     expect(p.needing.map((r) => r.dish.name)).toEqual(["Waffles", "Mystery"]);
     expect(progressLine(p)).toBe("4 of 6 dishes confirmed");
     expect(progressLine({ total: 1, confirmed: 1 })).toBe("1 of 1 dish confirmed");
-  });
-  it("lists signed-off dishes whose ingredients changed", () => {
-    const p = matrixProgress(buildRows([dish({ id: "a", needsReview: true }), dish({ id: "b", signed: false, needsReview: true })]));
-    expect(p.review.map((r) => r.dish.id)).toEqual(["a"]);
   });
 });
 
@@ -327,68 +317,93 @@ describe("dish allergens: reading", () => {
   });
 });
 
-describe("dish allergens: ticking, notes, confirming", () => {
-  it("tapping starts a section, in the fixed order whatever the tap order", () => {
+describe("dish allergens: extras, notes, confirming (ingredient first)", () => {
+  const BASIS = { derived: [] as AllergenId[], components: ["ingredient:i1"], ticks: { "ingredient:i1": { a: [], r: true }, "item:m1": { add: [], rem: [] } } };
+  it("an extra is added in the fixed order whatever the tap order, and only when the ingredients do not already show it", () => {
     let raw: unknown = null;
-    for (const id of ["milk", "gluten", "egg"] as const) raw = toggleAllergen(raw, id, true).next;
+    for (const id of ["milk", "gluten", "egg"] as const) raw = addExtra(raw, id, []).next;
+    expect((raw as { contains: string[]; added: string[] }).added).toEqual(["gluten", "egg", "milk"]);
     expect((raw as { contains: string[] }).contains).toEqual(["gluten", "egg", "milk"]);
+    // milk is derived from the ingredients, so adding it by hand changes nothing
+    const same = addExtra(null, "milk", ["milk"]);
+    expect(readDishAllergens(same.next)).toMatchObject({ contains: ["milk"], added: [] });
   });
-  it("unticking removes the allergen and its note", () => {
-    let raw: unknown = toggleAllergen(null, "milk", true).next;
-    raw = setWithoutNote(raw, "milk", "no cheese").next;
-    expect(readDishAllergens(raw)!.without).toEqual({ milk: "no cheese" });
-    raw = toggleAllergen(raw, "milk", false).next;
-    expect(readDishAllergens(raw)).toMatchObject({ contains: [], without: {} });
+  it("contains is always derived plus extras, in the fixed order", () => {
+    const raw = addExtra(null, "sesame", ["milk", "gluten"]).next;
+    expect(readDishAllergens(raw)).toMatchObject({ contains: ["gluten", "milk", "sesame"], added: ["sesame"] });
   });
-  it("a note only attaches to a ticked allergen, and empty text clears it", () => {
-    expect(readDishAllergens(setWithoutNote(null, "milk", "no cheese").next)).toMatchObject({ contains: [], without: {} });
-    let raw: unknown = toggleAllergen(null, "milk", true).next;
-    raw = setWithoutNote(raw, "milk", "  no   cheese ").next;
+  it("removing an extra removes its note; a derived allergen cannot be removed", () => {
+    let raw: unknown = addExtra(null, "egg", ["milk"]).next;
+    raw = setWithoutNote(raw, "egg", "no egg wash", ["milk"]).next;
+    expect(readDishAllergens(raw)!.without).toEqual({ egg: "no egg wash" });
+    raw = removeExtra(raw, "egg", ["milk"]).next;
+    expect(readDishAllergens(raw)).toMatchObject({ contains: ["milk"], added: [], without: {} });
+    const derivedOnly = removeExtra(raw, "milk", ["milk"]);
+    expect(readDishAllergens(derivedOnly.next)).toMatchObject({ contains: ["milk"] });
+  });
+  it("a note attaches to anything the dish contains (derived or extra), and empty text clears it", () => {
+    expect(readDishAllergens(setWithoutNote(null, "egg", "no egg", ["milk"]).next)!.without).toEqual({});
+    let raw: unknown = setWithoutNote(null, "milk", "  no   cheese ", ["milk"]).next;
     expect(readDishAllergens(raw)!.without.milk).toBe("no cheese");
-    raw = setWithoutNote(raw, "milk", "   ").next;
+    raw = setWithoutNote(raw, "milk", "   ", ["milk"]).next;
     expect(readDishAllergens(raw)!.without).toEqual({});
   });
-  it("Confirm stamps the time and the signed-in email", () => {
-    const next = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, ["prep:p1", "ingredient:i1"]);
-    expect(next).toEqual({ contains: ["milk"], without: {}, confirmed_at: NOW, confirmed_by: "chef@example.com", components: ["ingredient:i1", "prep:p1"] });
+  it("Confirm stamps the time, the signed-in email, the derived ids, the components and the ticks", () => {
+    const next = confirmAllergens(null, "chef@example.com", NOW, { derived: ["milk"], components: ["prep:p1", "ingredient:i1"], ticks: BASIS.ticks });
+    expect(next).toEqual({
+      contains: ["milk"],
+      without: {},
+      confirmed_at: NOW,
+      confirmed_by: "chef@example.com",
+      components: ["ingredient:i1", "prep:p1"],
+      basis: ["milk"],
+      ticks: BASIS.ticks,
+    });
     expect(isConfirmed(readDishAllergens(next))).toBe(true);
-    expect(confirmAllergens(null, null, NOW, [])).toEqual({ contains: [], without: {}, confirmed_at: NOW, components: [] });
+    expect(confirmAllergens(null, null, NOW, { ...BASIS, components: [] })).toEqual({ contains: [], without: {}, confirmed_at: NOW, components: [], basis: [], ticks: BASIS.ticks });
+  });
+  it("Confirm stores derived union extras and drops notes for allergens the dish no longer contains", () => {
+    const raw = { contains: ["milk", "egg"], without: { milk: "no cheese", egg: "no egg" }, added: ["egg"] };
+    const next = confirmAllergens(raw, "chef@example.com", NOW, { ...BASIS, derived: ["gluten"] });
+    expect(next).toMatchObject({ contains: ["gluten", "egg"], added: ["egg"], without: { egg: "no egg" }, basis: ["gluten"] });
   });
   it("ANY edit after confirmation clears it, and says so", () => {
-    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, []);
-    const tick = toggleAllergen(signed, "egg", true);
-    expect(tick.clearedConfirmation).toBe(true);
-    expect(isConfirmed(readDishAllergens(tick.next))).toBe(false);
-    expect(tick.next).not.toHaveProperty("confirmed_at");
-    const note = setWithoutNote(signed, "milk", "no cheese");
+    const signed = confirmAllergens(addExtra(null, "egg", ["milk"]).next, "chef@example.com", NOW, { ...BASIS, derived: ["milk"] });
+    const extra = addExtra(signed, "gluten", ["milk"]);
+    expect(extra.clearedConfirmation).toBe(true);
+    expect(isConfirmed(readDishAllergens(extra.next))).toBe(false);
+    expect(extra.next).not.toHaveProperty("confirmed_at");
+    expect(extra.next).not.toHaveProperty("ticks");
+    expect(extra.next).not.toHaveProperty("basis");
+    const note = setWithoutNote(signed, "milk", "no cheese", ["milk"]);
     expect(note.clearedConfirmation).toBe(true);
     expect(isConfirmed(readDishAllergens(note.next))).toBe(false);
-    const untick = toggleAllergen(signed, "milk", false);
-    expect(untick.clearedConfirmation).toBe(true);
-    const prop = applyProposal(signed, ["gluten"]);
-    expect(prop.clearedConfirmation).toBe(true);
+    const remove = removeExtra(signed, "egg", ["milk"]);
+    expect(remove.clearedConfirmation).toBe(true);
   });
   it("an edit that changes nothing keeps the sign-off", () => {
-    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, []);
-    expect(toggleAllergen(signed, "milk", true)).toMatchObject({ clearedConfirmation: false, next: signed });
-    expect(setWithoutNote(signed, "milk", "")).toMatchObject({ clearedConfirmation: false });
-    expect(setWithoutNote(signed, "egg", "no egg")).toMatchObject({ clearedConfirmation: false });
+    const signed = confirmAllergens(addExtra(null, "egg", ["milk"]).next, "chef@example.com", NOW, { ...BASIS, derived: ["milk"] });
+    expect(addExtra(signed, "egg", ["milk"])).toMatchObject({ clearedConfirmation: false, next: signed });
+    expect(setWithoutNote(signed, "milk", "", ["milk"])).toMatchObject({ clearedConfirmation: false });
+    expect(setWithoutNote(signed, "fish", "no fish", ["milk"])).toMatchObject({ clearedConfirmation: false });
+    expect(removeExtra(signed, "gluten", ["milk"])).toMatchObject({ clearedConfirmation: false });
   });
   it("editing an unconfirmed section never claims it cleared a confirmation", () => {
-    expect(toggleAllergen(null, "milk", true).clearedConfirmation).toBe(false);
-    expect(toggleAllergen({ contains: ["milk"], without: {} }, "egg", true).clearedConfirmation).toBe(false);
+    expect(addExtra(null, "milk", []).clearedConfirmation).toBe(false);
+    expect(addExtra({ contains: ["milk"], without: {} }, "egg", []).clearedConfirmation).toBe(false);
   });
   it("a duplicate keeps the lists and loses the sign-off", () => {
-    const signed = confirmAllergens(setWithoutNote(toggleAllergen(null, "milk", true).next, "milk", "no cheese").next, "chef@example.com", NOW, ["ingredient:i1"]);
+    const signed = confirmAllergens(setWithoutNote(addExtra(null, "egg", ["milk"]).next, "milk", "no cheese", ["milk"]).next, "chef@example.com", NOW, { ...BASIS, derived: ["milk"] });
     const copy = unconfirmedCopy(signed) as Record<string, unknown>;
-    expect(copy).toEqual({ contains: ["milk"], without: { milk: "no cheese" } });
+    expect(copy).toEqual({ contains: ["egg", "milk"], without: { milk: "no cheese" }, added: ["egg"] });
     expect(unconfirmedCopy(null)).toBeNull();
     expect(unconfirmedCopy(undefined)).toBeUndefined();
   });
   it("says in words what it holds", () => {
     expect(describeDishAllergens(null)).toBe("None");
     expect(describeDishAllergens({ contains: ["milk", "sesame"], without: { milk: "no cheese" }, confirmed_at: NOW })).toBe("Milk, Seeds (1 can be made without), confirmed");
-    expect(describeDishAllergens({ contains: [] })).toBe("None ticked, not confirmed");
+    expect(describeDishAllergens({ contains: [] })).toBe("None listed, not confirmed");
+    expect(describeDishAllergens({ contains: ["milk", "egg"], added: ["egg"] })).toBe("Egg, Milk (1 added by hand), not confirmed");
   });
 });
 
@@ -402,55 +417,61 @@ function indexFor(items: MenuItem[], ingredients: Ingredient[], lines: RecipeLin
   return { ...buildIndex(ingredients, preps, lines), items: new Map(items.map((m) => [m.id, m])) };
 }
 
-describe("ingredients feed only the proposal and the review prompt", () => {
-  const ingredients = [ing("i-bun", "Brioche Bun", ["gluten", "milk"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", [], false)];
-  // signed off with the components the dish is made from, so the sign-off is valid (lib/dish-allergens.ts)
-  const m = item({ dish_allergens: { contains: ["gluten"], without: {}, confirmed_at: NOW, components: ["ingredient:i-bun", "ingredient:i-mayo", "ingredient:i-prawn"] } });
-  const index = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn"), line("l3", "m1", "i-mayo")]);
-  // the same three components, but none of them lists an allergen any more
-  const plainIngredients = [ing("i-bun", "Brioche Bun", []), ing("i-prawn", "Prawns", []), ing("i-mayo", "Mayo", [])];
-  const plainIndex = indexFor([m], plainIngredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn"), line("l3", "m1", "i-mayo")]);
-  const r = rollup({ kind: "item", id: "m1" }, index);
+describe("the matrix reads the confirmed section, and the ingredients only decide whether the sign-off still counts", () => {
+  const ingredients = [ing("i-bun", "Brioche Bun", ["gluten", "milk"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", ["egg"])];
+  const lines = [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn"), line("l3", "m1", "i-mayo")];
+  const plain = item();
+  const base = indexFor([plain], ingredients, lines);
+  // confirm exactly what the ingredients give today
+  const check = dishCheck(plain, base);
+  const m = item({ dish_allergens: confirmAllergens(null, "chef@example.com", NOW, { derived: check.derived, components: check.live.components, ticks: check.live.ticks }) });
+  const index = indexFor([m], ingredients, lines);
 
-  it("Start From Ingredients proposes what the roll-up lists, and marks the guesses", () => {
-    const p = proposeContains(r);
-    expect(p.ids).toEqual(["gluten", "crustacea", "egg", "milk"]); // the fixed badge order
-    expect(p.suggestedOnly).toContain("egg"); // Mayo is unreviewed and the name suggests egg
-    expect(p.suggestedOnly).not.toContain("gluten");
+  it("works the dish's allergens out from the ingredients' confirmed ticks", () => {
+    expect(check.derived).toEqual(["gluten", "crustacea", "egg", "milk"]); // the fixed order
+    expect(check.blocked).toBe(false);
   });
-  it("the review prompt lists confirmed ticks the dish section lacks, and ignores keyword guesses", () => {
-    const da = readDishAllergens(m.dish_allergens);
-    expect(reviewMissing(da, r)).toEqual(["crustacea", "milk"]);
-    expect(reviewMissing(null, r)).toEqual([]);
-    expect(reviewWarningText(["milk"])).toBe("Ingredients have changed since this was confirmed. They now list Milk, which is not ticked above. Check it and confirm again.");
-    expect(reviewWarningText([])).toBe("");
+  it("a valid sign-off shows the answers the ingredients gave when it was confirmed", () => {
+    const row = buildRow(matrixDishFromItem(m, index));
+    expect(row.signOff).toBe("valid");
+    expect(row.confirmed).toBe(true);
+    expect(row.cells.dairy.state).toBe("red");
+    expect(row.cells.seafood.state).toBe("red");
+    expect(row.cells.gluten_free.state).toBe("red");
+    expect(row.cells.chilli.state).toBe("green");
   });
-  it("the matrix cells ignore the ingredients' allergens completely: same dish section, same components, different allergen data, same cells", () => {
-    const a = buildRow(matrixDishFromItem(m, index)).cells;
-    const b = buildRow(matrixDishFromItem(m, plainIndex)).cells;
-    expect(a).toEqual(b);
-    expect(a.dairy.state).toBe("green"); // the bun has milk in its ingredients, but the dish section does not list it
-    expect(a.seafood.state).toBe("green");
-    expect(a.gluten_free.state).toBe("red");
-  });
-  it("an ingredient's allergens changing flags the dish for review and still changes no cell", () => {
-    const a = matrixDishFromItem(m, index);
-    const b = matrixDishFromItem(m, plainIndex);
-    expect(a.needsReview).toBe(true);
-    expect(b.needsReview).toBe(false);
-    expect(buildRow(a).cells).toEqual(buildRow(b).cells);
-  });
-  it("swapping an ingredient is different: the sign-off stops counting and every allergen cell reads Not checked", () => {
-    const swapped = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn")]); // Mayo removed
-    const dish = matrixDishFromItem(m, swapped);
+  it("changing an ingredient's allergen ticks greys every allergen cell: the sign-off stops counting", () => {
+    const dropped = indexFor([m], [ing("i-bun", "Brioche Bun", ["gluten"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", ["egg"])], lines);
+    const dish = matrixDishFromItem(m, dropped);
     expect(dish.signOff).toBe("changed");
     const row = buildRow(dish);
     expect(row.confirmed).toBe(false);
     expect(row.cells.dairy.state).toBe("grey");
     expect(row.cells.seafood.state).toBe("grey");
   });
-  it("a dish nobody has signed off is not even checked against its ingredients", () => {
-    expect(matrixDishFromItem(item({ dish_allergens: { contains: [] } }), index).needsReview).toBe(false);
+  it("an ingredient's reviewed flag flipping also stops the sign-off counting", () => {
+    const unreviewed = indexFor([m], [ing("i-bun", "Brioche Bun", ["gluten", "milk"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", ["egg"], false)], lines);
+    expect(matrixDishFromItem(m, unreviewed).signOff).toBe("changed");
+  });
+  it("swapping an ingredient is different too: every allergen cell reads Not checked", () => {
+    const swapped = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn")]); // Mayo removed
+    const dish = matrixDishFromItem(m, swapped);
+    expect(dish.signOff).toBe("changed");
+    expect(buildRow(dish).cells.dairy.state).toBe("grey");
+  });
+  it("the dish's own allergen override counts as a tick: changing it re-checks the dish", () => {
+    const overridden = { ...m, allergen_add: ["lupin"] } as MenuItem;
+    expect(matrixDishFromItem(overridden, indexFor([overridden], ingredients, lines)).signOff).toBe("changed");
+  });
+  it("a dish nobody has signed off reads Not checked, whatever its ingredients say", () => {
+    const row = buildRow(matrixDishFromItem(item({ dish_allergens: { contains: [] } }), index));
+    expect(row.signOff).toBe("never");
+    expect(row.cells.dairy.state).toBe("grey");
+  });
+  it("liveCheck is what the matrix compares: components plus a ticks snapshot with the dish's own entry", () => {
+    const live = liveCheck(m, index);
+    expect(live.components).toEqual(["ingredient:i-bun", "ingredient:i-mayo", "ingredient:i-prawn"]);
+    expect(Object.keys(live.ticks).sort()).toEqual(["ingredient:i-bun", "ingredient:i-mayo", "ingredient:i-prawn", "item:m1"]);
   });
 });
 
@@ -464,13 +485,11 @@ describe("the matrix modules never derive a cell from ingredients or keyword gue
       for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/allergens"/g)) for (const name of m[1].replace(/type /g, "").split(",").map((x) => x.trim()).filter(Boolean)) expect(["allergenLabel", "AllergenId"], `${f} imports ${name}`).toContain(name);
     }
   });
-  it("the roll-up is used only where the plan allows: the store adapter (review prompt) and the editor panel (proposal)", () => {
-    const users = ["lib/allergy-matrix-store.ts", "components/editor/dish-allergens.tsx", "components/matrix/matrix-page.tsx", "components/matrix/parts.tsx", "components/matrix/print-view.tsx", "components/matrix/todo-page.tsx", "components/matrix/printed.tsx", "components/kitchen/matrix.tsx", "lib/matrix-prints.ts", "lib/matrix-todo.ts"].filter((f) => /\brollup\b|useBadgeModel/.test(read(f)));
-    expect(users.sort()).toEqual(["components/editor/dish-allergens.tsx", "lib/allergy-matrix-store.ts"]);
-    // in the store adapter the roll-up result only ever reaches reviewMissing
-    const store = read("lib/allergy-matrix-store.ts");
-    expect(store.match(/rollup\(/g)).toHaveLength(1);
-    expect(store).toMatch(/reviewMissing\(allergens, rollup\(/);
+  it("the roll-up is worked out in one place (lib/dish-allergens.ts); no matrix screen, print or adapter calls it", () => {
+    const users = ["lib/allergy-matrix-store.ts", "components/matrix/matrix-page.tsx", "components/matrix/parts.tsx", "components/matrix/print-view.tsx", "components/matrix/printed.tsx", "components/kitchen/matrix.tsx", "lib/matrix-prints.ts"].filter((f) => /\brollup\(|useBadgeModel|dishCheck/.test(read(f)));
+    expect(users).toEqual([]);
+    // the adapter only compares components and ticks to decide whether a sign-off still counts
+    expect(read("lib/allergy-matrix-store.ts")).toMatch(/liveCheck\(item, index\)/);
   });
   it("there is no override: no component writes a cell, and the matrix screens never write to the database", () => {
     for (const f of ["components/matrix/matrix-page.tsx", "components/matrix/parts.tsx", "components/matrix/print-view.tsx", "components/kitchen/matrix.tsx"]) {
@@ -514,19 +533,19 @@ describe("option wording from the costing app's data", () => {
 describe("dish_allergens travels like any other column", () => {
   const base = item({ dish_allergens: { contains: ["milk"], without: {}, confirmed_at: NOW, confirmed_by: "a@b.c" } });
   it("a change is a change (patchOf) and is labelled", () => {
-    const mine = { ...base, dish_allergens: toggleAllergen(base.dish_allergens, "egg", true).next };
+    const mine = { ...base, dish_allergens: addExtra(base.dish_allergens, "egg", []).next };
     expect(Object.keys(patchOf(base, mine))).toEqual(["dish_allergens"]);
     expect(fieldLabel("dish_allergens")).toBe("Dish Allergens");
   });
   it("tap order never makes a change: the same set in a different order is the same", () => {
-    const a = toggleAllergen(toggleAllergen(null, "milk", true).next, "egg", true).next;
-    const b = toggleAllergen(toggleAllergen(null, "egg", true).next, "milk", true).next;
+    const a = addExtra(addExtra(null, "milk", []).next, "egg", []).next;
+    const b = addExtra(addExtra(null, "egg", []).next, "milk", []).next;
     expect(patchOf(item({ dish_allergens: a }), item({ dish_allergens: b }))).toEqual({});
   });
   it("two people changing it differently is a clash; one changing it is merged", () => {
     const run = (mine: unknown, theirs: unknown) => threeWay<MenuItem>({ base, mine: { ...base, dish_allergens: mine as MenuItem["dish_allergens"] }, theirs: { ...base, dish_allergens: theirs as MenuItem["dish_allergens"] }, baseLines: [], mineLines: [], theirsLines: [] });
-    const mineEdit = toggleAllergen(base.dish_allergens, "egg", true).next;
-    const theirEdit = toggleAllergen(base.dish_allergens, "fish", true).next;
+    const mineEdit = addExtra(base.dish_allergens, "egg", []).next;
+    const theirEdit = addExtra(base.dish_allergens, "fish", []).next;
     const clash = run(mineEdit, theirEdit);
     expect(clash.conflicts).toHaveLength(1);
     expect(clash.conflicts[0]).toMatchObject({ kind: "field", label: "Dish Allergens" });

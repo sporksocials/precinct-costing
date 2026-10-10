@@ -25,7 +25,7 @@ const read = (p: string) => readFileSync(p, "utf8");
 
 function dish(id: string, name: string, over: { contains?: string[]; without?: Record<string, string>; signed?: boolean; marks?: string[]; options?: Record<string, string>; section?: string | null } = {}): MatrixDish {
   const { contains = [], without = {}, signed = true, marks = [], options = {}, section = "Mains" } = over;
-  return { id, name, section, allergens: { contains: contains as never, without: without as never, confirmedAt: signed ? NOW : null, confirmedBy: null, components: null, needsSignoff: false }, signOff: signed ? "valid" : "never", marks: marks as never, options: options as never };
+  return { id, name, section, allergens: { contains: contains as never, without: without as never, confirmedAt: signed ? NOW : null, confirmedBy: null, added: [], basis: null, components: null, ticks: null, needsSignoff: false }, signOff: signed ? "valid" : "never", marks: marks as never, options: options as never };
 }
 
 describe("multi-select Guest Needs on the kitchen iPad", () => {
@@ -180,13 +180,20 @@ describe("the kitchen feed never carries a price, a surcharge or who signed", ()
   });
 });
 
-describe("ingredients stay a prompt in round two too", () => {
-  it("review mode and the To Do hub never work a cell out from the roll-up: the pure modules do not call it, the page uses it for the proposal only", () => {
+describe("ingredient first in round two: the allergens are worked out in one place", () => {
+  it("review mode, the To Do hub, the print log, the re-check helpers and the checklist never call the roll-up themselves; the page asks dishCheck", () => {
     for (const f of ["lib/matrix-review.ts", "lib/matrix-todo.ts", "lib/matrix-prints.ts", "lib/allergy-recheck.ts", "lib/finish-setup.ts"]) expect(read(f), f).not.toMatch(/\brollup\(|suggestAllergens|ingredientAllergenState/);
     const page = read("components/matrix/review-page.tsx");
-    expect(page.match(/rollup\(/g)).toHaveLength(2); // the initial proposal and the hints
-    expect(page).toMatch(/initialReviewDraft\(item, rollup\(/);
-    expect(read("lib/matrix-review.ts")).toMatch(/proposeContains\(rollup\)/);
+    expect(page).not.toMatch(/\brollup\(/);
+    expect(page).toMatch(/dishCheck\(item, idx\)/);
+    // the chips on the review page are read only: there is no way to tick a derived allergen
+    expect(page).not.toMatch(/toggleReviewAllergen|stillSuggested|proposeContains/);
+    expect(read("lib/dish-allergens.ts").match(/\brollup\(/g)).toHaveLength(1);
+  });
+  it("a dish with an unreviewed ingredient cannot be confirmed on the page or in the editor", () => {
+    expect(read("components/matrix/review-page.tsx")).toMatch(/disabled=\{busy \|\| !item \|\| !draft \|\| !check \|\| check\.blocked\}/);
+    expect(read("components/editor/dish-allergens.tsx")).toMatch(/disabled=\{!ready \|\| check\.blocked\}/);
+    expect(read("components/editor/dish-allergens.tsx")).toContain("Check These Ingredients");
   });
 });
 

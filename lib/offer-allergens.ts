@@ -17,7 +17,7 @@ export function offerAllergenBlockers(lines: readonly Pick<OfferLine, "item_id">
     const item = l.item_id ? byId.get(l.item_id) : undefined;
     if (!item || item.category !== "Food" || seen.has(item.id)) continue;
     seen.add(item.id);
-    if (matrixDishFromItem(item, index, { review: false }).signOff !== "valid") out.push(item.name);
+    if (matrixDishFromItem(item, index).signOff !== "valid") out.push(item.name);
   }
   return out;
 }

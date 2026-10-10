@@ -235,7 +235,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         if (opts.settle) toast.show({ message: opts.settle.choice === "mine" ? "Saved with your version" : `Saved with ${whoOf(outcome.theirs)}’s version` });
         else if (outcome.theirs.changed) toast.show({ message: mergedToast(whoOf(outcome.theirs), outcome.theirs.updatedAt) }, 7000);
         // the post-save nudge: a signed-off food dish whose ingredients changed no longer counts as confirmed
-        if (kind === "item" && (outcome.record as MenuItem).category === "Food" && lostSignOff({ dish_allergens: (b.draft as MenuItem).dish_allergens, lines: b.lines }, { dish_allergens: (outcome.record as MenuItem).dish_allergens, lines: outcome.lines }, id, s.index.linesByParent)) {
+        if (kind === "item" && (outcome.record as MenuItem).category === "Food" && lostSignOff({ item: b.draft as MenuItem, lines: b.lines }, { item: outcome.record as MenuItem, lines: outcome.lines }, s.index)) {
           toast.show({ message: NUDGE_TEXT, action: { label: "Open Allergens", onClick: () => scrollToSection(DISH_ALLERGENS_ID) } }, 12000);
         }
         return { status: "saved" };
@@ -276,7 +276,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const gateImpact = useCallback((): Promise<boolean> => {
     if (kind !== "prep") return Promise.resolve(true);
     const s = storeRef.current;
-    const dishes = prepSaveImpact(id, s.items, s.index.linesByParent, baseRef.current.lines, linesRef.current.filter((l) => l.component_id));
+    const dishes = prepSaveImpact(id, s.items, s.index, baseRef.current.lines, linesRef.current.filter((l) => l.component_id), draftRef.current as Prep);
     if (!dishes) return Promise.resolve(true);
     return new Promise<boolean>((resolve) => setImpactAsk({ names: dishes.map((d) => d.name), resolve }));
   }, [kind, id]);
@@ -471,12 +471,13 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   // food dishes: where the allergen sign-off stands (valid, or ingredients changed since), the Finish Setting Up checklist, and the new-dish lock on Active
   const isFood = !!item && item.category === "Food";
   const dishSign = useDishSignOff(isFood ? item : null, lines);
+  const unreviewedCount = dishSign.check?.unreviewed.length ?? 0;
   const setup = useMemo(
     () =>
       isFood && item
-        ? setupModel({ lineCount: lines.filter((l) => l.component_id).length, signOff: dishSign.state, dietOptions: item.diet_options, kitchenMethod: item.kitchen_method, kitchenReady: item.kitchen_ready })
+        ? setupModel({ lineCount: lines.filter((l) => l.component_id).length, signOff: dishSign.state, unreviewed: unreviewedCount, dietOptions: item.diet_options, kitchenMethod: item.kitchen_method, kitchenReady: item.kitchen_ready })
         : null,
-    [isFood, item, lines, dishSign.state],
+    [isFood, item, lines, dishSign.state, unreviewedCount],
   );
   const activeLock = isFood ? activeLockedReason(dishSign.da, dishSign.state) : null;
   const prepYield = prep ? Number(prep.yield_qty) || 0 : 0;

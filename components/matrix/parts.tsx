@@ -76,11 +76,6 @@ export function RowStatus({ row }: { row: MatrixRow }) {
       ) : (
         <span className="font-semibold text-warn">Not confirmed</span>
       )}
-      {row.needsReview ? (
-        <span className="inline-flex items-center gap-1 font-semibold text-warn">
-          <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.75} /> Check ingredients
-        </span>
-      ) : null}
       {row.warnings.length ? (
         <span className="inline-flex items-center gap-1 font-semibold text-warn" title={row.warnings.join(" ")}>
           <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.75} /> Marks disagree

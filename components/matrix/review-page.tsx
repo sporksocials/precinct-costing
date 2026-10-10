@@ -3,23 +3,24 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, ChevronLeft, CircleCheck, ExternalLink, TriangleAlert } from "lucide-react";
-import { allergenLabel, rollup, type AllergenId } from "@/lib/allergens";
-import { HintList } from "@/components/editor/dish-allergens";
+import { ChevronLeft, CircleCheck, ExternalLink, TriangleAlert } from "lucide-react";
+import { AddAllergen, BlockerNotice, ContainsChips, SourceList, WithoutField } from "@/components/editor/dish-allergens";
 import { DIET_MARKS, dietMarkDef, type DietMarkId } from "@/lib/diet-legend";
-import { DISH_ALLERGEN_IDS, NOTE_MAX, readDishAllergens } from "@/lib/dish-allergens";
+import { CHECK_ALL_INGREDIENTS_HREF, dishCheck, readDishAllergens, signOffState, sourceLines, staleSignOffText } from "@/lib/dish-allergens";
+import { dateWithYear } from "@/lib/record-created";
 import { parentKey } from "@/lib/costing";
-import { allTodos } from "@/lib/matrix-todo";
+import { allTodos, waitingText } from "@/lib/matrix-todo";
 import {
   REVIEW_CHANGED_TEXT,
   REVIEW_GONE_TEXT,
+  REVIEW_UNREVIEWED_TEXT,
   confirmPatch,
   initialReviewDraft,
   progressText,
+  reviewContains,
   reviewQueue,
   setReviewNote,
-  stillSuggested,
-  toggleReviewAllergen,
+  toggleReviewExtra,
   toggleReviewMark,
   venueBreak,
   type ReviewDraft,
@@ -34,11 +35,13 @@ import { useVenue } from "../venue";
 type Phase = { kind: "dish" } | { kind: "break"; done: string; next: string; count: number } | { kind: "finished" };
 
 /**
- * Review mode (Troy, 10 Oct 2026): steps through the dishes that need allergen approval, one at a time, on a phone, an iPad or a
- * desktop. Shows the dish and its ingredients (names only), the allergen chips pre-filled from the ingredient proposal and marked
- * "Suggested: check every one" until a person taps anything, the can-be-made-without notes, the three marks and a link to the
- * editor for options. Confirm And Next writes the dish's allergens section (with the sign-off and its components) after re-reading
- * the dish from the database; if the dish changed underneath, nothing is written and the person is told to reload it. With every
+ * Review mode (Troy, 10 Oct 2026): steps through the dishes that need allergen approval and can be confirmed now (every ingredient
+ * reviewed), one at a time, on a phone, an iPad or a desktop. Ingredient first: shows the dish and its ingredients (names only), the
+ * allergens the ingredients give as read-only chips with where each comes from, an Add An Allergen control for extras, the
+ * can-be-made-without notes, the three marks and a link to the editor for options. A dish that has an unreviewed ingredient shows
+ * why and links to the ingredient review instead of letting it be confirmed. Confirm And Next accepts the computed result and writes
+ * the dish's allergens section (with the sign-off, its components and the ticks snapshot) after re-reading the dish and its
+ * ingredients from the database; if anything changed underneath, nothing is written and the person is told to reload it. With every
  * venue chosen it works through them one after another and offers the next when one is finished.
  */
 export function MatrixReviewPage() {
@@ -51,9 +54,14 @@ export function MatrixReviewPage() {
 
   // the queue is fixed when the page opens, so confirming a dish never moves the one you are on
   const [queue, setQueue] = useState<ReviewItem[] | null>(null);
+  // dishes that need approval but wait on ingredients nobody has reviewed (not in the queue: they cannot be confirmed here)
+  const [waiting, setWaiting] = useState<{ dishes: number; ingredients: number }>({ dishes: 0, ingredients: 0 });
   useEffect(() => {
     if (queue || !store.ready) return;
-    setQueue(reviewQueue(allTodos(store.venues, store.items, idx, null), { venueId: venue?.id ?? null, section }));
+    const todos = allTodos(store.venues, store.items, idx, null);
+    const mine = todos.filter((t) => venue?.id == null || t.venue.id === venue.id);
+    setWaiting({ dishes: mine.reduce((n, t) => n + t.blocked.length, 0), ingredients: new Set(mine.flatMap((t) => t.blockedIngredients.map((u) => u.id))).size });
+    setQueue(reviewQueue(todos, { venueId: venue?.id ?? null, section }));
   }, [queue, store.ready, store.venues, store.items, idx, venue?.id, section]);
 
   const [i, setI] = useState(0);
@@ -67,11 +75,12 @@ export function MatrixReviewPage() {
 
   const cur = queue?.[i] ?? null;
   const item: MenuItem | null = cur ? store.items.find((x) => x.id === cur.dishId) ?? null : null;
+  // what the ingredients give for this dish right now (never ticked by hand)
+  const check = useMemo(() => (item ? dishCheck(item, idx) : null), [item, idx]);
   const draft: ReviewDraft | null = useMemo(() => {
-    if (!cur || !item) return null;
-    return drafts[cur.dishId] ?? initialReviewDraft(item, rollup({ kind: "item", id: item.id }, idx));
-  }, [cur, item, drafts, idx]);
-  const r = useMemo(() => (item ? rollup({ kind: "item", id: item.id }, idx) : null), [item, idx]);
+    if (!cur || !item || !check) return null;
+    return drafts[cur.dishId] ?? initialReviewDraft(item, check.derived);
+  }, [cur, item, check, drafts]);
   const ingredientNames = useMemo(() => {
     if (!item) return [];
     return (store.index.linesByParent.get(parentKey("item", item.id)) ?? [])
@@ -115,11 +124,15 @@ export function MatrixReviewPage() {
     setProblem(null);
     try {
       const own = (store.index.linesByParent.get(parentKey("item", item.id)) ?? []).filter((l) => l.component_id).map((l) => `${l.component_type}:${l.component_id}`);
-      const verdict = await store.confirmDish(item.id, { updatedAt: item.updated_at ?? null, ownComponents: own }, (components) =>
-        confirmPatch({ item, draft, email: store.userEmail, nowIso: new Date().toISOString(), components }),
+      if (!check || check.blocked) return;
+      const verdict = await store.confirmDish(item.id, { updatedAt: item.updated_at ?? null, ownComponents: own, derived: check.derived, ticks: check.live.ticks }, (fresh, row) =>
+        confirmPatch({ item: row, draft, email: store.userEmail, nowIso: new Date().toISOString(), check: fresh }),
       );
       if (!verdict.ok) {
-        setProblem({ text: verdict.reason === "gone" ? REVIEW_GONE_TEXT : REVIEW_CHANGED_TEXT, reload: verdict.reason === "changed" });
+        setProblem({
+          text: verdict.reason === "gone" ? REVIEW_GONE_TEXT : verdict.reason === "unreviewed" ? REVIEW_UNREVIEWED_TEXT : REVIEW_CHANGED_TEXT,
+          reload: verdict.reason !== "gone",
+        });
         return;
       }
       setConfirmed((s) => new Set(s).add(cur.dishId));
@@ -152,7 +165,15 @@ export function MatrixReviewPage() {
     return (
       <div>
         <ReviewBack href={backHref} />
-        <Empty title="Nothing To Review" body="Every dish here is confirmed. Check the To Do list for anything else." action={<Link href={backHref} className="btn-primary">Back To To Do</Link>} />
+        {waiting.dishes > 0 ? (
+          <Empty
+            title="Waiting On Ingredients"
+            body={`${waiting.dishes} ${waiting.dishes === 1 ? "dish needs" : "dishes need"} approval but ${waiting.dishes === 1 ? "has" : "have"} ingredients nobody has checked yet (${waitingText(waiting.dishes, waiting.ingredients)}). Check the ingredients first, then come back.`}
+            action={<Link href={CHECK_ALL_INGREDIENTS_HREF} className="btn-primary">Check Ingredients</Link>}
+          />
+        ) : (
+          <Empty title="Nothing To Review" body="Every dish here is confirmed. Check the To Do list for anything else." action={<Link href={backHref} className="btn-primary">Back To To Do</Link>} />
+        )}
       </div>
     );
 
@@ -202,8 +223,10 @@ export function MatrixReviewPage() {
     );
   }
 
-  const suggested = draft ? stillSuggested(draft) : [];
   const total = queue.length;
+  const contains = draft && check ? reviewContains(draft, check.derived) : [];
+  const da = item ? readDishAllergens(item.dish_allergens) : null;
+  const stale = item && check && da?.confirmedAt ? staleSignOffText(signOffState(da, check.live), dateWithYear(da.confirmedAt)) : null;
 
   return (
     <div ref={top} className="mx-auto max-w-2xl scroll-mt-2">
@@ -217,7 +240,7 @@ export function MatrixReviewPage() {
         </div>
       </div>
 
-      {!item || !draft || !r ? (
+      {!item || !draft || !check ? (
         <div className="py-10 text-center">
           <p className="text-[17px] font-semibold">This Dish Is No Longer There</p>
           <p className="mt-1 text-[15px] text-label-2">It was removed or switched off. Skip it.</p>
@@ -226,10 +249,10 @@ export function MatrixReviewPage() {
         <>
           <h1 className="mt-4 text-[28px] font-bold leading-tight tracking-tight">{item.name}</h1>
           <p className="mt-0.5 text-[15px] text-label-2">{cur!.section}</p>
-          {readDishAllergens(item.dish_allergens)?.confirmedAt ? (
+          {stale ? (
             <p className="mt-2 flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn">
               <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
-              Ingredients changed since this dish was signed off. Check every allergen again.
+              {stale}
             </p>
           ) : null}
 
@@ -253,46 +276,26 @@ export function MatrixReviewPage() {
 
           <section className="mt-5 rounded-2xl border border-[color:var(--separator)] bg-accent-soft px-4 py-4" aria-label="Allergens">
             <h2 className="text-[17px] font-semibold">Contains</h2>
-            {suggested.length ? (
-              <p className="mt-1 flex items-start gap-2 text-[13px] font-medium text-warn" role="status">
-                <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
-                Suggested: check every one. These were filled in from the ingredients and from the dish’s old list. Tap anything to start your check.
-              </p>
-            ) : (
-              <p className="mt-1 text-[13px] text-label-2">Tick everything the menu says this dish contains.</p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Allergens this dish contains">
-              {DISH_ALLERGEN_IDS.map((id) => {
-                const on = draft.contains.includes(id);
-                const guess = !draft.touched && on;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => patchDraft((d) => toggleReviewAllergen(d, id))}
-                    className={cx(
-                      "inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-[15px] font-medium transition-[background-color,color,transform] duration-200 ease-ios active:scale-[0.97]",
-                      on ? (guess ? "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn" : "bg-accent-fill text-accent-on") : "bg-fill text-label hover:bg-fill-2",
-                    )}
-                  >
-                    {on ? <Check aria-hidden className="h-4 w-4" strokeWidth={3} /> : null}
-                    {allergenLabel(id)}
-                    {guess ? <span className="text-[12px] font-semibold">Suggested</span> : null}
-                  </button>
-                );
-              })}
+            <p className="mt-1 text-[13px] text-label-2">Worked out from the ingredients. Check it against the menu, then confirm.</p>
+            <div className="mt-3">
+              <BlockerNotice check={check} dishId={item.id} />
             </div>
-            <HintList r={r} />
+            <div className="mt-3">
+              <ContainsChips contains={contains} added={draft.added} blocked={check.blocked} onRemoveExtra={(id) => patchDraft((d) => toggleReviewExtra(d, id, check.derived))} />
+              <SourceList lines={sourceLines(check.r, check.derived, draft.added)} />
+            </div>
+            <div className="mt-2">
+              <AddAllergen contained={contains} onAdd={(id) => patchDraft((d) => toggleReviewExtra(d, id, check.derived))} />
+            </div>
 
-            {draft.contains.length ? (
-              <div className="mt-5">
+            {contains.length ? (
+              <div className="mt-4">
                 <h3 className="text-[13px] font-medium text-label-2">Can Be Made Without</h3>
                 <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how. Leave it blank if it cannot.</p>
                 <ul className="divide-y divide-[color:var(--separator)]">
-                  {draft.contains.map((id) => (
+                  {contains.map((id) => (
                     <li key={id} className="py-2.5">
-                      <NoteField key={`${item.id}-${id}`} id={id} value={draft.without[id] ?? ""} onCommit={(t) => patchDraft((d) => setReviewNote(d, id, t))} />
+                      <WithoutField key={`${item.id}-${id}`} id={id} value={draft.without[id] ?? ""} onCommit={(t) => patchDraft((d) => setReviewNote(d, id, t, check.derived))} />
                     </li>
                   ))}
                 </ul>
@@ -344,7 +347,7 @@ export function MatrixReviewPage() {
           <button type="button" className="btn-plain !min-h-[48px] !px-4" onClick={skip} disabled={busy}>
             Skip
           </button>
-          <button type="button" className="btn-primary !min-h-[48px] min-w-0 flex-1" onClick={() => void confirm()} disabled={busy || !item || !draft}>
+          <button type="button" className="btn-primary !min-h-[48px] min-w-0 flex-1" onClick={() => void confirm()} disabled={busy || !item || !draft || !check || check.blocked}>
             {busy ? "Saving…" : "Confirm And Next"}
           </button>
         </div>
@@ -374,33 +377,5 @@ function MarkRow({ id, on, onChange }: { id: DietMarkId; on: boolean; onChange: 
         <span className={cx("inline-block h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15),0_1px_1px_rgba(0,0,0,0.16)] transition-transform duration-200 ease-ios", on ? "translate-x-[22px]" : "translate-x-[2px]")} />
       </span>
     </button>
-  );
-}
-
-function NoteField({ id, value, onCommit }: { id: AllergenId; value: string; onCommit: (t: string) => void }) {
-  const [text, setText] = useState(value);
-  const label = allergenLabel(id);
-  return (
-    <label className="block">
-      <span className="block pb-1 text-[15px] font-medium sm:text-[13px]">{label}</span>
-      <input
-        className="field !min-h-[44px]"
-        placeholder="For example: no aioli"
-        aria-label={`${label}: can be made without`}
-        maxLength={NOTE_MAX}
-        value={text}
-        enterKeyHint="done"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          if (text.trim() !== value.trim()) onCommit(text);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-      />
-    </label>
   );
 }

@@ -1,25 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import React, { useMemo, useState } from "react";
-import { Check, TriangleAlert } from "lucide-react";
-import { allergenLabel, withDraft, type AllergenId, type Rollup } from "@/lib/allergens";
+import { Check, Plus, TriangleAlert, X } from "lucide-react";
+import { allergenLabel, withDraft, type AllergenId } from "@/lib/allergens";
 import { sameValue } from "@/lib/draft-changes";
 import {
   DISH_ALLERGEN_IDS,
   NOTE_MAX,
-  applyProposal,
-  chipHintLines,
+  UNREADABLE_TEXT,
+  addExtra,
+  checkIngredientsHref,
   confirmAllergens,
-  currentComponents,
-  proposeContains,
+  dishCheck,
   readDishAllergens,
-  reviewMissing,
-  reviewWarningText,
+  removeExtra,
   setWithoutNote,
   signOffState,
+  sourceLines,
   staleSignOffText,
-  toggleAllergen,
+  unreviewedText,
+  type DishCheck,
   type EditResult,
+  type HintLine,
   type SignOffState,
 } from "@/lib/dish-allergens";
 import { dateWithYear } from "@/lib/record-created";
@@ -27,7 +30,7 @@ import { useStore } from "@/lib/store";
 import type { MenuItem, RecipeLine } from "@/lib/types";
 import { cx, Disclosure, useToast } from "../ui";
 import { usePersonName } from "../use-person-name";
-import { RecipeAllergens, useAllergenIndex, useBadgeModel } from "../allergen-picker";
+import { RecipeAllergens, useAllergenIndex } from "../allergen-picker";
 import { DietOptionsGroup } from "./diet-options";
 import { SAFETY_CARD_ID, SafetyBlock, SafetyCard, SafetyStatus } from "./safety-card";
 
@@ -37,43 +40,41 @@ export const DISH_ALLERGENS_ID = SAFETY_CARD_ID;
 type Sign = ReturnType<typeof useDishSignOff>;
 
 /**
- * Where a food dish's allergen sign-off stands RIGHT NOW in the editor: its own section, the components the draft is made from
- * (through every nested prep), and whether the sign-off is valid, changed since, legacy, or never made. One place, so the panel,
- * the checklist and the Active switch lock always agree (lib/dish-allergens.ts has the rule).
+ * Where a food dish's allergens stand RIGHT NOW in the editor: what the ingredients give (through every nested prep), the ingredients
+ * nobody has reviewed, and whether the sign-off is valid, changed since, legacy, or never made. One place, so the panel, the checklist
+ * and the Active switch lock always agree (lib/dish-allergens.ts has the rules).
  */
 export function useDishSignOff(item: MenuItem | null, lines: RecipeLine[]) {
   const base = useAllergenIndex();
-  const linesByParent = useMemo(() => (item ? withDraft(base, "item", item, lines).linesByParent : base.linesByParent), [base, item, lines]);
-  const components = useMemo(() => (item ? currentComponents("item", item.id, linesByParent) : []), [item, linesByParent]);
+  const idx = useMemo(() => (item ? withDraft(base, "item", item, lines) : base), [base, item, lines]);
+  const check: DishCheck | null = useMemo(() => (item ? dishCheck(item, idx) : null), [item, idx]);
   const da = readDishAllergens(item?.dish_allergens);
-  const state: SignOffState = signOffState(da, components);
-  return { da, components, state };
+  const state: SignOffState = check ? signOffState(da, check.live) : "never";
+  return { da, check, state };
 }
 
 /**
- * Dish Allergens (Troy, 10 Oct 2026): the dish's OWN allergens section, hand-listed by the chef when the dish is built. This is the
- * ONE allergen section on a food dish. The Allergy Matrix (/matrix, the printed sheet and the kitchen iPad) reads only this, the
- * dish's marks and its options. It never works anything out from ingredients, and there is no way to change a cell anywhere but here.
+ * Dish Allergens (ingredient first, Troy, 10 Oct 2026): a food dish's allergens are WORKED OUT from its ingredients (through every nested
+ * prep) and shown here read only. Nobody ticks them on the dish: to change one, fix the ingredient. A person CONFIRMS the result, which
+ * stamps the sign-off with a snapshot of the ingredients' ticks, so any later change to a component or a tick turns the dish back to Not
+ * Checked ("Ingredients changed since <date>. Re-check and confirm again."). The only edits here are an extra allergen the ingredients do
+ * not show (cross-contact, the menu says it contains it) and the Can Be Made Without notes. A dish with an ingredient nobody has reviewed
+ * cannot be confirmed: the panel names them and links to the ingredient review.
  *
- * Edits go through the recipe editor's draft (manual Save, leave guard, conflict check) like every other field. Any edit to the
- * ticks or a "can be made without" note after the dish was confirmed takes the confirmation away, in the draft, and says so.
- * A sign-off also stops counting when the dish's ingredients change (swap, add, remove, anywhere in the nesting): the panel then
- * says "Ingredients changed since <date>. Re-check and confirm again." and the dish reads Not Checked until it is confirmed again.
- * Ingredients are used only as hints and prompts: the faint "from: Soy Sauce" line under a chip, Start From Ingredients (fills the
- * ticks as a proposal the chef then edits) and the quiet "Ingredients have changed" line. None of them can change the matrix.
- * Below the panel, "What The Ingredients Say" keeps the worked-out roll-up as a collapsed read-only reference.
+ * Edits go through the recipe editor's draft (manual Save, leave guard, conflict check) like every other field, and take any earlier
+ * confirmation away in the draft, with a toast saying so. The Allergy Matrix (/matrix, the print and the kitchen iPad) reads only what
+ * is confirmed. Below the card, "What The Ingredients Say" keeps the full worked-out roll-up as a collapsed read-only reference.
  */
-function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuItem; saved: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void; sign: Sign }) {
+function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; saved: MenuItem; onPatch: (p: Partial<MenuItem>) => void; sign: Sign }) {
   const store = useStore();
   const toast = useToast();
   const ready = "dish_allergens" in item || "dish_allergens" in saved;
-  const { r } = useBadgeModel("item", item, lines);
-  const { da, components, state } = sign;
+  const { da, check, state } = sign;
   const confirmed = state === "valid";
   // the sign-off was taken away by an edit in this visit (so the panel can say why it reads Not confirmed)
   const [cleared, setCleared] = useState(false);
-  const missing = confirmed ? reviewMissing(da, r) : [];
   const dirty = !sameValue(item.dish_allergens ?? null, saved.dish_allergens ?? null);
+  if (!check) return null;
 
   const write = (res: EditResult) => {
     onPatch({ dish_allergens: res.next });
@@ -83,33 +84,22 @@ function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuI
     }
   };
 
-  const startFromIngredients = () => {
-    const prop = proposeContains(r);
-    const before = item.dish_allergens ?? null;
-    if (!prop.ids.length) {
-      toast.show({ message: "The ingredients list no allergens yet. Tick them below if the dish has any." });
-      return;
-    }
-    write(applyProposal(before, prop.ids));
-    toast.show({
-      message: prop.suggestedOnly.length
-        ? `Filled in ${prop.ids.length} from the ingredients. ${prop.suggestedOnly.length} ${prop.suggestedOnly.length === 1 ? "is" : "are"} only a guess from the name. Check them.`
-        : `Filled in ${prop.ids.length} from the ingredients. Check them, then confirm.`,
-      action: { label: "Undo", onClick: () => onPatch({ dish_allergens: before }) },
-    });
-  };
-
   const confirm = () => {
-    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString(), components) });
+    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString(), { derived: check.derived, components: check.live.components, ticks: check.live.ticks }) });
     setCleared(false);
     toast.show({ message: "Confirmed. Save to put it on the matrix." });
   };
 
   const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
   const stale = staleSignOffText(state, signedOn);
+  const sources = sourceLines(check.r, check.derived, check.added);
 
   return (
-    <SafetyBlock title="Dish Allergens" explain="What the menu says this dish contains. Signed off by a person." footer="Listed by hand when the dish is built, as the menu describes it. The Allergy Matrix reads this and nothing else, so the matrix never guesses from the ingredients.">
+    <SafetyBlock
+      title="Dish Allergens"
+      explain="Worked out from the ingredients. Signed off by a person."
+      footer="Allergens are ticked on ingredients, never on the dish. To change one, fix the ingredient. The Allergy Matrix reads what is confirmed here and nothing else."
+    >
       <div className="space-y-5 px-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">Dish allergens can’t be saved until the database has its dish allergens update.</p> : null}
 
@@ -125,52 +115,42 @@ function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuI
           {confirmed ? (dirty ? "Save to keep this on the matrix." : "This dish shows its real answers on the matrix.") : "Until it is confirmed, this dish shows Not Checked on the matrix."}
         </p>
 
-        {missing.length ? (
-          <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn" role="status">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
-            <span>{reviewWarningText(missing)}</span>
-          </p>
-        ) : null}
+        <BlockerNotice check={check} dishId={item.id} />
 
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Contains</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Allergens this dish contains">
-            {DISH_ALLERGEN_IDS.map((id) => {
-              const on = !!da?.contains.includes(id);
-              return <AllergenChip key={id} id={id} on={on} disabled={!ready} onClick={() => write(toggleAllergen(item.dish_allergens, id, !on))} />;
-            })}
-          </div>
-          <HintList r={r} />
+          <ContainsChips contains={check.contains} added={check.added} blocked={check.blocked} disabled={!ready} onRemoveExtra={(id) => write(removeExtra(item.dish_allergens, id, check.derived))} />
+          <SourceList lines={sources} />
         </div>
 
-        {da && da.contains.length ? (
+        <AddAllergen contained={check.contains} disabled={!ready} onAdd={(id) => write(addExtra(item.dish_allergens, id, check.derived))} />
+
+        {check.contains.length ? (
           <div>
             <p className="text-[13px] font-medium text-label-2">Can Be Made Without</p>
             <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how. That cell turns yellow on the matrix with your words in it.</p>
             <ul className="divide-y divide-[color:var(--separator)]">
-              {da.contains.map((id) => (
+              {check.contains.map((id) => (
                 <li key={id} className="py-2.5">
-                  <WithoutField id={id} value={da.without[id] ?? ""} disabled={!ready} onCommit={(t) => write(setWithoutNote(item.dish_allergens, id, t))} />
+                  <WithoutField id={id} value={da?.without[id] ?? ""} disabled={!ready} onCommit={(t) => write(setWithoutNote(item.dish_allergens, id, t, check.derived))} />
                 </li>
               ))}
             </ul>
           </div>
         ) : null}
 
-        {confirmed || !da || da.contains.length === 0 ? null : <p className="text-[13px] text-label-2">Check the ticks above against the menu, then confirm.</p>}
-        {!da?.contains.length && ready ? <p className="text-[13px] text-label-2">Nothing is ticked. Confirming now says this dish contains none of them, and the matrix shows Yes for every allergen.</p> : null}
+        {!confirmed && !check.blocked && !check.contains.length && ready ? (
+          <p className="text-[13px] text-label-2">The ingredients list none of the 15 allergens. Confirming says this dish contains none of them, and the matrix shows Yes for every allergen.</p>
+        ) : null}
+        {!confirmed && !check.blocked && check.contains.length ? <p className="text-[13px] text-label-2">Check the list above against the menu, then confirm.</p> : null}
 
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-plain !min-h-[44px] !px-4 !text-[15px]" disabled={!ready} onClick={startFromIngredients}>
-            Start From Ingredients
-          </button>
-          {!confirmed ? (
-            <button type="button" className="btn-primary !min-h-[44px] !px-4 !text-[15px]" disabled={!ready} onClick={confirm}>
+        {!confirmed ? (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-primary !min-h-[44px] !px-4 !text-[15px]" disabled={!ready || check.blocked} onClick={confirm}>
               {stale ? "Confirm Again" : "Confirm Allergens"}
             </button>
-          ) : null}
-        </div>
-        <p className="text-[13px] text-label-2">Start From Ingredients fills the ticks as a first guess for you to correct. It saves nothing and never confirms. The list under the chips says which ingredients point at an allergen.</p>
+          </div>
+        ) : null}
       </div>
     </SafetyBlock>
   );
@@ -193,10 +173,10 @@ export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: Me
   return (
     <>
       <SafetyCard className="mt-7" status={<SafetyStatus state={state} detail={detail} />}>
-        <DishAllergensBlock item={item} saved={saved} lines={lines} onPatch={onPatch} sign={sign} />
+        <DishAllergensBlock item={item} saved={saved} onPatch={onPatch} sign={sign} />
         <DietOptionsGroup item={item} lines={lines} onPatch={onPatch} card />
       </SafetyCard>
-      <Disclosure title="What The Ingredients Say" hint="Worked out from the ingredients. A reference only: it does not change the matrix.">
+      <Disclosure title="What The Ingredients Say" hint="Everything the ingredients point at, including name guesses nobody has checked. A reference only.">
         <RecipeAllergens kind="item" rec={item} lines={lines} readOnly embedded />
       </Disclosure>
     </>
@@ -204,12 +184,77 @@ export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: Me
 }
 
 /**
- * "Where These Come From": under the chips, one plain line for each allergen the ingredients point at. Ticked = a person ticked it on
- * that ingredient. Name suggests = only the ingredient's name looks like it and nobody has checked. Replaces the faint text that sat
- * under each chip and pushed the chips out of line. Nothing here changes an answer.
+ * Why a dish cannot be confirmed yet: ingredients nobody has reviewed (named, up to six) with a 44px button to the ingredient review, or a
+ * recipe the roll-up cannot read. Nothing when the dish can be confirmed. Used by the dish editor and Review mode.
  */
-export function HintList({ r }: { r: Pick<Rollup, "cells"> }) {
-  const lines = chipHintLines(r, DISH_ALLERGEN_IDS);
+export function BlockerNotice({ check, dishId }: { check: Pick<DishCheck, "unreviewed" | "problems">; dishId: string }) {
+  if (!check.unreviewed.length && !check.problems) return null;
+  return (
+    <div className="rounded-xl bg-warn-soft px-3 py-3 text-warn" role="status">
+      <p className="flex items-start gap-2 text-[13px] font-medium">
+        <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
+        <span>
+          {check.unreviewed.length ? `${unreviewedText(check.unreviewed)}. This dish cannot be confirmed until ${check.unreviewed.length === 1 ? "it is" : "they are"}.` : ""}
+          {check.unreviewed.length && check.problems ? " " : ""}
+          {check.problems ? UNREADABLE_TEXT : ""}
+        </span>
+      </p>
+      {check.unreviewed.length ? (
+        <Link href={checkIngredientsHref(dishId)} className="btn-plain mt-2 !min-h-[44px] !px-4 !text-[15px] !text-label">
+          Check These Ingredients
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The allergens the dish contains, read only: one filled chip for each that the ingredients give, and each extra with an Added tag that
+ * can be tapped off (the only chips that act). Nothing is ticked here. While an ingredient is unreviewed the list may be incomplete and says so.
+ */
+export function ContainsChips({ contains, added, blocked, disabled, onRemoveExtra }: { contains: readonly AllergenId[]; added: readonly AllergenId[]; blocked: boolean; disabled?: boolean; onRemoveExtra?: (id: AllergenId) => void }) {
+  if (!contains.length) {
+    return <p className="text-[15px] text-label-2 sm:text-[13px]">{blocked ? "None found so far. Some ingredients are not checked yet." : "None. The ingredients list none of the 15 allergens."}</p>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2" role="list" aria-label="Allergens this dish contains">
+      {contains.map((id) => {
+        const extra = added.includes(id);
+        if (!extra || !onRemoveExtra) {
+          return (
+            <span key={id} role="listitem" className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-accent-fill px-4 text-[15px] font-medium text-accent-on">
+              <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
+              {allergenLabel(id)}
+              {extra ? <span className="text-[12px] font-semibold opacity-80">Added</span> : null}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={id}
+            type="button"
+            role="listitem"
+            disabled={disabled}
+            onClick={() => onRemoveExtra(id)}
+            aria-label={`Remove ${allergenLabel(id)}, added by hand`}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-accent-fill px-4 text-[15px] font-medium text-accent-on transition-transform duration-200 ease-ios active:scale-[0.97] disabled:opacity-50"
+          >
+            <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
+            {allergenLabel(id)}
+            <span className="text-[12px] font-semibold opacity-80">Added</span>
+            <X aria-hidden className="-mr-1 h-4 w-4 opacity-80" strokeWidth={2.5} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * "Where These Come From": under the chips, one plain line for each allergen the dish contains and what puts it there, such as
+ * "Nitrites · Bacon". The primary list: the allergens are not ticked on the dish, so this is how a person checks them.
+ */
+export function SourceList({ lines }: { lines: readonly HintLine[] }) {
   if (!lines.length) return null;
   return (
     <div className="mt-3 rounded-xl bg-fill px-3 py-2.5">
@@ -227,27 +272,48 @@ export function HintList({ r }: { r: Pick<Rollup, "cells"> }) {
   );
 }
 
-/** A tick chip, 44px at every width: filled with a check when on. */
-function AllergenChip({ id, on, disabled, onClick }: { id: AllergenId; on: boolean; disabled?: boolean; onClick: () => void }) {
+/**
+ * "Add An Allergen": a quiet control for EXTRAS only, an allergen the ingredients do not show (cross-contact, or the menu says the dish
+ * contains it). Closed it is one 44px text button; open it offers the allergens not already on the dish as 44px chips. There is no
+ * way to take a derived allergen off: that needs the ingredient fixed.
+ */
+export function AddAllergen({ contained, disabled, onAdd }: { contained: readonly AllergenId[]; disabled?: boolean; onAdd: (id: AllergenId) => void }) {
+  const [open, setOpen] = useState(false);
+  const options = DISH_ALLERGEN_IDS.filter((id) => !contained.includes(id));
+  if (!options.length) return null;
   return (
-    <button
-      type="button"
-      aria-pressed={on}
-      disabled={disabled}
-      onClick={onClick}
-      className={cx(
-        "inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-[15px] font-medium transition-[background-color,color,transform] duration-200 ease-ios active:scale-[0.97] disabled:opacity-50",
-        on ? "bg-accent-fill text-accent-on" : "bg-fill text-label hover:bg-fill-2",
-      )}
-    >
-      {on ? <Check aria-hidden className="h-4 w-4" strokeWidth={3} /> : null}
-      {allergenLabel(id)}
-    </button>
+    <div>
+      <button type="button" className="btn-text -ml-2 !min-h-[44px] !gap-1.5 !px-2 !text-[15px] !text-accent" aria-expanded={open} disabled={disabled} onClick={() => setOpen((o) => !o)}>
+        <Plus aria-hidden className={cx("h-4 w-4 transition-transform duration-200", open && "rotate-45")} strokeWidth={2.5} />
+        Add An Allergen
+      </button>
+      {open ? (
+        <div className="anim-fade">
+          <p className="pb-2 text-[13px] text-label-2">Only for an allergen the ingredients do not show, such as cross-contact. To take one off, fix the ingredient.</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Add an allergen to this dish">
+            {options.map((id) => (
+              <button
+                key={id}
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  onAdd(id);
+                  setOpen(false);
+                }}
+                className="inline-flex min-h-[44px] items-center rounded-full bg-fill px-4 text-[15px] font-medium text-label transition-[background-color,transform] duration-200 ease-ios hover:bg-fill-2 active:scale-[0.97] disabled:opacity-50"
+              >
+                {allergenLabel(id)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-/** "Can be made without" for one ticked allergen: commits on blur or Enter, like the other inline fields. */
-function WithoutField({ id, value, disabled, onCommit }: { id: AllergenId; value: string; disabled?: boolean; onCommit: (t: string) => void }) {
+/** "Can be made without" for one allergen: commits on blur or Enter, like the other inline fields. */
+export function WithoutField({ id, value, disabled, onCommit }: { id: AllergenId; value: string; disabled?: boolean; onCommit: (t: string) => void }) {
   const [text, setText] = useState(value);
   const [seen, setSeen] = useState(value);
   if (value !== seen) {

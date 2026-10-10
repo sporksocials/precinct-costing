@@ -5,7 +5,7 @@ import type { MenuItem } from "@/lib/types";
 
 const index = { ingredients: new Map(), preps: new Map(), items: new Map(), linesByParent: new Map() } as unknown as AllergenIndex;
 const item = (id: string, name: string, over: Partial<MenuItem> = {}) => ({ id, name, category: "Food", venue_id: 1, active: true, dish_allergens: null, ...over }) as unknown as MenuItem;
-const signed = { contains: [], without: {}, confirmed_at: "2026-10-10T00:00:00Z", confirmed_by: "a@b.c", components: [] };
+const signed = { contains: [], without: {}, confirmed_at: "2026-10-10T00:00:00Z", confirmed_by: "a@b.c", components: [], ticks: { "item:b": { add: [], rem: [] } } }; // valid for the dish "b" with no ingredients
 
 describe("offers follow the new dish allergen rule", () => {
   it("lists food dishes without a valid sign-off, once each, in offer order", () => {

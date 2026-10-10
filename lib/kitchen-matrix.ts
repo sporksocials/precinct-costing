@@ -73,7 +73,7 @@ function parseDish(x: unknown): MatrixDish | null {
   // the sign-off time is kept; who signed is never shown on the iPad, so it is dropped here even if a feed ever sent it.
   // The feed already applied the re-check rule (a sign-off whose ingredients changed arrives with no confirmed_at), so a
   // confirmed_at here IS a valid sign-off. The components list is not read: the iPad never needs it.
-  const allergens = ((da) => (da ? { ...da, confirmedBy: null, components: null, needsSignoff: false } : null))(readDishAllergens(d.dish_allergens));
+  const allergens = ((da) => (da ? { ...da, confirmedBy: null, components: null, ticks: null, basis: null, added: [], needsSignoff: false } : null))(readDishAllergens(d.dish_allergens));
   return {
     id,
     name,

@@ -7,11 +7,12 @@ import { OTHER_LABEL, groupLabel } from "./kitchen";
  * The Allergy Matrix (Troy, 10 Oct 2026): the laminated A4 sheet each kitchen keeps for its dishes, built from the app's data.
  * Pure rules shared by the costing app, the printed sheet and the kitchen iPad. No React, no database, no money.
  *
- * NO GUESSING, NO OVERRIDES. A cell is read ONLY from the dish's own allergens section (lib/dish-allergens.ts), its hand-set
- * marks (GF, V, VG) and its options (GFO, VO, VGO, DFO). Nothing here looks at ingredients, roll-ups or keyword suggestions,
- * and there is no way to override a cell: a chef changes the dish in the recipe editor. `tests/allergy-matrix.test.ts` pins that.
+ * A cell is read ONLY from the dish's own allergens section (lib/dish-allergens.ts), its hand-set marks (GF, V, VG) and its
+ * options (GFO, VO, VGO, DFO). That section holds what the dish's ingredients gave when a person CONFIRMED it (ingredient-first, Troy,
+ * 10 Oct 2026). Nothing here looks at ingredients, roll-ups or keyword suggestions, and there is no way to override a cell on any
+ * matrix screen: the allergens come from the ingredients, the chef confirms them in the recipe editor. `tests/allergy-matrix.test.ts` pins that.
  *
- * "Confirmed" means a VALID sign-off (lib/dish-allergens.ts `signOffState`): a dish whose ingredients changed since it was signed off
+ * "Confirmed" means a VALID sign-off (lib/dish-allergens.ts `signOffState`): a dish whose ingredients (or their allergen ticks) changed since it was signed off
  * reads Not checked until somebody confirms again. The dishes handed to these rules already carry that decision: the
  * sign-off is removed from `allergens` unless it is valid (`effectiveAllergens`), and `signOff` says which case it was.
  *
@@ -101,8 +102,6 @@ export interface MatrixDish {
   marks: readonly DietMarkId[];
   /** each option the dish offers, as its full wording ("Leave out X. Add Y. note"); an empty string = the option exists with no words */
   options: Partial<Record<DietOptionId, string>>;
-  /** staff view only: the ingredients now list an allergen the dish section does not carry (a review prompt, never a cell change) */
-  needsReview?: boolean;
 }
 
 export interface MatrixCell {
@@ -171,7 +170,6 @@ export interface MatrixRow {
   /** valid, changed (ingredients changed since the sign-off), legacy (signed off before tracking) or never */
   signOff: SignOffState;
   cells: Record<MatrixColumnId, MatrixCell>;
-  needsReview: boolean;
   /** staff view only: contradictions between the hand-set marks and the dish's allergens (never changes a cell) */
   warnings: string[];
 }
@@ -182,13 +180,13 @@ function warningsFor(dish: MatrixDish): string[] {
   const da = dish.allergens;
   if (!da || !isConfirmed(da)) return [];
   const out: string[] = [];
-  if (dish.marks.includes("gf") && da.contains.includes("gluten")) out.push("Marked Gluten Free, but gluten is ticked under Dish Allergens.");
+  if (dish.marks.includes("gf") && da.contains.includes("gluten")) out.push("Marked Gluten Free, but gluten is listed under Dish Allergens.");
   if (dish.marks.includes("vg")) {
     const bad = (["milk", "egg", ...MEAT_FISH] as AllergenId[]).filter((id) => da.contains.includes(id));
-    if (bad.length) out.push(`Marked Vegan, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} ticked under Dish Allergens.`);
+    if (bad.length) out.push(`Marked Vegan, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} listed under Dish Allergens.`);
   } else if (dish.marks.includes("v")) {
     const bad = MEAT_FISH.filter((id) => da.contains.includes(id));
-    if (bad.length) out.push(`Marked Vegetarian, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} ticked under Dish Allergens.`);
+    if (bad.length) out.push(`Marked Vegetarian, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} listed under Dish Allergens.`);
   }
   return out;
 }
@@ -196,7 +194,7 @@ function warningsFor(dish: MatrixDish): string[] {
 export function buildRow(dish: MatrixDish): MatrixRow {
   const cells = Object.fromEntries(MATRIX_COLUMNS.map((c) => [c.id, cell(dish, c.id)])) as Record<MatrixColumnId, MatrixCell>;
   const confirmed = isConfirmed(dish.allergens);
-  return { dish, confirmed, signOff: dish.signOff ?? (confirmed ? "valid" : "never"), cells, needsReview: !!dish.needsReview, warnings: warningsFor(dish) };
+  return { dish, confirmed, signOff: dish.signOff ?? (confirmed ? "valid" : "never"), cells, warnings: warningsFor(dish) };
 }
 
 export function buildRows(dishes: readonly MatrixDish[]): MatrixRow[] {
@@ -243,13 +241,11 @@ export interface MatrixProgress {
   confirmed: number;
   /** dishes not signed off, in menu order */
   needing: MatrixRow[];
-  /** signed-off dishes whose ingredients now list something the dish does not carry */
-  review: MatrixRow[];
 }
 
 export function matrixProgress(rows: readonly MatrixRow[]): MatrixProgress {
   const ordered = matrixSections(rows).flatMap((s) => s.rows);
-  return { total: rows.length, confirmed: rows.filter((r) => r.confirmed).length, needing: ordered.filter((r) => !r.confirmed), review: ordered.filter((r) => r.confirmed && r.needsReview) };
+  return { total: rows.length, confirmed: rows.filter((r) => r.confirmed).length, needing: ordered.filter((r) => !r.confirmed) };
 }
 
 export function progressLine(p: Pick<MatrixProgress, "total" | "confirmed">): string {

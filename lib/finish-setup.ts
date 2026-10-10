@@ -6,7 +6,8 @@ import type { SignOffState } from "./dish-allergens";
  * Pure: the editor passes in what the draft holds and draws the rows; each row scrolls to its section.
  *
  *   1 Ingredients Added            at least one ingredient or prep on the recipe
- *   2 Dish Allergens Confirmed     a VALID sign-off (a dish whose ingredients changed since reads "Re-check")
+ *   2 Dish Allergens Confirmed     a VALID sign-off (a dish whose ingredients changed since reads "Re-check"; ingredients nobody has
+ *                                  checked for allergens block it and are counted in the line under the label)
  *   3 Dietary Marks And Options    informational: "2 set" or "None set". It is done once the allergens are confirmed (no flag of its own)
  *   4 Kitchen Method Written       at least one assembly step
  *   5 Ready For Kitchen            the head chef's switch is on
@@ -38,6 +39,8 @@ export interface SetupInput {
   /** ingredient and prep lines with a component chosen */
   lineCount: number;
   signOff: SignOffState;
+  /** how many of the dish's ingredients nobody has checked for allergens yet (they block the confirm); 0 or absent = none */
+  unreviewed?: number;
   dietOptions: unknown;
   kitchenMethod: readonly string[] | null | undefined;
   kitchenReady: boolean | null | undefined;
@@ -66,7 +69,13 @@ export function setupModel(i: SetupInput): SetupModel {
       id: "allergens",
       label: "Dish Allergens Confirmed",
       done: allergensDone,
-      sub: allergensDone ? "Confirmed" : i.signOff === "changed" || i.signOff === "legacy" ? "Ingredients changed. Re-check and confirm again" : "Tick what the dish contains, then confirm",
+      sub: allergensDone
+        ? "Confirmed"
+        : i.unreviewed
+          ? `${i.unreviewed} ${i.unreviewed === 1 ? "ingredient needs" : "ingredients need"} their allergens checked first`
+          : i.signOff === "changed" || i.signOff === "legacy"
+            ? "Ingredients changed. Re-check and confirm again"
+            : "Check what the ingredients give, then confirm",
       anchor: SETUP_ANCHORS.allergens,
     },
     { id: "marks", label: "Dietary Marks And Options", done: allergensDone, sub: marksAndOptionsSummary(i.dietOptions), anchor: SETUP_ANCHORS.marks },

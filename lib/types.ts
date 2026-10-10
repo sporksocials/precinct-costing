@@ -143,9 +143,9 @@ export type DietMarkKey = "gf" | "v" | "vg";
 export type DietOptions = Partial<Record<DietOptionKey, DietOptionEntry>> & Partial<Record<DietMarkKey, DietMarkEntry>>;
 
 /**
- * A dish's OWN allergens section (`cost_menu_items.dish_allergens`, Troy, 10 Oct 2026): hand-listed by the chef when the dish
- * is built and the only thing the Allergy Matrix reads. `contains` is what the dish contains as written on the menu,
- * `without[id]` says how it can be made without that allergen ("no aioli"; the id must also be in `contains`), and
+ * A dish's OWN allergens section (`cost_menu_items.dish_allergens`, Troy, 10 Oct 2026): what the dish's ingredients gave when a
+ * person confirmed it (ingredient first), and the only allergen data the Allergy Matrix reads. `contains` is derived allergens plus
+ * the dish's extras (`added`), `without[id]` says how it can be made without that allergen ("no aioli"; the id must also be in `contains`), and
  * `confirmed_at` / `confirmed_by` are the head chef's sign-off (absent = not signed off, the matrix shows Not checked).
  * Everything is optional and read tolerantly (lib/dish-allergens.ts).
  */
@@ -156,6 +156,16 @@ export interface DishAllergensEntry {
   confirmed_by?: string | null;
   /** the components the dish was made from when it was signed off ("ingredient:<id>", "prep:<id>"), sorted and unique; the sign-off is only valid while these still match (lib/dish-allergens.ts) */
   components?: string[];
+  /** the dish's extras: allergens the ingredients do not show but the dish carries anyway (ingredient-first rule, lib/dish-allergens.ts) */
+  added?: string[];
+  /** the allergens worked out from the ingredients when it was signed off (informational) */
+  basis?: string[];
+  /**
+   * The snapshot the re-check compares, taken at sign-off: ingredient entries are `{ a: ticks, r: reviewed }`, prep and dish
+   * (`item:<id>`) entries are `{ add, rem }` overrides, all id arrays in the fixed allergen order. The sign-off is only valid while
+   * the live ticks still equal these (lib/dish-allergens.ts).
+   */
+  ticks?: Record<string, { a?: string[]; r?: boolean; add?: string[]; rem?: string[] }>;
   /** a NEW food dish starts off the menu and its Active switch stays locked until it is signed off; the sign-off clears this */
   needs_signoff?: boolean;
 }
@@ -184,7 +194,7 @@ export interface MenuItem {
   diet_options?: DietOptions | null;
   /** the menu wording markets the dish as seafood, so it needs an origin letter (A / I / M) */
   seafood_label?: boolean | null;
-  /** the dish's own hand-listed allergens, read only by the Allergy Matrix; absent until the dish allergens migration is applied */
+  /** the dish's confirmed allergens (worked out from its ingredients), read by the Allergy Matrix; absent until the dish allergens migration is applied */
   dish_allergens?: DishAllergensEntry | null;
   /** Bar display (cocktails/mocktails only): which glass, e.g. "Rocks Glass, Salt Rim" */
   glass?: string | null;

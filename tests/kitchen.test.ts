@@ -392,10 +392,12 @@ describe("kitchen routes and photos", () => {
     for (const p of ["/kitchen", "/kitchen/drift", "/kitchen/setup", "/kitchen/manifest.webmanifest", "/kitchen/sw.js", "/kitchen/photo/uploads/a-1.jpg", "/api/kitchen/drift"]) expect(isKitchenPath(p)).toBe(true);
     for (const p of ["/", "/kitchens", "/kitchenette", "/menu", "/api/kitchen-data", "/items/kitchen", "/bar", "/api/bar/drift"]) expect(isKitchenPath(p)).toBe(false);
   });
-  it("starts with Drift only, one line to add a venue", () => {
-    expect([...KITCHEN_VENUES]).toEqual(["drift"]);
+  it("lists Drift, Chiobu and Greedy, one line to add a venue", () => {
+    expect([...KITCHEN_VENUES]).toEqual(["drift", "chiobu", "greedy"]);
     expect(isKitchenVenue("drift")).toBe(true);
-    expect(isKitchenVenue("chiobu")).toBe(false);
+    expect(isKitchenVenue("chiobu")).toBe(true);
+    expect(isKitchenVenue("greedy")).toBe(true);
+    expect(isKitchenVenue("gelato")).toBe(false);
     expect(isKitchenVenue("../drift")).toBe(false);
   });
   it("serves uploaded photos through /kitchen/photo/ and nothing else", () => {

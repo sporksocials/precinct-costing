@@ -10,7 +10,7 @@ import type { DietOptionAdded } from "./types";
  */
 
 /** Venues with a kitchen station. Adding a venue is one line here (its accent is already in globals.css). Order = the venue select screen. */
-export const KITCHEN_VENUES = ["drift"] as const;
+export const KITCHEN_VENUES = ["drift", "chiobu", "greedy"] as const;
 export type KitchenVenueSlug = (typeof KITCHEN_VENUES)[number];
 export function isKitchenVenue(slug: string): slug is KitchenVenueSlug {
   return (KITCHEN_VENUES as readonly string[]).includes(slug);

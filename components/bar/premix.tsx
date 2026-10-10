@@ -114,7 +114,7 @@ export function BarPremixPage({ slug, venueName, initial }: { slug: string; venu
             ) : null}
             <div className="mt-5 grid gap-4">
               {premixes.map((p) => (
-                <PremixCard key={p.id} premix={p} />
+                <PremixCard key={p.id} premix={p} slug={slug} />
               ))}
             </div>
           </>
@@ -133,9 +133,9 @@ function anchorId(p: Premix): string {
   return `premix-${p.id}`;
 }
 
-function PremixCard({ premix: p }: { premix: Premix }) {
+function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
   const bottle = bottleMl(p);
-  const size = bottleSizeText(p);
+  const size = bottleSizeText(p, slug);
   return (
     <section id={anchorId(p)} className={cx(CARD, "scroll-mt-4 px-5 py-5")}>
       <div className="flex items-start gap-4">

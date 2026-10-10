@@ -88,10 +88,19 @@ export function bottleMl(p: Pick<Premix, "yieldQty" | "yieldUnit">): number | nu
   return ml != null && ml > 0 ? ml : null;
 }
 
+/**
+ * Chiobu makes every pre-mix for 10 drinks in a 1 L bottle (Troy, 10 Oct 2026), so the bottle there is always "1 L bottle" even
+ * though the batch inside is less (Pretty Lady 900 ml, Chiobu-Rita 600 ml). The serves per bottle still come from the batch
+ * volume, which is the 10 drinks. Other venues keep the batch volume as the bottle (700 ml at Drift and Greedy's).
+ */
+export const BOTTLE_ML_BY_VENUE: Record<string, number> = { chiobu: 1000 };
+
 /** "700 ml bottle". Anything past a litre is a batch, not a bottle; a non-volume yield reads "Makes 2 kg". */
-export function bottleSizeText(p: Pick<Premix, "yieldQty" | "yieldUnit">): string {
+export function bottleSizeText(p: Pick<Premix, "yieldQty" | "yieldUnit">, venueSlug?: string): string {
   const ml = bottleMl(p);
   if (ml == null) return p.yieldQty > 0 ? `Makes ${qtyText(p.yieldQty, p.yieldUnit).replace(/(\d)([a-z])/i, "$1 $2")}` : "";
+  const fixed = venueSlug ? BOTTLE_ML_BY_VENUE[venueSlug] : undefined;
+  if (fixed && ml <= fixed) return `${(fixed / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L bottle`;
   const n = Math.round(ml * 10) / 10;
   if (ml <= 1000) return `${n.toLocaleString("en-AU", { maximumFractionDigits: 1 })} ml bottle`;
   return `${(Math.round(ml) / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L batch`;

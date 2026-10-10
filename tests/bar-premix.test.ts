@@ -71,6 +71,18 @@ describe("bottle size", () => {
     expect(bottleMl({ yieldQty: 0.7, yieldUnit: "L" })).toBe(700);
     expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" })).toBe("700 ml bottle");
   });
+  it("Chiobu's bottle is always 1 L whatever the batch inside is, and the serves still come from the batch", () => {
+    expect(bottleSizeText({ yieldQty: 0.9, yieldUnit: "L" }, "chiobu")).toBe("1 L bottle");
+    expect(bottleSizeText({ yieldQty: 0.6, yieldUnit: "L" }, "chiobu")).toBe("1 L bottle");
+    expect(bottleSizeText({ yieldQty: 0.95, yieldUnit: "L" }, "chiobu")).toBe("1 L bottle");
+    // 900 ml batch at 90 ml a drink is 10 drinks
+    expect(servesPerBottle(bottleMl({ yieldQty: 0.9, yieldUnit: "L" }), 90, "ml")).toBe(10);
+    // other venues keep the batch volume as the bottle
+    expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" }, "drift")).toBe("700 ml bottle");
+    expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" })).toBe("700 ml bottle");
+    // a batch bigger than the fixed bottle falls back to the normal wording
+    expect(bottleSizeText({ yieldQty: 1.4, yieldUnit: "L" }, "chiobu")).toBe("1.4 L batch");
+  });
   it("calls anything over a litre a batch and a non-volume yield what it is", () => {
     expect(bottleSizeText({ yieldQty: 1, yieldUnit: "L" })).toBe("1,000 ml bottle");
     expect(bottleSizeText({ yieldQty: 1.4, yieldUnit: "L" })).toBe("1.4 L batch");

@@ -49,10 +49,9 @@ const CSS = `
 }
 `;
 
-/** the derived dietary columns: never a "gluten free" claim, only what the reviewed ingredients show */
+/** the derived dietary columns: never a "gluten free" claim and never a dairy free one, only what the reviewed ingredients show */
 const DIETS_ALL: { id: DietId; label: string }[] = [
   { id: "no_gluten_ingredients", label: BADGE_LABELS.noGlutenIngredients },
-  { id: "no_dairy_ingredients", label: BADGE_LABELS.noDairyIngredients },
   { id: "vegetarian", label: BADGE_LABELS.vegetarian },
   { id: "vegan", label: BADGE_LABELS.vegan },
 ];
@@ -63,7 +62,7 @@ const DIETS = DEFAULT_POLICY.computedDiet ? DIETS_ALL : [];
 const MAIN = ALLERGENS.filter((a) => (a.group === "required" || a.group === "extra") && DEFAULT_POLICY.allergens.includes(a.id));
 /** alcohol is not an allergen and is not on the menu, so the grid has no column for it */
 const ATTR: typeof ALLERGENS = [];
-const COLS = MAIN.length + ATTR.length + DIETS.length + 2;
+const COLS = MAIN.length + ATTR.length + DIETS.length + 3;
 
 function FilterChip({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
@@ -172,6 +171,18 @@ function DietCell({ m, id }: { m: BadgeModel; id: DietId }) {
   return <span className={cx(box, "mx-grey")} title={`${name}: not confirmed`} aria-label={`${name}: not confirmed`}><Minus aria-hidden className="h-4 w-4" strokeWidth={2.5} /></span>;
 }
 
+/** The hand-set marks for the dish (GF, V, VG; VG alone when both are set), a person's own declaration. */
+function MarksCell({ m }: { m: BadgeModel }) {
+  if (!m.marks.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No dietary marks">-</span>;
+  return (
+    <span className="flex min-h-[44px] flex-wrap content-center items-center justify-center gap-x-1 text-[11px] font-bold leading-tight text-good" title={m.marks.map((k) => `${k.letter}: ${k.label}`).join("\n")}>
+      {m.marks.map((k) => (
+        <span key={k.id}>{k.letter}</span>
+      ))}
+    </span>
+  );
+}
+
 /** Dietary option letters for the dish (GFO, VO, VGO, DFO), each with its note in the tooltip. */
 function OptionsCell({ m }: { m: BadgeModel }) {
   if (!m.options.length) return <span className="flex min-h-[44px] items-center justify-center text-label-3" aria-label="No dietary options">-</span>;
@@ -264,7 +275,7 @@ export function AllergenMatrix() {
           </button>
         }
       />
-      {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GFO, VO, VGO, DF and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
+      {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GF, V, VG, GFO, VO, VGO, DFO and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
       <div className="print:hidden">
         <VenueFilter className="mb-3" stats={false} compact />
         <SearchField value={q} onChange={setQ} placeholder="Search dishes" className="mb-4 lg:max-w-sm" />
@@ -335,6 +346,9 @@ export function AllergenMatrix() {
                       <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{d.label}</span>
                     </th>
                   ))}
+                  <th scope="col" className="h-[132px] w-[40px] min-w-[40px] border-l border-[color:var(--separator)] px-0.5 align-bottom text-[12px] font-medium text-label-2">
+                    <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Dietary Marks</span>
+                  </th>
                   <th scope="col" className="h-[132px] w-[56px] min-w-[56px] border-l border-[color:var(--separator)] px-0.5 align-bottom text-[12px] font-medium text-label-2">
                     <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">Dietary Options</span>
                   </th>
@@ -379,6 +393,9 @@ export function AllergenMatrix() {
                           </td>
                         ))}
                         <td className="border-b border-l border-[color:var(--separator)] p-0.5">
+                          {isDrinkItem(r.item) ? null : <MarksCell m={r.model} />}
+                        </td>
+                        <td className="border-b border-l border-[color:var(--separator)] p-0.5">
                           {isDrinkItem(r.item) ? null : <OptionsCell m={r.model} />}
                         </td>
                         <td className="border-b border-[color:var(--separator)] p-0.5">
@@ -392,7 +409,7 @@ export function AllergenMatrix() {
             </table>
           </div>
           <p className="mt-3 text-[13px] text-label-2">
-            * Cleared by the chef on this dish. Gelato rows cover the flavour mix; cones and toppings are separate. Tap beer rows cover the keg. The dietary columns are worked out from reviewed ingredients; a dish is never called gluten free.
+            * Cleared by the chef on this dish. Gelato rows cover the flavour mix; cones and toppings are separate. Tap beer rows cover the keg. The dietary columns are worked out from reviewed ingredients. GF, V and VG are set by hand on the dish. The app never works out gluten free or dairy free.
           </p>
           <BadgeLegend className="mt-3 print:mt-2" />
         </>

@@ -73,6 +73,18 @@ export function showValue(field: string, v: unknown): string {
   }
   if (typeof v === "object") {
     const keys = Object.keys(v as R);
+    if (field === "diet_options") {
+      // letters, with a dietary option's swap counted so a swap-only change does not read "gfo" to "gfo"
+      return keys.length
+        ? keys
+            .map((k) => {
+              const e = (v as R)[k] as { removed?: unknown[]; added?: unknown[]; surcharge_inc?: unknown } | null;
+              const extra = [Array.isArray(e?.removed) && e.removed.length ? `${e.removed.length} left out` : "", Array.isArray(e?.added) && e.added.length ? `${e.added.length} added` : "", Number(e?.surcharge_inc) > 0 ? "surcharge" : ""].filter(Boolean);
+              return extra.length ? `${k.toUpperCase()} (${extra.join(", ")})` : k.toUpperCase();
+            })
+            .join(", ")
+        : "None";
+    }
     return keys.length ? keys.join(", ") : "None";
   }
   if (field === "sell_price_inc" || field === "hh_price_inc") return `$${Number(v).toFixed(2)}`;

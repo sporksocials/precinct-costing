@@ -2,8 +2,8 @@
 
 import { Check, CircleHelp, Fish, Minus, OctagonAlert, Replace, TriangleAlert, Wine } from "lucide-react";
 import { allergenLabel, type AllergenId } from "@/lib/allergens";
-import type { BadgeModel, DietBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
-import { BADGE_LABELS, dietLegendLines, LEGEND_INVITATION, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
+import type { BadgeModel, DietBadge, MarkBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
+import { BADGE_LABELS, dietLegendLines, markLegendLines, LEGEND_INVITATION, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
 import { cx } from "./ui";
 
 /**
@@ -76,6 +76,17 @@ export function DietChip({ d }: { d: DietBadge }) {
     <span className={cx(base, "ab-hatch-grey rounded-full border border-dashed border-[color:var(--label-3)] px-3 py-1.5 font-medium text-label-2")}>
       <Minus aria-hidden className={icon} strokeWidth={2.5} />
       {d.label}: {BADGE_LABELS.notConfirmed}
+    </span>
+  );
+}
+
+/** A hand-set mark: the letters in a solid tag. Always a person's declaration, never derived. */
+export function MarkChip({ k }: { k: MarkBadge }) {
+  return (
+    <span className={cx(base, "ab-solid-good rounded-2xl px-3 py-1.5")}>
+      <Check aria-hidden className={icon} strokeWidth={3} />
+      <span className="tnum font-bold">{k.letter}</span>
+      <span className="font-medium">{k.label}</span>
     </span>
   );
 }
@@ -153,7 +164,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
 
       {alc ? <div className="flex flex-wrap gap-2">{m.attributes.length ? <AlcoholBadge /> : <AlcoholBadge may />}</div> : null}
 
-      {m.listsAllergens || m.options.length ? (
+      {m.listsAllergens || m.options.length || m.marks.length ? (
       <div>
         <TierLabel>{m.listsAllergens ? "Dietary" : "Dietary Options"}</TierLabel>
         {m.diet.length ? (
@@ -162,9 +173,16 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
               <DietChip key={d.id} d={d} />
             ))}
           </div>
-        ) : m.options.length ? null : (
+        ) : m.options.length || m.marks.length ? null : (
           <p className="text-[15px] text-label-2">No dietary badges for this recipe.</p>
         )}
+        {m.marks.length ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {m.marks.map((k) => (
+              <MarkChip key={k.id} k={k} />
+            ))}
+          </div>
+        ) : null}
         {m.options.length ? (
           <ul className="mt-3 space-y-2.5">
             {m.options.map((o) => (
@@ -181,7 +199,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
       </div>
       ) : null}
 
-      {!m.listsAllergens && !m.options.length && !(seafood || seafoodLabel) ? <p className="text-[15px] text-label-2">{m.drink ? "Drinks carry no menu labels." : "No menu labels set. Add GFO, VO, VGO or DF under Dietary Options."}</p> : null}
+      {!m.listsAllergens && !m.options.length && !m.marks.length && !(seafood || seafoodLabel) ? <p className="text-[15px] text-label-2">{m.drink ? "Drinks carry no menu labels." : "No menu labels set. Add GF, V, VG, GFO, VO, VGO or DFO under Dietary Options."}</p> : null}
 
       {!m.drink && (seafood || seafoodLabel) ? (
         <div>
@@ -214,7 +232,8 @@ export function BadgeLegend({ className }: { className?: string }) {
   );
   return (
     <div className={cx("text-[13px] text-label-2", className)} aria-label="Legend">
-      <ul className="space-y-0.5">{dietLegendLines().map(line)}</ul>
+      <ul className="space-y-0.5">{markLegendLines().map(line)}</ul>
+      <ul className="mt-2 space-y-0.5">{dietLegendLines().map(line)}</ul>
       <ul className="mt-2 space-y-0.5">{seafoodLegendLines().map(line)}</ul>
     </div>
   );

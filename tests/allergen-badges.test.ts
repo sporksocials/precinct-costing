@@ -116,7 +116,7 @@ describe("badgeModel: reviewed and unreviewed", () => {
     const m = model([ing("a", "Rice", ok()), ing("b", "Salt", ok())]);
     expect(m.notReviewed).toBeNull();
     expect(m.contains).toEqual([]);
-    expect(dietIds(m)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:is", "vegan:is"]);
+    expect(dietIds(m)).toEqual(["no_gluten_ingredients:is", "vegetarian:is", "vegan:is"]);
     expect(m.options).toEqual([]);
     expect(m.seafood).toBeNull();
   });
@@ -132,7 +132,7 @@ describe("badgeModel: reviewed and unreviewed", () => {
     const m = model([ing("a", "Rice", ok()), ing("x", "Mystery Powder")]);
     expect(m.notReviewed).toEqual({ unreviewedNames: ["Mystery Powder"] });
     expect(m.diet.every((d) => d.state === "not_confirmed")).toBe(true);
-    expect(m.diet.map((d) => d.id)).toEqual(["no_gluten_ingredients", "no_dairy_ingredients", "vegetarian", "vegan"]);
+    expect(m.diet.map((d) => d.id)).toEqual(["no_gluten_ingredients", "vegetarian", "vegan"]);
   });
 
   it("an unreviewed recipe that already contains gluten drops the gluten badge but keeps the banner and the known allergen", () => {
@@ -146,7 +146,8 @@ describe("badgeModel: reviewed and unreviewed", () => {
     const m = model([ing("c", "Mozzarella")]);
     expect(m.contains).toEqual([]);
     expect(m.mayContain).toEqual(["milk"]);
-    expect(m.diet.find((d) => d.id === "no_dairy_ingredients")?.state).toBe("not_confirmed");
+    // there is no dairy free badge at all (Troy, 10 Oct 2026): dairy shows only as the Dairy Free Option
+    expect(m.diet.map((d) => d.id as string)).not.toContain("no_dairy_ingredients");
   });
 
   it("an empty recipe is not reviewed and claims nothing", () => {
@@ -243,7 +244,7 @@ describe("badgeModel: dietary options", () => {
     expect(m.options.map((o) => [o.id, o.letter, o.note])).toEqual([
       ["gfo", "GFO", "Swap the bun for a gluten free bun"],
       ["vgo", "VGO", "No egg"],
-      ["dfo", "DF", "No cheese"],
+      ["dfo", "DFO", "No cheese"],
     ]);
   });
   it("the GFO label is the cautious wording and never the bare claim", () => {
@@ -321,7 +322,7 @@ describe("badgeModel: seafood origin", () => {
 
 describe("legend wording", () => {
   it("has the four options and three seafood letters, and no NZ letter", () => {
-    expect(DIET_OPTIONS.map((o) => o.letter)).toEqual(["GFO", "VO", "VGO", "DF"]);
+    expect(DIET_OPTIONS.map((o) => o.letter)).toEqual(["GFO", "VO", "VGO", "DFO"]);
     expect(SEAFOOD_LETTERS.map((s) => s.letter)).toEqual(["A", "I", "M"]);
     expect(dietLegendLines()).toHaveLength(4);
     expect(seafoodLegendLines()).toHaveLength(3);
@@ -361,7 +362,7 @@ describe("menu-only default (Troy, 4 Oct 2026): only what the printed menu shows
   it("still shows the option letters and the seafood letter, in the menu's wording", () => {
     const { d, r } = dish([ing("p", "Prawns", ok({ allergens: ["crustacea"], seafood_origin: "I" as never }))], { seafood_label: true, diet_options: { gfo: { note: "GF bun" }, dfo: { note: "No cheese" } } as never });
     const m = badgeModelP(r, d);
-    expect(m.options.map((o) => [o.letter, o.label])).toEqual([["GFO", "Gluten Free Option Available"], ["DF", "Dairy Free"]]);
+    expect(m.options.map((o) => [o.letter, o.label])).toEqual([["GFO", "Gluten Free Option Available"], ["DFO", "Dairy Free Option"]]);
     expect(m.seafood).toEqual({ letter: "I", required: true });
   });
   it("drinks carry no option letters or seafood", () => {

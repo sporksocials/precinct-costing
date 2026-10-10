@@ -1,27 +1,38 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { BADGE_LABELS, DIET_OPTIONS, type DietOptionId } from "@/lib/diet-legend";
-import type { MenuItem, RecipeLine } from "@/lib/types";
-import { Group, Toggle } from "../ui";
+import { BADGE_LABELS, DIET_MARKS, DIET_OPTIONS, dietMarkDef, dietOptionDef, type DietMarkId, type DietOptionId } from "@/lib/diet-legend";
+import { markOff, markOn, optionOnClearsMark, readMarks } from "@/lib/diet-options";
+import type { DietOptionEntry, MenuItem, RecipeLine } from "@/lib/types";
+import { Group, Toggle, useToast } from "../ui";
 import { BadgeLegend, SeafoodChip } from "../allergen-badges";
 import { useBadgeModel } from "../allergen-picker";
+import { OptionSwapPanel } from "./diet-option-swap";
 
 type Options = NonNullable<MenuItem["diet_options"]>;
 
 /**
- * Dietary Options for a menu item: four visible switches (GFO, VO, VGO, DFO), each asking "What changes?" when on, and
- * "Marketed As Seafood". Edits go through the recipe editor's draft, so they autosave like every other field.
+ * Dietary Marks and Dietary Options for a menu item, and "Marketed As Seafood". Edits go through the recipe editor's draft
+ * (manual Save, leave guard, conflict check), like every other field.
  *
- * An option is only ever saved with a note. Turning one on shows the note field; until it has text the option stays out
- * of the draft (the autosave never sees it) and the row says so. Whether a dish IS gluten free is never typed here: the
- * options say what the kitchen can change on request, and "No Gluten Ingredients" is worked out from the ingredients.
+ * MARKS (GF, V, VG; Troy, 10 Oct 2026): three visible switches a chef or manager ticks. The app never works them out and
+ * never ticks them itself. A dish marked GF cannot also offer GFO (V and VO, VG and VGO likewise): turning one on turns the
+ * other off and says so. VG implies vegetarian, so a dish with both prints VG only.
+ *
+ * OPTIONS (GFO, VO, VGO, DFO): four visible switches, each asking "What changes?" when on, then which ingredients the option
+ * leaves out, which it adds, a surcharge and its own costing (components/editor/diet-option-swap.tsx). An option is only ever
+ * saved with a note. Turning one on shows the note field; until it has text the option stays out of the draft and the row
+ * says so. The options say what the kitchen can change on request: there is no safety check on what is left.
  */
 export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void }) {
   const ready = "diet_options" in item || "seafood_label" in item;
-  const saved: Options = item.diet_options && typeof item.diet_options === "object" ? item.diet_options : {};
+  const saved: Options = item.diet_options && typeof item.diet_options === "object" && !Array.isArray(item.diet_options) ? item.diet_options : {};
   const [pending, setPending] = useState<Set<DietOptionId>>(new Set());
+  const toast = useToast();
+  // the swap of an option that was switched off or pushed out by a mark, kept for this visit so switching it back on restores it
+  const stash = useRef(new Map<DietOptionId, DietOptionEntry>());
+  const marksOn = readMarks(saved);
   const { model } = useBadgeModel("item", item, lines);
 
   const isOn = (id: DietOptionId) => Object.prototype.hasOwnProperty.call(saved, id) || pending.has(id);
@@ -33,48 +44,113 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
       return n;
     });
   const writeSaved = (next: Options) => onPatch({ diet_options: next });
+  /** Removes an option from the draft, keeping its swap for this visit so switching it back on restores it. */
+  const dropOption = (from: Options, id: DietOptionId): Options => {
+    const e = from[id];
+    if (e) stash.current.set(id, e);
+    const next = { ...from };
+    delete next[id];
+    return next;
+  };
 
   const toggle = (id: DietOptionId, on: boolean) => {
     if (on) {
+      // a mark that cannot sit beside this option goes off, with a plain note saying so
+      const { next, clearedMark } = optionOnClearsMark(saved, id);
+      if (clearedMark) {
+        writeSaved(next);
+        toast.show({ message: `${dietMarkDef(clearedMark).name} turned off. A dish marked ${dietMarkDef(clearedMark).name} cannot also offer ${dietOptionDef(id).name}.` });
+      }
       setPend(id, true); // on screen only; saved once it has a note
       return;
     }
     setPend(id, false);
-    if (Object.prototype.hasOwnProperty.call(saved, id)) {
-      const next = { ...saved };
-      delete next[id];
-      writeSaved(next);
-    }
+    if (Object.prototype.hasOwnProperty.call(saved, id)) writeSaved(dropOption(saved, id));
   };
   const commitNote = (id: DietOptionId, text: string) => {
     const note = text.trim();
     if (note) {
       setPend(id, false);
-      if (saved[id]?.note !== note) writeSaved({ ...saved, [id]: { note } });
+      if (saved[id]?.note !== note) {
+        const keep = saved[id] ?? stash.current.get(id) ?? {};
+        stash.current.delete(id);
+        writeSaved({ ...saved, [id]: { ...keep, note } });
+      }
     } else {
       setPend(id, true);
-      if (Object.prototype.hasOwnProperty.call(saved, id)) {
-        const next = { ...saved };
-        delete next[id];
-        writeSaved(next);
-      }
+      if (Object.prototype.hasOwnProperty.call(saved, id)) writeSaved(dropOption(saved, id));
     }
+  };
+  /** Merges a change into one option's entry (the leave-out ticks, added lines and surcharge); an emptied field is removed, not stored as empty. */
+  const patchEntry = (id: DietOptionId, patch: Partial<DietOptionEntry>) => {
+    const cur = saved[id];
+    if (!cur) return;
+    const entry: Record<string, unknown> = { ...cur, ...patch };
+    for (const k of Object.keys(patch)) {
+      const v = (patch as Record<string, unknown>)[k];
+      if (v === undefined || v === null) delete entry[k];
+    }
+    writeSaved({ ...saved, [id]: entry as unknown as DietOptionEntry });
+  };
+
+  const toggleMark = (id: DietMarkId, on: boolean) => {
+    if (!on) {
+      writeSaved(markOff(saved, id));
+      return;
+    }
+    const { next, clearedOption } = markOn(saved, id);
+    const excluded = dietMarkDef(id).excludes;
+    const wasPending = pending.has(excluded);
+    if (clearedOption) {
+      const e = saved[clearedOption];
+      if (e) stash.current.set(clearedOption, e);
+    }
+    setPend(excluded, false);
+    writeSaved(next);
+    if (clearedOption || wasPending) toast.show({ message: `${dietOptionDef(excluded).name} turned off. A dish marked ${dietMarkDef(id).name} cannot also offer it.` });
   };
 
   const needNote = DIET_OPTIONS.filter((o) => pending.has(o.id) && !saved[o.id]?.note?.trim());
   const seafood = model.seafood;
 
   return (
+    <>
+    <Group
+      title="Dietary Marks"
+      className="mt-6"
+      footer="Ticked by hand. The app never works these out. A dish marked Vegan prints VG only."
+    >
+      {DIET_MARKS.map((m) => {
+        const on = marksOn.includes(m.id);
+        // vegan includes vegetarian: say so on the Vegetarian row rather than leaving it looking untouched
+        const sub = m.id === "v" && !on && marksOn.includes("vg") ? "Included in Vegan. Prints once, as VG." : on && m.id === "v" && marksOn.includes("vg") ? "Vegan is also ticked. Prints once, as VG." : undefined;
+        return (
+          <Toggle
+            key={m.id}
+            label={
+              <span>
+                <span className="tnum font-semibold">{m.letter}</span> {m.name}
+              </span>
+            }
+            sub={sub}
+            checked={on}
+            onChange={(v) => ready && toggleMark(m.id, v)}
+          />
+        );
+      })}
+    </Group>
+
     <Group
       title="Dietary Options"
       className="mt-6"
       trailing={needNote.length ? <span className="pb-0.5 text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
-      footer="These say what the kitchen can change on request. They never claim the dish is gluten free: No Gluten Ingredients is worked out from the ingredients."
+      footer="These say what the kitchen can change on request, and what that costs. The app does not check what is left."
     >
       {!ready ? <p className="px-4 py-3 text-[13px] text-label-2">Dietary options can’t be saved until the database has its dietary options update.</p> : null}
       {DIET_OPTIONS.map((o) => {
         const on = isOn(o.id);
-        const note = saved[o.id]?.note ?? "";
+        const entry = saved[o.id];
+        const note = entry?.note ?? "";
         const missing = on && !note.trim();
         return (
           <div key={o.id}>
@@ -99,6 +175,7 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
                 ) : (
                   <p className="mt-1.5 text-[13px] text-label-2">Shown on the dish with this note.</p>
                 )}
+                {entry && note.trim() ? <OptionSwapPanel item={item} lines={lines} def={o} entry={entry} onPatch={(p) => patchEntry(o.id, p)} /> : null}
               </div>
             ) : null}
           </div>
@@ -140,6 +217,7 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
         <BadgeLegend className="mt-2" />
       </details>
     </Group>
+    </>
   );
 }
 

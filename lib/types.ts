@@ -110,6 +110,36 @@ export interface Prep {
 
 export type ResearchOffer = "offered" | "done" | "skipped";
 
+/** An extra component used only in a dietary option (same units and costing as a recipe line). */
+export interface DietOptionAdded {
+  component_type: ComponentType;
+  component_id: string;
+  qty: number;
+  unit: LineUnit;
+  note?: string | null;
+}
+
+/**
+ * One dietary OPTION on a dish. `removed` holds recipe LINE ids (cost_recipe_lines.id) of the dish's own lines that are left
+ * out in the option (a stale id is ignored and dropped on the next save); `added` holds extra lines used only in the option;
+ * `surcharge_inc` is dollars inc GST on top of the dish price (null or absent = same price). Costing is display only.
+ */
+export interface DietOptionEntry {
+  note: string;
+  removed?: string[];
+  added?: DietOptionAdded[];
+  surcharge_inc?: number | null;
+}
+
+/** A hand-set dietary MARK on a dish (GF, V, VG). Needs no note. */
+export interface DietMarkEntry {
+  note?: string;
+}
+
+export type DietOptionKey = "gfo" | "vo" | "vgo" | "dfo";
+export type DietMarkKey = "gf" | "v" | "vg";
+export type DietOptions = Partial<Record<DietOptionKey, DietOptionEntry>> & Partial<Record<DietMarkKey, DietMarkEntry>>;
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -126,8 +156,12 @@ export interface MenuItem {
   allergen_add?: string[] | null;
   allergen_remove?: string[] | null;
   allergen_notes?: Record<string, string> | null;
-  /** dietary option flags the menu prints (gfo, vo, vgo, dfo); a key present = the dish offers it, note = what changes */
-  diet_options?: Partial<Record<"gfo" | "vo" | "vgo" | "dfo", { note: string }>> | null;
+  /**
+   * Dietary options and marks the menu prints. OPTIONS (gfo, vo, vgo, dfo): a key present = the dish offers it, note = what
+   * changes, plus the optional ingredient swap and surcharge (see DietOptionEntry). MARKS (gf, v, vg): hand-set by a person,
+   * never worked out; a key present = marked. Everything is optional so rows saved before the swaps and marks still read.
+   */
+  diet_options?: DietOptions | null;
   /** the menu wording markets the dish as seafood, so it needs an origin letter (A / I / M) */
   seafood_label?: boolean | null;
   /** Bar display (cocktails/mocktails only): which glass, e.g. "Rocks Glass, Salt Rim" */

@@ -193,7 +193,7 @@ describe("allergens", () => {
     const prawn = ing("pr", "Prawns", { allergens: ["crustacea"], seafood_origin: "A" });
     const src = source([prawn], [], [withOpt], [line("item", "d", "ingredient", "pr")]);
     const d = buildPrintRecipe("item", "d", src) as PrintRecipe;
-    expect(d.allergens.options).toEqual([{ letter: "GFO", label: "Gluten Free Option Available", note: "Rice flour crumb" }]);
+    expect(d.options).toEqual([{ letter: "GFO", label: "Gluten Free Option Available", note: "Rice flour crumb", swap: null, text: "Rice flour crumb" }]);
     expect(d.allergens.seafood).toBe("Seafood Origin: A, Australian Seafood");
     const unmarketed = source([prawn], [], [{ ...withOpt, seafood_label: false }], [line("item", "d", "ingredient", "pr")]);
     expect((buildPrintRecipe("item", "d", unmarketed) as PrintRecipe).allergens.seafood).toBeNull();

@@ -123,6 +123,17 @@ export function RecipePage({ recipe, register, onFit }: { recipe: PrintRecipe; r
           </section>
         ) : null}
 
+        {recipe.options.length ? (
+          <section className="pr-sec pr-options" aria-label="Options">
+            <h2 className="pr-h">Options</h2>
+            {recipe.options.map((o) => (
+              <p key={o.letter} className="pr-fact">
+                <b>{o.letter}</b> {o.label}: {o.text}
+              </p>
+            ))}
+          </section>
+        ) : null}
+
         <div className="pr-grow" />
 
         <section className="pr-allergens">
@@ -135,11 +146,16 @@ export function RecipePage({ recipe, register, onFit }: { recipe: PrintRecipe; r
           {a.notes.map((n) => (
             <p key={n}>{n}</p>
           ))}
-          {a.options.map((o) => (
-            <p key={o.letter}>
-              <b>{o.letter}</b> {o.label}: {o.note}
+          {a.marks.length ? (
+            <p>
+              {a.marks.map((k, i) => (
+                <span key={k.letter}>
+                  {i ? ", " : ""}
+                  <b>{k.letter}</b> {k.label}
+                </span>
+              ))}
             </p>
-          ))}
+          ) : null}
           {a.seafood ? <p>{a.seafood}</p> : null}
           {a.notChecked ? <p className="pr-checked">{a.notChecked}</p> : null}
           <p>{a.notice}</p>

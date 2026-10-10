@@ -2,9 +2,10 @@
 
 import { Check, CircleHelp, Fish, Minus, OctagonAlert, Replace, Truck, TriangleAlert, Wine } from "lucide-react";
 import { allergenLabel, ALLERGEN_NOTICE, type AllergenId } from "@/lib/allergens";
-import type { BadgeModel, DietBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
+import type { BadgeModel, DietBadge, MarkBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
+import { optionText } from "@/lib/diet-options";
 import { barIngredientName } from "@/lib/bar";
-import { BADGE_LABELS, dietLegendLines, LEGEND_INVITATION, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
+import { BADGE_LABELS, dietLegendLines, LEGEND_INVITATION, markLegendLines, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
 import { cx } from "../ui";
 import { KB, toneStyle } from "./palette";
 import { CARD, HEADING } from "./parts";
@@ -90,6 +91,15 @@ function OptionMarker({ o }: { o: OptionBadge }) {
   );
 }
 
+/** A hand-set mark (GF, V, VG): the letters in a solid green tag, the person's own declaration. */
+function MarkMarker({ k }: { k: MarkBadge }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-xl border-2 px-3 py-1 text-[20px] font-bold leading-[1.2]" style={toneStyle(KB.is)} title={k.label}>
+      {k.letter}
+    </span>
+  );
+}
+
 function SeafoodDisc({ letter, size = 36 }: { letter: string; size?: number }) {
   return (
     <span aria-hidden className="inline-flex shrink-0 items-center justify-center rounded-full text-[22px] font-bold leading-none" style={{ ...toneStyle(KB.seafood), width: size, height: size, borderWidth: 0 }}>
@@ -123,7 +133,7 @@ export function BadgeStrip({ m }: { m: BadgeModel }) {
   const seafood = seafoodShown(m);
   const flagged = m.contains.length + m.mayContain.length + m.attributes.length + m.attributesMay.length > 0;
   // a menu-only screen lists just the option letters and the seafood letter: nothing at all when a dish has neither
-  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !seafood) return null;
+  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !m.marks.length && !seafood) return null;
   return (
     <ul className="flex flex-wrap items-center gap-2" aria-label={m.listsAllergens ? "Allergens and dietary" : "Menu labels"}>
       {m.notReviewed ? (
@@ -150,6 +160,11 @@ export function BadgeStrip({ m }: { m: BadgeModel }) {
           <AlcoholPill may />
         </li>
       ) : null}
+      {m.marks.map((k) => (
+        <li key={k.id}>
+          <MarkMarker k={k} />
+        </li>
+      ))}
       {m.options.map((o) => (
         <li key={o.id}>
           <OptionMarker o={o} />
@@ -210,7 +225,7 @@ function OptionBlock({ o }: { o: OptionBadge }) {
         <span className="min-w-0 basis-full text-[22px] font-semibold leading-snug sm:basis-auto">{o.label}</span>
       </div>
       <p className="mt-2 text-[22px] leading-snug text-[#F5F3EE]">
-        <span className="font-semibold">{BADGE_LABELS.whatChanges}:</span> {o.note}
+        <span className="font-semibold">{BADGE_LABELS.whatChanges}:</span> {optionText(o.note, o.swap ?? null)}
       </p>
     </li>
   );
@@ -256,7 +271,7 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
   const solid = m.diet.filter((d) => d.state === "is");
   const unconfirmed = m.diet.filter((d) => d.state === "not_confirmed");
   const seafood = seafoodShown(m);
-  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !seafood) return null;
+  if (!m.listsAllergens && !m.notReviewed && !m.options.length && !m.marks.length && !seafood) return null;
   return (
     <section className={cx(CARD, "mt-5 px-[22px] py-5")} aria-label={m.listsAllergens ? "Allergens and dietary" : "Menu labels"} data-testid="kitchen-badges">
       <h2 className={cx(HEADING, "mb-3")}>{m.listsAllergens ? "ALLERGENS AND DIETARY" : "MENU LABELS"}</h2>
@@ -311,6 +326,20 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
         </div>
       ) : null}
 
+      {m.marks.length ? (
+        <div className="mt-5">
+          <p className={TIER}>{BADGE_LABELS.marks}</p>
+          <ul className="flex flex-wrap items-center gap-2.5">
+            {m.marks.map((k) => (
+              <li key={k.id} className="inline-flex items-center gap-3">
+                <MarkMarker k={k} />
+                <span className="text-[22px] font-semibold">{k.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {m.options.length ? (
         <div className="mt-5">
           <p className={TIER}>{BADGE_LABELS.options}</p>
@@ -348,7 +377,7 @@ export function KitchenLegend() {
     <section className={cx(CARD, "mt-6 px-[22px] py-5")} aria-label={BADGE_LABELS.legend} data-testid="kitchen-legend">
       <h2 className={cx(HEADING, "mb-3")}>{BADGE_LABELS.legend.toUpperCase()}</h2>
       <div className="grid gap-x-8 gap-y-4 text-[#D0CCC2] min-[700px]:grid-cols-2">
-        <ul className="space-y-2">{dietLegendLines().map(line)}</ul>
+        <ul className="space-y-2">{[...markLegendLines(), ...dietLegendLines()].map(line)}</ul>
         <ul className="space-y-2">{seafoodLegendLines().map(line)}</ul>
       </div>
     </section>

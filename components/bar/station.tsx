@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { barChips, barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge, syncedLabel, usesShots, type BarCategory, type BarItem, type BarMenu } from "@/lib/bar";
 import type { BarPremix } from "@/lib/bar-premix";
+import { drinksInView, flavourCount, goBack as navBack, goHome, NAV_START, openDrink as navOpenDrink, openGroup as navOpenGroup, resolveScreen, sameNav, stationCards, type StationCard, type StationNav } from "@/lib/menu-groups";
 import { cx } from "../ui";
 import { BottleIcon, GlassIcon } from "./glass-icon";
 
@@ -76,9 +77,9 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   const [menu, setMenu] = useState<BarMenu | null>(initial);
   // how many pre-mix bottles the venue has; the "Pre-Mix Bottles" row shows only when there is at least one
   const [premixCount, setPremixCount] = useState(initialPremixCount);
-  const [view, setView] = useState<"grid" | "detail">("grid");
+  // where the screen is: the main grid, an open flavour list (a menu group) and/or an open recipe (lib/menu-groups.ts)
+  const [nav, setNav] = useState<StationNav>(NAV_START);
   const [pickedCategory, setPickedCategory] = useState<"all" | BarCategory>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   // starts at the copy's own timestamp so the server HTML and the first client render agree (a page cached hours ago would otherwise
   // hydrate with a different "Synced" line and banner); the effect below moves it to the real time straight after mount
@@ -123,40 +124,6 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   }, []);
 
   const items = useMemo(() => menu?.items ?? [], [menu]);
-  const selected = items.find((c) => c.id === selectedId) ?? null;
-
-  // ---------- views ----------
-  const openDrink = (id: string) => {
-    (document.activeElement as HTMLElement | null)?.blur?.(); // put the iPad keyboard away
-    setSelectedId(id);
-    setView("detail");
-  };
-  const goBack = useCallback(() => setView("grid"), []);
-
-  useLayoutEffect(() => {
-    window.scrollTo(0, 0);
-  }, [view]);
-
-  // a recipe that disappears in a refresh (deleted, made inactive) sends the screen back to the grid
-  useEffect(() => {
-    if (view === "detail" && !selected) setView("grid");
-  }, [view, selected]);
-
-  // idle auto-return: any touch, scroll or key on a recipe restarts the 2 minute clock; leaving the recipe clears it
-  useEffect(() => {
-    if (view !== "detail") return;
-    let t = window.setTimeout(goBack, IDLE_MS);
-    const reset = () => {
-      window.clearTimeout(t);
-      t = window.setTimeout(goBack, IDLE_MS);
-    };
-    const events = ["pointerdown", "touchstart", "wheel", "scroll", "keydown"] as const;
-    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
-    return () => {
-      window.clearTimeout(t);
-      events.forEach((e) => window.removeEventListener(e, reset));
-    };
-  }, [view, goBack]);
 
   // ---------- grid filtering (search covers every category and hides the chips) ----------
   const query = searchQuery.trim().toLowerCase();
@@ -164,12 +131,62 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
   // only the categories this venue has get a chip; a chip whose last drink went inactive in a refresh falls back to All
   const chips = useMemo(() => barChips(items), [items]);
   const activeCategory = chips.some((c) => c.key === pickedCategory) ? pickedCategory : "all";
-  const tiles = hasSearch ? items.filter((c) => c.name.toLowerCase().includes(query)) : activeCategory === "all" ? items : items.filter((c) => c.category === activeCategory);
+  const category = activeCategory === "all" ? null : activeCategory;
+  // what the grid shows: a search lists matching drinks flat (group name as a quiet line); otherwise the chip's drinks, with
+  // flavours of one menu group folded into a single card when two or more are in view
+  const cards = useMemo(() => stationCards(drinksInView(items, { query: searchQuery, category }), { searching: hasSearch }), [items, searchQuery, category, hasSearch]);
+  // the group cards the chip alone would give: a flavour list stays valid whatever is typed in the (hidden) search box
+  const groupCards = useMemo(() => stationCards(drinksInView(items, { query: "", category })), [items, category]);
+  const here = useMemo(() => resolveScreen(nav, items, groupCards), [nav, items, groupCards]);
+  const screen = here.screen;
+  const selected = here.item;
+  const openGroupCard = here.group;
+
+  // a recipe or flavour list that disappears in a refresh (deleted, made inactive, a flavour left alone) drops back instead of going blank
+  useEffect(() => {
+    if (!sameNav(nav, here.nav)) setNav(here.nav);
+  }, [nav, here.nav]);
+
+  // ---------- views ----------
+  const openDrink = (id: string) => {
+    (document.activeElement as HTMLElement | null)?.blur?.(); // put the iPad keyboard away
+    setNav((n) => navOpenDrink(n, id));
+  };
+  const openGroup = (key: string) => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    setNav((n) => navOpenGroup(n, key));
+  };
+  const goBack = useCallback(() => setNav(navBack), []);
+  const goGrid = useCallback(() => setNav(goHome()), []);
+
+  const scrollKey = `${screen}|${nav.group ?? ""}`;
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [scrollKey]);
+
+  // idle auto-return: any touch, scroll or key on a recipe or flavour list restarts the 2 minute clock; the main grid has none.
+  // Left alone it goes all the way back to the main grid.
+  useEffect(() => {
+    if (screen === "grid") return;
+    let t = window.setTimeout(goGrid, IDLE_MS);
+    const reset = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(goGrid, IDLE_MS);
+    };
+    const events = ["pointerdown", "touchstart", "wheel", "scroll", "keydown"] as const;
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    return () => {
+      window.clearTimeout(t);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [screen, goGrid]);
 
   return (
     <div role="main" className={cx(`bar-${slug}`, "bar-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]")}>
-      {view === "detail" && selected ? (
-        <Detail item={selected} onBack={goBack} menu={menu} now={now} />
+      {screen === "detail" && selected ? (
+        <Detail item={selected} onBack={goBack} backLabel={openGroupCard ? `BACK TO ${openGroupCard.name.toUpperCase()}` : "BACK TO ALL DRINKS"} menu={menu} now={now} />
+      ) : screen === "group" && openGroupCard ? (
+        <GroupList card={openGroupCard} onBack={goBack} onOpen={openDrink} menu={menu} now={now} />
       ) : (
         <div className="flex w-full flex-col">
           <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
@@ -264,30 +281,12 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
               <EmptyState title="Can’t Load Recipes" body="Check the iPad’s Wi-Fi. This screen tries again every 30 seconds." action={{ label: "Try Again", onClick: () => void refresh() }} />
             ) : !items.length ? (
               <EmptyState title="No Drinks On This Screen Yet" body="A drink shows here once it has a glass and a method in Precinct Costing. Drinks that are still being built out are not displayed." />
-            ) : !tiles.length ? (
+            ) : !cards.length ? (
               // only a search can come up empty: a chip exists only for a category that has drinks
               <EmptyState title="No Matches" body={`Nothing matches “${searchQuery.trim()}”.`} />
             ) : (
               <div className="grid grid-cols-2 gap-[14px]">
-                {tiles.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => openDrink(c.id)}
-                    className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327]")}
-                  >
-                    <Photo name={c.name} photo={c.photo} className="h-[270px] w-full bg-[#161618] object-contain" />
-                    <div className="px-4 pb-[18px] pt-[14px]">
-                      <span className="text-[26px] font-medium leading-[1.2]">{c.name}</span>
-                      {c.glass ? (
-                        <span className="mt-[9px] flex items-center gap-2 text-[#9B9890]">
-                          <GlassIcon type={glassType(c.glass)} size={22} className="shrink-0" />
-                          <span className="text-[15px]">{c.glass}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
+                {cards.map((c) => (c.kind === "group" ? <GroupCard key={`g-${c.key}`} card={c} onOpen={() => openGroup(c.key)} /> : <DrinkCard key={c.key} item={c.item} onOpen={() => openDrink(c.item.id)} groupLine={hasSearch ? c.item.menuGroup : null} />))}
               </div>
             )}
           </div>
@@ -311,19 +310,10 @@ export function EmptyState({ title, body, action }: { title: string; body?: stri
   );
 }
 
-function Detail({ item, onBack, menu, now }: { item: BarItem; onBack: () => void; menu: BarMenu | null; now: number }) {
+function Detail({ item, onBack, backLabel, menu, now }: { item: BarItem; onBack: () => void; backLabel: string; menu: BarMenu | null; now: number }) {
   return (
     <div className="flex w-full flex-col">
-      <button
-        type="button"
-        onClick={onBack}
-        className="flex min-h-[calc(84px+env(safe-area-inset-top))] w-full items-center justify-center gap-[14px] bg-[color:var(--bar-accent)] px-5 pb-6 pt-[calc(24px+env(safe-area-inset-top))] text-[28px] font-bold leading-tight text-[color:var(--bar-on)] active:opacity-90"
-      >
-        <span aria-hidden className="text-[34px] font-bold leading-none">
-          &#8592;
-        </span>
-        BACK TO ALL DRINKS
-      </button>
+      <BackBar label={backLabel} onBack={onBack} />
       <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
 
       <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
@@ -391,5 +381,116 @@ function Steps({ title, steps, circle }: { title: string; steps: string[]; circl
         ))}
       </ol>
     </section>
+  );
+}
+
+/** The big accent bar across the top of a recipe or a flavour list: one tap back, the whole width, readable from a metre away. */
+function BackBar({ label, onBack }: { label: string; onBack: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="flex min-h-[calc(84px+env(safe-area-inset-top))] w-full items-center justify-center gap-[14px] bg-[color:var(--bar-accent)] px-5 pb-6 pt-[calc(24px+env(safe-area-inset-top))] text-center text-[28px] font-bold leading-tight text-[color:var(--bar-on)] active:opacity-90"
+    >
+      <span aria-hidden className="text-[34px] font-bold leading-none">
+        &#8592;
+      </span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
+    </button>
+  );
+}
+
+/** One drink on the grid: photo, name, glass. `groupLine` is the quiet menu-group name shown on a search result. */
+function DrinkCard({ item, onOpen, groupLine }: { item: BarItem; onOpen: () => void; groupLine?: string | null }) {
+  return (
+    <button type="button" onClick={onOpen} className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327] motion-reduce:transition-none motion-reduce:active:scale-100")}>
+      <Photo name={item.name} photo={item.photo} className="h-[270px] w-full bg-[#161618] object-contain" />
+      <div className="px-4 pb-[18px] pt-[14px]">
+        <span className="text-[26px] font-medium leading-[1.2]">{item.name}</span>
+        {groupLine ? <span className="mt-1 block text-[15px] text-[#9B9890]">{groupLine}</span> : null}
+        {item.glass ? (
+          <span className="mt-[9px] flex items-center gap-2 text-[#9B9890]">
+            <GlassIcon type={glassType(item.glass)} size={22} className="shrink-0" />
+            <span className="text-[15px]">{item.glass}</span>
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+type GroupCardData = Extract<StationCard<BarItem>, { kind: "group" }>;
+
+/** One quarter of the collage. A photo that fails to load leaves a blank dark tile and tells the collage, so it can tell when none loaded. */
+function CollageTile({ item, onBroken }: { item: BarItem; onBroken: (id: string) => void }) {
+  const { broken, ref, onError } = useBrokenPhoto();
+  useEffect(() => {
+    if (broken) onBroken(item.id);
+  }, [broken, item.id, onBroken]);
+  if (broken) return <div className="h-full w-full bg-[#161618]" />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img ref={ref} src={barPhotoSrc(item.name, item.photo)} alt="" className="h-full w-full bg-[#161618] object-cover object-center" onError={onError} />;
+}
+
+/**
+ * The photo area of a group card: up to four members' own photos (2 side by side, 3 as two over one, 4 as a 2 x 2), so it never
+ * shows one flavour as if it were the whole group. A member without a photo is a blank dark tile; when no member has one the
+ * area shows the glass icon, like the other cards without a picture.
+ */
+function GroupPhotos({ members }: { members: BarItem[] }) {
+  const shown = members.slice(0, 4);
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  const mark = useCallback((id: string) => setBroken((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
+  if (shown.every((m) => broken.has(m.id)))
+    return (
+      <div className="flex h-[270px] w-full items-center justify-center bg-[#161618] text-[#8E8C85]">
+        <GlassIcon type={glassType(members[0]?.glass)} size={72} />
+      </div>
+    );
+  return (
+    <div className={cx("grid h-[270px] w-full gap-[2px] overflow-hidden bg-[#0E0E10]", shown.length === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2")}>
+      {shown.map((m, i) => (
+        <div key={m.id} className={cx("min-h-0 min-w-0 overflow-hidden", shown.length === 3 && i === 2 && "col-span-2")}>
+          <CollageTile item={m} onBroken={mark} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A menu group on the grid: same size and style as a drink card, the group name, how many flavours, and a collage of their photos. */
+function GroupCard({ card, onOpen }: { card: GroupCardData; onOpen: () => void }) {
+  return (
+    <button type="button" onClick={onOpen} className={cx(CARD, "flex flex-col overflow-hidden text-left transition-transform duration-150 active:scale-[0.98] active:bg-[#232327] motion-reduce:transition-none motion-reduce:active:scale-100")}>
+      <GroupPhotos members={card.members} />
+      <div className="px-4 pb-[18px] pt-[14px]">
+        <span className="text-[26px] font-medium leading-[1.2]">{card.name}</span>
+        <span className="mt-[9px] flex items-center justify-between gap-2 text-[#9B9890]">
+          <span className="text-[15px]">{flavourCount(card.members.length)}</span>
+          <span aria-hidden className="text-[20px] leading-none">
+            &#8250;
+          </span>
+        </span>
+      </div>
+    </button>
+  );
+}
+
+/** The flavours of one menu group, as ordinary drink cards. Tapping one opens its recipe; Back from the recipe returns here. */
+function GroupList({ card, onBack, onOpen, menu, now }: { card: GroupCardData; onBack: () => void; onOpen: (id: string) => void; menu: BarMenu | null; now: number }) {
+  return (
+    <div className="flex w-full flex-col">
+      <BackBar label="BACK TO ALL DRINKS" onBack={onBack} />
+      <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
+      <div className="mx-auto w-full max-w-[1000px] px-6 pb-10 pt-7">
+        <h1 className="font-display text-[52px] uppercase leading-none tracking-[0.5px]">{card.name}</h1>
+        <p className="mb-5 mt-2 text-[16px] text-[#9B9890]">{flavourCount(card.members.length)}. Tap one for the recipe.</p>
+        <div className="grid grid-cols-2 gap-[14px]">
+          {card.members.map((m) => (
+            <DrinkCard key={m.id} item={m} onOpen={() => onOpen(m.id)} />
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

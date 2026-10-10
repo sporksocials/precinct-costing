@@ -11,6 +11,7 @@ const FIELD_LABELS: Record<string, string> = {
   venue_id: "Venue",
   category: "Category",
   section: "Menu Section",
+  menu_group: "Menu Group",
   portions: "Serves",
   sell_price_inc: "Price",
   hh_price_inc: "Happy Hour Price",

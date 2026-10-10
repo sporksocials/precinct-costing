@@ -29,6 +29,7 @@ import { DietOptionsGroup } from "./diet-options";
 import { isDrinkItem } from "@/lib/allergen-badges";
 import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
 import { isBarCategory } from "@/lib/bar";
+import { cleanGroupName, groupKey, groupNamesAt, hasGroupColumn } from "@/lib/menu-groups";
 import { BarDisplayFields } from "./bar-fields";
 import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
@@ -429,6 +430,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const item = kind === "item" ? (draft as MenuItem) : null;
   // spelling and capitals on the name: a change of the draft like typing is, never a write to the database
   const nameTidy = useNameTidy({ kind: item ? (isDrinkItem(item) ? "drink" : "menu_item") : "prep", value: draft.name, setValue: (v) => setDraft((d) => ({ ...d, name: v })), own: saved.name });
+  // Menu Group (Drinks Station display grouping): offered only when the database has the column, so a save can never send it before the migration
+  const groupColumn = useMemo(() => hasGroupColumn(store.items), [store.items]);
+  const showGroup = !!item && groupColumn && (isBarCategory(item.category) || !!item.menu_group);
+  const groupChoices = useMemo(() => (item && showGroup ? groupNamesAt(store.items, item.venue_id, item.id) : []), [store.items, item, showGroup]);
   const prepYield = prep ? Number(prep.yield_qty) || 0 : 0;
   const prepCostPerUnit = prep && prepYield > 0 ? recipe.total / prepYield : 0;
   const venue = store.venueById.get((draft as MenuItem).venue_id ?? -1);
@@ -784,13 +789,37 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {/* details */}
-          <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}${itemCost?.hhBelowCost ? " (below cost)" : itemCost?.hhUnderTarget ? " (below target)" : ""}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
+          <Disclosure title={item ? "Pricing & Notes" : "Type & Notes"} hint={item ? [item.section ? `Section: ${item.section}` : null, item.menu_group ? `Group: ${item.menu_group}` : null, item.target_override != null ? `Target ${gp(item.target_override, 0)}` : "Default target", item.hh_price_inc ? `Happy hour ${money(item.hh_price_inc)}${itemCost?.hhBelowCost ? " (below cost)" : itemCost?.hhUnderTarget ? " (below target)" : ""}` : null].filter(Boolean).join(" · ") : prep?.prep_type ?? "Add a type and notes"}>
             <div className="group-list">
               {item ? (
                 <>
                   <FieldRow label="Menu Section">
                     <InlineInput value={item.section ?? ""} placeholder="None" inputMode="text" width="w-40" onCommit={(t) => setDraft((d) => ({ ...d, section: t.trim() || null }))} />
                   </FieldRow>
+                  {showGroup ? (
+                    <>
+                      <FieldRow label="Menu Group" sub="Items with the same group show together on the Drinks Station.">
+                        <InlineInput
+                          value={item.menu_group ?? ""}
+                          placeholder="None"
+                          inputMode="text"
+                          width="w-44"
+                          ariaLabel="Menu Group"
+                          onCommit={(t) => setDraft((d) => ({ ...d, menu_group: cleanGroupName(t) }))}
+                        />
+                      </FieldRow>
+                      {groupChoices.length ? (
+                        <div className="px-4 pb-3 pt-1">
+                          <Chips
+                            ariaLabel="Groups Already Used Here"
+                            value={groupChoices.find((n) => groupKey(n) === groupKey(item.menu_group)) ?? ""}
+                            onChange={(n) => setDraft((d) => ({ ...d, menu_group: n }))}
+                            options={groupChoices.map((n) => ({ value: n, label: n }))}
+                          />
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                   <FieldRow label="Target GP" sub={`Default for ${venue?.name ?? "venue"} ${item.category}: ${gp(store.targets.find((t) => t.venue_id === item.venue_id && t.category === item.category)?.target_gp ?? 0.7, 0)}`}>
                     <InlineInput
                       value={item.target_override != null ? String(Math.round(item.target_override * 1000) / 10) : ""}

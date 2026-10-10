@@ -58,6 +58,11 @@ export interface BarItem {
   glass: string | null;
   /** photo file name in public/bar/cocktails/ (cost_menu_items.bar_photo); null falls back to the item's name */
   photo: string | null;
+  /**
+   * cost_menu_items.menu_group: items sharing it (at this venue) show as one card that opens to the flavours (lib/menu-groups.ts).
+   * Absent from the payload (an older copy on the iPad, or a database without the column yet) reads as null: everything shows flat.
+   */
+  menuGroup: string | null;
   method: string[];
   garnish: string[];
   lines: BarLine[];
@@ -105,6 +110,7 @@ export function parseBarMenu(raw: unknown, syncedAt: string): BarMenu | null {
       category: String(i.category ?? ""),
       glass: typeof i.glass === "string" && i.glass.trim() ? i.glass.trim() : null,
       photo: typeof i.photo === "string" && i.photo.trim() ? i.photo.trim() : null,
+      menuGroup: typeof i.menu_group === "string" && i.menu_group.trim() ? i.menu_group.replace(/\s+/g, " ").trim() : null,
       method: textList(i.method),
       garnish: textList(i.garnish),
       lines: (Array.isArray(i.lines) ? i.lines : []).map((y) => {

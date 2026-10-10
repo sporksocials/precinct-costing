@@ -1946,3 +1946,58 @@ insert into public.cost_beer_serves (name, sort, ml, not_sold_at) values ('500ml
 update public.cost_beer_serves set sort = 4 where name = 'Pint' and sort = 3;
 update public.cost_beer_serves set sort = 5 where name = 'Jug' and sort = 4;
 alter table public.cost_beers add column if not exists only_serves uuid[];
+
+-- Mirrors supabase/migrations/20261010100000_menu_item_groups.sql (Troy, 10 Oct 2026): display grouping for the Drinks Station, nothing in costing reads it.
+alter table public.cost_menu_items add column if not exists menu_group text;
+comment on column public.cost_menu_items.menu_group is 'Display grouping only: items at the same venue sharing this name show as one card on the Drinks Station that opens to the flavours. Null = stands alone. Not used by costing, alerts or GP.';
+
+-- Mirrors supabase/migrations/20261010110000_bar_menu_group.sql. Drinks Station: each item carries its menu group (cost_menu_items.menu_group, migration 20261010100000) so the iPad can show
+-- items such as the Kids Milkshakes or the Spiders as one card that opens to the flavours. The function is the current
+-- cost_bar_menu (20261005200000) with that one key added to the item object and nothing else changed. APPLY 20261010100000 FIRST:
+-- this body reads mi.menu_group, so it fails to create until that column exists. Display only: still no prices or notes.
+create or replace function public.cost_bar_menu(p_venue text)
+returns json
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select json_build_object(
+    'venue', json_build_object('slug', v.slug, 'name', v.name),
+    'items', coalesce((
+      select json_agg(json_build_object(
+          'id', mi.id,
+          'name', mi.name,
+          'category', mi.category,
+          'glass', mi.glass,
+          'photo', mi.bar_photo,
+          'menu_group', mi.menu_group,
+          'method', coalesce(mi.method, '[]'::jsonb),
+          'garnish', coalesce(mi.garnish, '[]'::jsonb),
+          'lines', coalesce((
+            select json_agg(json_build_object(
+                'name', coalesce(ing.name, pr.name),
+                'qty', rl.qty,
+                'unit', rl.unit,
+                'note', rl.note
+              ) order by rl.sort nulls last, rl.id)
+            from cost_recipe_lines rl
+            left join cost_ingredients ing on rl.component_type = 'ingredient' and ing.id = rl.component_id
+            left join cost_preps pr on rl.component_type = 'prep' and pr.id = rl.component_id
+            where rl.parent_type = 'item' and rl.parent_id = mi.id
+          ), '[]'::json)
+        ) order by mi.name)
+      from cost_menu_items mi
+      where mi.venue_id = v.id and mi.active and mi.category in ('Cocktail', 'Mocktail', 'Cold Drink')
+        and btrim(coalesce(mi.glass, '')) <> ''
+        and coalesce(mi.method, '[]'::jsonb) <> '[]'::jsonb
+    ), '[]'::json)
+  )
+  from cost_venues v
+  where v.slug = p_venue;
+$$;
+
+revoke all on function public.cost_bar_menu(text) from public;
+grant execute on function public.cost_bar_menu(text) to anon, authenticated;
+
+comment on function public.cost_bar_menu(text) is 'Bar display (public iPad drinks station): one venue''s active cocktails, mocktails and cold drinks that have BOTH a glass and a method, with glass, method, garnish and recipe quantities. Display fields only, no prices or notes. Null when the venue slug does not exist.';

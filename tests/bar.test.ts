@@ -91,7 +91,7 @@ describe("parseBarMenu", () => {
       },
       "2026-10-02T00:00:00Z",
     );
-    expect(m?.items[0]).toEqual({ id: "a", name: "Mojito", category: "Cocktail", glass: null, photo: "mojito.jpg", method: ["Shake"], garnish: [], lines: [{ name: "Mint", qty: 2, unit: "g", note: null }] });
+    expect(m?.items[0]).toEqual({ id: "a", name: "Mojito", category: "Cocktail", glass: null, photo: "mojito.jpg", menuGroup: null, method: ["Shake"], garnish: [], lines: [{ name: "Mint", qty: 2, unit: "g", note: null }] });
     expect(parseBarMenu(null, "")).toBeNull();
   });
   it("textList ignores anything that isn't a list of strings", () => {

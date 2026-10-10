@@ -80,7 +80,8 @@ describe("prompt", () => {
       expect(SYSTEM_PROMPT).toContain(`- ${a.id}: `);
       expect(SYSTEM_PROMPT).toContain(a.label);
     }
-    expect(SYSTEM_PROMPT).not.toContain("- sulphites: ");
+    expect(SYSTEM_PROMPT).toContain("- sulphites: Sulphites");
+    expect(SYSTEM_PROMPT).toContain("- nitrites: Nitrites");
     expect(SYSTEM_PROMPT).not.toContain("- alcohol: ");
     for (const f of ANIMAL_FLAGS) expect(SYSTEM_PROMPT).toContain(f);
   });
@@ -98,7 +99,8 @@ describe("prompt", () => {
       "amaretto, orgeat, frangelico",
       "tree_nuts",
       "egg white",
-      "never propose sulphites or alcohol",
+      "contain sulphites",
+      "never propose alcohol",
     ]) {
       expect(p).toContain(w.toLowerCase());
     }
@@ -210,17 +212,70 @@ describe("validateReply", () => {
   });
 });
 
-describe("sulphites and alcohol are never proposed (not on the menu)", () => {
-  it("the keyword check proposes nothing for wine, beer, cider or spirits", () => {
-    const names = ["Chardonnay Wine", "Petes Pure Prosecco", "Gin", "Cider", "Aperol (700ml)"];
-    for (const it of builtinItems({ ingredients: names.map((name, i) => ing({ key: `k${i}`, name })) })) {
-      expect(it.allergens.map((a) => a.id)).not.toContain("sulphites");
-      expect(it.allergens.map((a) => a.id)).not.toContain("alcohol");
+describe("sulphites and nitrites are proposed, alcohol never is", () => {
+  const proposed = (name: string) => builtinItems({ ingredients: [ing({ name })] })[0].allergens.map((a) => a.id);
+  it("the keyword check proposes sulphites for wine and cider, and never alcohol or sulphites for spirits", () => {
+    expect(proposed("Chardonnay Wine")).toEqual(["sulphites"]);
+    expect(proposed("Petes Pure Prosecco")).toEqual(["sulphites"]);
+    expect(proposed("Cider")).toEqual(["sulphites"]);
+    for (const spirit of ["Gin", "Dark Rum", "Vodka", "Aperol (700ml)", "Tequila Blanco"]) expect(proposed(spirit)).toEqual([]);
+  });
+  it("the keyword check proposes nitrites for cured meats", () => {
+    expect(proposed("Bacon Rashers")).toEqual(["nitrites"]);
+    expect(proposed("Leg Ham Shaved")).toEqual(["nitrites"]);
+    expect(proposed("Smoked Salmon")).not.toContain("nitrites");
+  });
+  it("a model reply that names alcohol has it dropped, but sulphites and nitrites pass", () => {
+    const r = validateReply(
+      JSON.stringify({ items: [{ key: "a1", allergens: [{ id: "alcohol", reason: "Wine contains alcohol." }, { id: "sulphites", reason: "Wine is kept with sulphites." }, { id: "nitrites", reason: "Bacon is cured with nitrites." }, { id: "milk", reason: "Cream is a milk product." }], diet: [] }] }),
+      ONE,
+    );
+    expect(r?.[0].allergens.map((a) => a.id)).toEqual(["sulphites", "nitrites", "milk"]);
+  });
+  it("does not propose what is already ticked, and a duplicate new id is still a failed reply", () => {
+    const input: AssistRequest = { ingredients: [ing({ allergens: ["sulphites"] })] };
+    const r = validateReply(JSON.stringify({ items: [{ key: "a1", allergens: [{ id: "sulphites", reason: "Wine is kept with sulphites." }, { id: "nitrites", reason: "Bacon is cured with nitrites." }], diet: [] }] }), input);
+    expect(r?.[0].allergens.map((a) => a.id)).toEqual(["nitrites"]);
+    const dup = { id: "nitrites", reason: "Bacon is cured with nitrites." };
+    expect(validateReplyDetailed(JSON.stringify({ items: [{ key: "a1", allergens: [dup, dup], diet: [] }] }), ONE)).toEqual({ reason: "bad_reply_allergen" });
+  });
+  it("accepting the proposals ticks them without touching reviewed", () => {
+    const p = proposalPatch({ allergens: ["milk"], diet_flags: [] }, { allergens: [{ id: "sulphites", reason: "Wine is kept with sulphites." }, { id: "nitrites", reason: "Bacon is cured with nitrites." }], diet: [] });
+    expect(p?.patch.allergens).toEqual(["milk", "sulphites", "nitrites"]);
+    expect(p?.patch).not.toHaveProperty("allergens_reviewed");
+  });
+});
+
+describe("Seeds (stored id sesame)", () => {
+  const SEED_NAMES = ["Tahini", "Hummus", "Sunflower Seeds", "Pepitas", "Poppy Seeds", "Chia Seeds", "Linseed Meal", "Hemp Seeds", "Seeded Sourdough", "Za'atar", "Furikake"];
+  it("the keyword check proposes the sesame id for every seed food, with a reason that never says sesame", () => {
+    for (const name of SEED_NAMES) {
+      const [it] = builtinItems({ ingredients: [ing({ name })] });
+      const a = it.allergens.find((x) => x.id === "sesame");
+      expect(a, name).toBeDefined();
+      expect(a?.reason, name).not.toMatch(/sesame/i);
+      expect(isValidReason(a?.reason)).toBe(true);
     }
   });
-  it("a model reply that names them has them dropped, not shown", () => {
-    const r = validateReply(JSON.stringify({ items: [{ key: "a1", allergens: [{ id: "alcohol", reason: "Wine contains alcohol." }, { id: "sulphites", reason: "Wine contains sulphites." }, { id: "milk", reason: "Cream is a milk product." }], diet: [] }] }), ONE);
-    expect(r?.[0].allergens.map((a) => a.id)).toEqual(["milk"]);
+  it("no user-visible wording for the allergen says sesame: the label, the note and the built-in reasons all say Seeds", () => {
+    expect(ALLERGENS.find((a) => a.id === "sesame")?.label).toBe("Seeds");
+    expect(ALLERGENS.find((a) => a.id === "sesame")?.short).toBe("Seeds");
+    for (const source of ["ai", "builtin"] as const) expect(allergenNote({ source })).not.toMatch(/sesame/i);
+    expect(allergenNote({ source: "builtin", fallback: "no_key" })).not.toMatch(/sesame/i);
+    const all = builtinItems({ ingredients: SEED_NAMES.map((name, i) => ing({ key: `k${i}`, name })) });
+    for (const it of all) for (const a of it.allergens) expect(a.reason).not.toMatch(/sesame/i);
+  });
+  it("the prompt defines Seeds as stored as sesame, lists the seeds and leaves spice seeds out", () => {
+    expect(SYSTEM_PROMPT).toContain("- sesame: Seeds (declared allergen)");
+    expect(SYSTEM_PROMPT).toContain("Seeds (stored as sesame)");
+    for (const w of ["sunflower, pumpkin, poppy, chia, flax, linseed and hemp seeds", "tahini, hummus, halva, dukkah", "Spice seeds such as cumin, fennel, caraway, coriander and mustard seed are not Seeds"]) expect(SYSTEM_PROMPT).toContain(w);
+    expect(SYSTEM_PROMPT).toContain("Tahini and hummus contain seeds (id sesame)");
+    expect(SYSTEM_PROMPT).not.toMatch(/contain sesame/i);
+    expect(SYSTEM_PROMPT).toContain("For id sesame say seeds");
+  });
+  it("the reply checks accept the sesame id with a seeds reason", () => {
+    const r = validateReply(JSON.stringify({ items: [{ key: "a1", allergens: [{ id: "sesame", reason: "Tahini is made from ground seeds." }], diet: [] }] }), ONE);
+    expect(r?.[0].allergens).toEqual([{ id: "sesame", reason: "Tahini is made from ground seeds." }]);
   });
 });
 

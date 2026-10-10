@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
  * Colours of the kitchen allergen and dietary badges. Kept in one plain module so tests/kitchen.test.ts can check every
  * text and background pair against WCAG AA (4.5:1 for text, 3:1 for the outline). Colour only backs up what each badge says
  * in words and shape: solid red + octagon = contains, hatched amber + triangle = not reviewed, dashed = unconfirmed,
- * quiet outline = sensitivity or attribute, solid green + tick = confirmed, hatched grey = not confirmed, outlined + swap = option.
+ * quiet outline = attribute (alcohol), solid green + tick = confirmed, hatched grey = not confirmed, outlined + swap = option.
  */
 export interface Tone {
   /** text and icon */
@@ -27,7 +27,7 @@ export const KB = {
   notReviewed: { fg: "#F7D48C", bg: "#2B2210", stripe: "#4A3710", edge: "#F2C46D" },
   /** a keyword guess on an unreviewed ingredient: dashed amber outline */
   may: { fg: "#F2C46D", bg: "#2B2210", edge: "#F2C46D" },
-  /** sulphites and alcohol: quiet outlined pills */
+  /** alcohol: a quiet outlined pill */
   quiet: { fg: "#D0CCC2", bg: CARD_BG, edge: "#8E8C85" },
   /** a confirmed diet badge: solid green */
   is: { fg: "#06240F", bg: "#8FD9A4", edge: "#8FD9A4" },

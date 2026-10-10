@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleHelp, Fish, Info, Minus, OctagonAlert, Replace, TriangleAlert, Wine } from "lucide-react";
+import { Check, CircleHelp, Fish, Minus, OctagonAlert, Replace, TriangleAlert, Wine } from "lucide-react";
 import { allergenLabel, type AllergenId } from "@/lib/allergens";
 import type { BadgeModel, DietBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
 import { BADGE_LABELS, dietLegendLines, LEGEND_INVITATION, seafoodDef, seafoodLegendLines } from "@/lib/diet-legend";
@@ -8,9 +8,9 @@ import { cx } from "./ui";
 
 /**
  * The tiers of the badge model (lib/allergen-badges.ts), always in the same order:
- * Not Reviewed banner, Contains, Sensitivities, Contains Alcohol, Dietary, Seafood Origin.
+ * Not Reviewed banner, Contains, Contains Alcohol, Dietary, Seafood Origin.
  * Every badge is a word plus a shape or icon, never colour alone: solid hard-edged = contains, dashed = unconfirmed,
- * hatched = not confirmed, quiet outline = sensitivity or attribute, outlined with a swap icon = an option.
+ * hatched = not confirmed, quiet outline = attribute (alcohol), outlined with a swap icon = an option.
  */
 
 const base = "inline-flex items-center gap-1.5 text-[14px] font-semibold leading-tight";
@@ -51,15 +51,6 @@ export function MayContainBadge({ id }: { id: AllergenId }) {
       <CircleHelp aria-hidden className={icon} strokeWidth={2.5} />
       {allergenLabel(id)}
       <span className="text-[12px] font-semibold">Unconfirmed</span>
-    </span>
-  );
-}
-export function SensitivityBadge({ id, may }: { id: AllergenId; may?: boolean }) {
-  return (
-    <span className={cx(base, "rounded-full border border-[color:var(--label-3)] px-2.5 py-1 font-medium text-label-2", may && "border-dashed")}>
-      <Info aria-hidden className={icon} strokeWidth={2.25} />
-      {allergenLabel(id)}
-      {may ? <span className="text-[12px]">Unconfirmed</span> : null}
     </span>
   );
 }
@@ -127,7 +118,6 @@ export function SeafoodChip({ s }: { s: SeafoodBadge }) {
 export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeModel; seafoodLabel?: boolean; className?: string }) {
   const m = model;
   const mainEmpty = m.contains.length === 0 && m.mayContain.length === 0;
-  const quiet = m.sensitivities.length + m.sensitivitiesMay.length > 0;
   const alc = m.attributes.length + m.attributesMay.length > 0;
   const seafood = m.seafood;
   return (
@@ -138,7 +128,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
       <div>
         <TierLabel>{BADGE_LABELS.contains}</TierLabel>
         {mainEmpty ? (
-          <p className="text-[15px] text-label-2">{m.notReviewed ? "Nothing found so far." : m.drink ? "No egg, milk or nuts ticked on any ingredient." : "No allergens ticked on any ingredient."}</p>
+          <p className="text-[15px] text-label-2">{m.notReviewed ? "Nothing found so far." : m.drink ? "No egg, milk, nuts or sulphites ticked on any ingredient." : "No allergens ticked on any ingredient."}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {m.contains.map((id) => (
@@ -161,24 +151,7 @@ export function BadgePanel({ model, seafoodLabel, className }: { model: BadgeMod
       </div>
       ) : null}
 
-      {quiet || alc ? (
-        <div className="space-y-3">
-          {quiet ? (
-            <div>
-              <TierLabel>{BADGE_LABELS.sensitivities}</TierLabel>
-              <div className="flex flex-wrap gap-2">
-                {m.sensitivities.map((id) => (
-                  <SensitivityBadge key={id} id={id} />
-                ))}
-                {m.sensitivitiesMay.map((id) => (
-                  <SensitivityBadge key={id} id={id} may />
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {alc ? <div className="flex flex-wrap gap-2">{m.attributes.length ? <AlcoholBadge /> : <AlcoholBadge may />}</div> : null}
-        </div>
-      ) : null}
+      {alc ? <div className="flex flex-wrap gap-2">{m.attributes.length ? <AlcoholBadge /> : <AlcoholBadge may />}</div> : null}
 
       {m.listsAllergens || m.options.length ? (
       <div>

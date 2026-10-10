@@ -76,7 +76,6 @@ export const BADGE_LABELS = {
   vegetarian: "Vegetarian",
   vegan: "Vegan",
   containsAlcohol: "Contains Alcohol",
-  sensitivities: "Sensitivities",
   contains: "Contains",
   mayContain: "May Contain (Unconfirmed)",
   seafoodOrigin: "Seafood Origin",
@@ -88,7 +87,7 @@ export const BADGE_LABELS = {
   noneListed: "None Listed",
   /** the Contains tier of a recipe with unreviewed ingredients and nothing found yet */
   nothingFoundSoFar: "Nothing Found So Far",
-  /** a tile with nothing to flag at all (fully reviewed, no allergens, sensitivities, attributes) */
+  /** a tile with nothing to flag at all (fully reviewed, no allergens, no attributes) */
   noAllergensListed: "No Allergens Listed",
   /** the small seafood prompt on a kitchen screen: the menu letter is only right while deliveries match it */
   checkDelivery: "Check Delivery",

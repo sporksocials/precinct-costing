@@ -17,6 +17,7 @@ import { catalogueGaps, ingredientsInActiveUse, ingredientsInUse, staleIngredien
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { countInactive, ingredientListPool } from "@/lib/active";
 import { useUrlFlag, useUrlState } from "@/components/use-url-state";
+import { IngredientsNeedCheckRow } from "@/components/ingredient-review/need-check-row";
 
 const PAGE = 100;
 
@@ -136,6 +137,7 @@ function IngredientsList({ adding, setAdding }: { adding: boolean; setAdding: (v
           </button>
         </div>
       ) : null}
+      {filter ? null : <IngredientsNeedCheckRow />}
       <SearchField value={q} onChange={setQ} placeholder="Search ingredients or suppliers" />
       {filter ? null : <Chips className="mt-3" ariaLabel="Category" value={catValue} onChange={setCat} options={[{ value: "all", label: "All" }, ...cats.map((c) => ({ value: c, label: c }))]} />}
 

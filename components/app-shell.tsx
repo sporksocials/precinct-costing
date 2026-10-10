@@ -39,7 +39,9 @@ function isActive(pathname: string, href: string) {
   if (href === "/matrix/todo") return pathname.startsWith("/matrix/todo") || pathname.startsWith("/matrix/review");
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
   if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
-  if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps");
+  // ingredient allergen review is about ingredients, so it lives under Ingredients (not Menu Labels, which shares the /allergens prefix)
+  if (href === "/allergens") return pathname === "/allergens";
+  if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps") || pathname.startsWith("/allergens/review");
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -96,8 +98,8 @@ const TABS = [
 ];
 
 export function hidesTabBar(pathname: string) {
-  // record pages hold their own save bar, and Allergy Matrix review holds its own Confirm bar: neither shares the bottom with the tab bar
-  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review";
+  // record pages hold their own save bar, and the two review modes (dishes, ingredients) hold their own Confirm bar: none shares the bottom with the tab bar
+  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review" || pathname === "/allergens/review";
 }
 
 function TabBar() {

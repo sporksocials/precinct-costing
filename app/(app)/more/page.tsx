@@ -1,9 +1,10 @@
 "use client";
 
-import { ClipboardList, HeartPulse, History, Lightbulb, ListChecks, Settings, ShieldCheck, Store, Tag, Trash2, Wheat } from "lucide-react";
+import { Carrot, ClipboardList, HeartPulse, History, Lightbulb, ListChecks, Settings, ShieldCheck, Store, Tag, Trash2, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
+import { useIngredientsToReview } from "@/components/ingredient-review/use-review-queue";
 
 function Icon({ children, className }: { children: React.ReactNode; className: string }) {
   return <span className={`flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-white ${className}`}>{children}</span>;
@@ -13,6 +14,7 @@ export default function MorePage() {
   const { userEmail, signOut, researchNotes, ready } = useStore();
   const openNotes = researchNotes.filter((n) => n.status === "open").length;
   const health = useDataHealthSummary();
+  const toCheck = useIngredientsToReview().length;
   const ic = "h-[18px] w-[18px]";
   return (
     <div>
@@ -23,6 +25,14 @@ export default function MorePage() {
         <Row href="/allergens" title="Menu Labels" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
         <Row href="/matrix" title="Allergy Matrix" leading={<Icon className="bg-[#6a3a7a]"><ShieldCheck className={ic} /></Icon>} chevron />
         <Row href="/matrix/todo" title="Matrix To Do" sub="Dishes to approve, marks, sheets to reprint" leading={<Icon className="bg-[#6a3a7a]"><ListChecks className={ic} /></Icon>} chevron />
+        <Row
+          href="/allergens/review"
+          title="Check Ingredient Allergens"
+          sub="Tick each ingredient once, dishes follow"
+          leading={<Icon className="bg-[#2c6b45]"><Carrot className={ic} /></Icon>}
+          trailing={ready ? <span className={toCheck ? "text-warn" : "text-good"}>{toCheck ? `${toCheck} to check` : "All checked"}</span> : undefined}
+          chevron
+        />
         <Row
           href="/research-notes"
           title="Research Notes"

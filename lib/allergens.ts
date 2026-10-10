@@ -173,6 +173,9 @@ const NOT_SULPHITE = /\bsparkling\s+(mineral\s+)?(water|soda|juice|lemonade|mine
 /** Nitrites: plant "bacon", salt-cured or cured fish, eggs, lemons and olives are not cured meat. */
 const NOT_NITRITE = /\b(coconut|vegan|plant|mushroom|veggie|vegetarian)\s+bacon\b|\bsalt[\s-]?cured\b|\bcured\s+(salmon|fish|trout|ocean trout|kingfish|tuna|yolks?|eggs?|lemons?|olives?)\b/g;
 
+/** Molluscs and crustacea: oyster mushrooms and oyster blade are not shellfish, scalloped potatoes are not scallops, crab apples are not crab. */
+const NOT_SHELLFISH = /\boyster\s+(mushrooms?|blade|leaf|plant)\b|\bscalloped\b|\bscallop\s+squash\b|\bcrab\s?apples?\b/g;
+
 const RULES: Rule[] = [
   {
     allergens: ["gluten"],
@@ -185,8 +188,8 @@ const RULES: Rule[] = [
       "udon", "ramen", "noodle", "soy sauce", "teriyaki", "hoisin", "worcestershire", "bechamel", "cake", "cheesecake", "tart", "scone", "muffin", "donut", "doughnut", "waffle", "pancake", "crepe", "farro", "bulgur", "seitan",
     ],
   },
-  { allergens: ["crustacea"], terms: ["prawn", "shrimp", "crab", "lobster", "yabby", "yabbie", "crayfish", "crawfish", "langoustine", "scampi", "krill", "moreton bay bug", "balmain bug", "belacan"] },
-  { allergens: ["molluscs"], terms: ["squid", "calamari", "octopus", "oyster", "mussel", "clam", "scallop", "abalone", "cuttlefish", "pipi", "whelk", "snail", "escargot", "vongole", "oyster sauce"] },
+  { allergens: ["crustacea"], strip: NOT_SHELLFISH, terms: ["prawn", "shrimp", "crab", "lobster", "yabby", "yabbie", "crayfish", "crawfish", "langoustine", "scampi", "krill", "moreton bay bug", "balmain bug", "belacan"] },
+  { allergens: ["molluscs"], strip: NOT_SHELLFISH, terms: ["squid", "calamari", "octopus", "oyster", "mussel", "clam", "scallop", "abalone", "cuttlefish", "pipi", "whelk", "snail", "escargot", "vongole", "oyster sauce"] },
   {
     allergens: ["fish"],
     terms: [

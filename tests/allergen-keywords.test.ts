@@ -174,3 +174,19 @@ describe("the printed recipe sheet", () => {
     expect(printAllergens(badgeModel(rollup({ kind: "item", id: "x" }, index), item("x", "Ham Toastie"), FULL_ALLERGENS)).contains).toBe("Contains: Nitrites");
   });
 });
+
+describe("Shellfish keyword rules: look-alikes are not shellfish (Chiobu check, 10 Oct 2026)", () => {
+  it("oyster mushrooms and oyster blade are not molluscs, scalloped potatoes are not scallops, crab apples are not crab", () => {
+    for (const n of ["Oyster Mushroom", "Oyster Mushrooms (King)", "Beef Oyster Blade", "Scalloped Potato", "Scallop Squash", "Crab Apple", "Crabapple Jelly"]) {
+      expect(ids(n), n).not.toContain("molluscs");
+      expect(ids(n), n).not.toContain("crustacea");
+    }
+  });
+  it("real shellfish and oyster sauce still match", () => {
+    expect(has("Oysters Pacific", "molluscs")).toBe(true);
+    expect(has("Oyster Sauce", "molluscs")).toBe(true);
+    expect(has("Scallops (Hokkaido)", "molluscs")).toBe(true);
+    expect(has("Blue Swimmer Crab Meat", "crustacea")).toBe(true);
+    expect(has("Fish Sauce", "fish")).toBe(true);
+  });
+});

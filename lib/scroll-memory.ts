@@ -56,3 +56,12 @@ export function isNavigationScroll(y: number, msSinceLinkPress: number | null): 
 export function shouldRestore(arrival: { popped: boolean; backArrow: boolean; navType?: string | null }): boolean {
   return arrival.popped || arrival.backArrow || arrival.navType === "back_forward" || arrival.navType === "reload";
 }
+
+/**
+ * Pure: is this link a back arrow? Either marked (BackLink adds data-pc-back) or drawn with the chevron-left icon that every
+ * back arrow in the app uses (the recipe editor's own Link, Gelato, Alerts, Print, Matrix and Ordering screens do not go
+ * through BackLink). `el` is the anchor; only two DOM methods are read, so tests can pass a stub.
+ */
+export function isBackArrow(el: { hasAttribute(n: string): boolean; querySelector(s: string): unknown }): boolean {
+  return el.hasAttribute("data-pc-back") || !!el.querySelector("svg.lucide-chevron-left");
+}

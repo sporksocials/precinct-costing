@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNavigationScroll, shouldRestore, withPosition } from "@/lib/scroll-memory";
+import { isBackArrow, isNavigationScroll, shouldRestore, withPosition } from "@/lib/scroll-memory";
 
 describe("scroll memory", () => {
   it("keeps a position per address and makes the newest last", () => {
@@ -34,5 +34,11 @@ describe("scroll memory", () => {
     expect(shouldRestore({ popped: false, backArrow: false, navType: "back_forward" })).toBe(true);
     expect(shouldRestore({ popped: false, backArrow: false, navType: "navigate" })).toBe(false);
     expect(shouldRestore({ popped: false, backArrow: false })).toBe(false);
+  });
+  it("knows a back arrow by its marker or its chevron icon, and nothing else", () => {
+    const stub = (attr: boolean, icon: boolean) => ({ hasAttribute: (n: string) => attr && n === "data-pc-back", querySelector: (s: string) => (icon && s === "svg.lucide-chevron-left" ? {} : null) });
+    expect(isBackArrow(stub(true, false))).toBe(true);
+    expect(isBackArrow(stub(false, true))).toBe(true);
+    expect(isBackArrow(stub(false, false))).toBe(false);
   });
 });

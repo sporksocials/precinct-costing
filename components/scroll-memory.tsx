@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { isNavigationScroll, savePosition, savedPosition, shouldRestore } from "@/lib/scroll-memory";
+import { isBackArrow, isNavigationScroll, savePosition, savedPosition, shouldRestore } from "@/lib/scroll-memory";
 
 const here = () => window.location.pathname + window.location.search;
 const INPUTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
@@ -62,7 +62,7 @@ function restoreTo(y: number): () => void {
 /**
  * Returns a page to where it was left (Troy, 10 Oct 2026: open Onion low in the Ingredients list, press Back, land on
  * Onion). Mounted once in the app frame. The place is saved when a link is pressed and as the page scrolls, and restored on
- * arrival by Back or Forward, a reload, or the back arrow at the top of a record (a link marked data-pc-back); an ordinary
+ * arrival by Back or Forward, a reload, or the back arrow at the top of a record (isBackArrow); an ordinary
  * link to a page still starts at the top. The list loads from the store a moment after the page appears, so the restore waits
  * (see restoreTo). Next.js handles Back's route change and this component's listener in either order, so both are covered.
  */
@@ -105,7 +105,7 @@ export function ScrollMemory() {
       if (!a) return;
       savePosition(here(), window.scrollY);
       linkAt.current = Date.now();
-      backArrow.current = a.hasAttribute("data-pc-back");
+      backArrow.current = isBackArrow(a);
     };
     let popTimer: ReturnType<typeof setTimeout> | undefined;
     const onPop = () => {

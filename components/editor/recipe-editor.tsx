@@ -612,7 +612,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       <VenueAccent slug={venue?.slug} />
       {/* nav bar */}
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center justify-between px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
-        <Link href={backHref} className="btn-text -ml-1 !gap-0 !text-accent">
+        <Link href={backHref} data-pc-back className="btn-text -ml-1 !gap-0 !text-accent">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
           {isFlavour || kind === "item" ? "Menu" : "Ingredients · Preps"}
         </Link>

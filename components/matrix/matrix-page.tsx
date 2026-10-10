@@ -10,6 +10,7 @@ import { ALL_SECTIONS, printStatus } from "@/lib/matrix-prints";
 import { approvalCount, venueTodo } from "@/lib/matrix-todo";
 import { useStore } from "@/lib/store";
 import { Chips, Empty, Group, PageHeader, Row } from "../ui";
+import { AllergenTabs } from "./allergen-tabs";
 import { useAllergenIndex } from "../allergen-picker";
 import { useUrlState } from "../use-url-state";
 import { PrintStatusBlock, sheetName } from "./printed";
@@ -63,9 +64,10 @@ export function MatrixPage() {
   return (
     <div>
       <PageHeader
-        title="Allergy Matrix"
+        title="Allergens"
         subtitle={current ? `${venueName} · ${progressLine(current.progress)}` : "What each guest can eat, dish by dish"}
       />
+      <AllergenTabs current="matrix" venueSlug={venue?.slug} />
       <VenueFilter className="mb-3" stats={false} compact />
 
       {!current ? (

@@ -17,6 +17,7 @@ import {
 import { badgeModel, DEFAULT_POLICY, isDrinkItem, showsAllergen, type BadgeModel, type DietBadgeId } from "@/lib/allergen-badges";
 import { BADGE_LABELS, seafoodDef } from "@/lib/diet-legend";
 import { useVenue, VenueFilter, VENUE_SHORT } from "./venue";
+import { AllergenTabs } from "./matrix/allergen-tabs";
 import { useAllergenIndex } from "./allergen-picker";
 import { BadgeLegend, BadgePanel } from "./allergen-badges";
 import { cx, Empty, PageHeader, SearchField } from "./ui";
@@ -267,8 +268,8 @@ export function AllergenMatrix() {
     <div className="allergen-print">
       <style>{CSS}</style>
       <PageHeader
-        title={MENU_ONLY_VIEW ? "Menu Labels" : "Allergy Matrix"}
-        subtitle={MENU_ONLY_VIEW ? `${all.length} ${all.length === 1 ? "dish" : "dishes"}` : `${all.length} ${all.length === 1 ? "dish" : "dishes"} · ${reviewedCount} reviewed`}
+        title={MENU_ONLY_VIEW ? "Allergens" : "Allergy Matrix"}
+        subtitle={MENU_ONLY_VIEW ? `Menu labels · ${all.length} ${all.length === 1 ? "dish" : "dishes"}` : `${all.length} ${all.length === 1 ? "dish" : "dishes"} · ${reviewedCount} reviewed`}
         trailing={
           <button type="button" className="btn-plain print:hidden" onClick={() => window.print()}>
             <Printer className="h-4 w-4" strokeWidth={2.25} /> Print
@@ -277,10 +278,7 @@ export function AllergenMatrix() {
       />
       {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GF, V, VG, GFO, VO, VGO, DFO and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
       <div className="print:hidden">
-        <Link href={`/matrix${venue ? `?venue=${venue.slug}` : ""}`} className="mb-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-xl text-[15px] font-semibold text-accent active:opacity-70">
-          <ShieldCheck aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.25} />
-          Allergy Matrix: what each guest can eat
-        </Link>
+        {MENU_ONLY_VIEW ? <AllergenTabs current="labels" venueSlug={venue?.slug} /> : null}
         <VenueFilter className="mb-3" stats={false} compact />
         <SearchField value={q} onChange={setQ} placeholder="Search dishes" className="mb-4 lg:max-w-sm" />
         {MENU_ONLY_VIEW ? null : <p className="pb-2 text-[13px] font-medium text-label-2">Not In Any Ingredient</p>}

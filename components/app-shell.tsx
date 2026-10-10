@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense, useEffect, useRef } from "react";
-import { BookOpen, Carrot, ClipboardList, Ellipsis, HeartPulse, History, House, Lightbulb, ListChecks, LogOut, Search, Settings, ShieldCheck, Store, Tag, Trash2, Wheat, type LucideIcon } from "lucide-react";
+import { BookOpen, Carrot, ClipboardList, Ellipsis, HeartPulse, History, House, Lightbulb, LogOut, Search, Settings, ShieldCheck, Store, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -11,15 +11,14 @@ import { UnsavedGuardProvider } from "./unsaved-guard";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
 import { ScrollMemory } from "./scroll-memory";
+import { inAllergens } from "@/lib/allergen-tabs";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
 
 const MAIN = [
   { href: "/", label: "Home", icon: House },
   { href: "/menu", label: "Menu", icon: BookOpen },
-  { href: "/allergens", label: "Menu Labels", icon: Wheat },
-  { href: "/matrix", label: "Allergy Matrix", icon: ShieldCheck },
-  { href: "/matrix/todo", label: "Matrix To Do", icon: ListChecks, child: true },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
+  { href: "/matrix", label: "Allergens", icon: ShieldCheck },
   { href: "/specials", label: "Specials", icon: Tag },
   { href: "/ordering", label: "Ordering", icon: ClipboardList },
 ];
@@ -34,13 +33,11 @@ const MORE = [
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/" || pathname === "/alerts"; // the full alert list is part of Home
-  // the matrix To Do list (and review mode, which it starts) is its own entry under Allergy Matrix
-  if (href === "/matrix") return pathname === "/matrix" || pathname.startsWith("/matrix/print");
-  if (href === "/matrix/todo") return pathname.startsWith("/matrix/todo") || pathname.startsWith("/matrix/review");
+  // Allergens is one entry: the matrix, its To Do, review mode, print, and Menu Labels (lib/allergen-tabs.ts)
+  if (href === "/matrix") return inAllergens(pathname);
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
   if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
-  // ingredient allergen review is about ingredients, so it lives under Ingredients (not Menu Labels, which shares the /allergens prefix)
-  if (href === "/allergens") return pathname === "/allergens";
+  // ingredient allergen review is about ingredients, so it lives under Ingredients (Menu Labels shares the /allergens prefix)
   if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps") || pathname.startsWith("/allergens/review");
   return pathname === href || pathname.startsWith(href + "/");
 }
@@ -105,7 +102,7 @@ export function hidesTabBar(pathname: string) {
 function TabBar() {
   const pathname = usePathname();
   if (hidesTabBar(pathname)) return null;
-  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials") || pathname.startsWith("/allergens") || pathname.startsWith("/matrix") || pathname.startsWith("/ordering");
+  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials") || inAllergens(pathname) || pathname.startsWith("/allergens") || pathname.startsWith("/ordering");
   return (
     <nav className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden" aria-label="Main">
       <div className="mx-auto flex h-[50px] max-w-lg items-stretch">

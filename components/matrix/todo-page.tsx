@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ClipboardCheck, TriangleAlert } from "lucide-react";
+import { ClipboardCheck, TriangleAlert } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { allTodos, approvalCount, reviewHref, waitingText, type VenueTodo } from "@/lib/matrix-todo";
 import { CHECK_ALL_INGREDIENTS_HREF } from "@/lib/dish-allergens";
@@ -11,6 +11,7 @@ import { Group, PageHeader, Row } from "../ui";
 import { useAllergenIndex } from "../allergen-picker";
 import { useVenue, VenueFilter, VENUE_SHORT } from "../venue";
 import { PrintStatusBlock, sheetName } from "./printed";
+import { AllergenTabs } from "./allergen-tabs";
 
 const SHOW = 8;
 
@@ -37,11 +38,8 @@ export function MatrixTodoPage() {
 
   return (
     <div>
-      <Link href={venue ? `/matrix?venue=${venue.slug}` : "/matrix"} className="btn-text -ml-2 !min-h-[44px] !gap-0 !text-accent">
-        <ChevronLeft className="h-6 w-6" strokeWidth={2.25} aria-hidden />
-        Allergy Matrix
-      </Link>
-      <PageHeader title="To Do" subtitle={venue ? `${VENUE_SHORT[venue.slug] ?? venue.name} · Allergy Matrix` : "Allergy Matrix, every venue"} />
+      <PageHeader title="Allergens" subtitle={venue ? `${VENUE_SHORT[venue.slug] ?? venue.name} · What needs doing` : "What needs doing, every venue"} />
+      <AllergenTabs current="todo" venueSlug={venue?.slug} />
       <VenueFilter className="mb-3" stats={false} compact />
 
       {waiting > 0 ? (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
-import { Check, Minus, Printer, Wine, X } from "lucide-react";
+import { Check, Minus, Printer, ShieldCheck, Wine, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
   ALLERGENS,
@@ -277,6 +277,10 @@ export function AllergenMatrix() {
       />
       {MENU_ONLY_VIEW ? <p className="mb-3 text-[15px] text-label-2">The labels on the printed menu: GF, V, VG, GFO, VO, VGO, DFO and the seafood origin letters. Set them on each dish under Dietary Options.</p> : <p className="mb-3 text-[15px] font-medium text-label">{ALLERGEN_NOTICE}</p>}
       <div className="print:hidden">
+        <Link href={`/matrix${venue ? `?venue=${venue.slug}` : ""}`} className="mb-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-xl text-[15px] font-semibold text-accent active:opacity-70">
+          <ShieldCheck aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.25} />
+          Allergy Matrix: what each guest can eat
+        </Link>
         <VenueFilter className="mb-3" stats={false} compact />
         <SearchField value={q} onChange={setQ} placeholder="Search dishes" className="mb-4 lg:max-w-sm" />
         {MENU_ONLY_VIEW ? null : <p className="pb-2 text-[13px] font-medium text-label-2">Not In Any Ingredient</p>}

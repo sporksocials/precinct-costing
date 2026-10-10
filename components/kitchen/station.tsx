@@ -185,6 +185,22 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
             </div>
           ) : null}
 
+          {data ? (
+            <Link
+              href={`/kitchen/${slug}/matrix`}
+              className="mt-3 flex min-h-[72px] items-center gap-4 rounded-[18px] border-[0.5px] border-white/10 bg-[#1C1C1F] px-5 py-3 text-left active:bg-[#232327]"
+            >
+              <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--bar-accent)] text-[22px] font-bold leading-none text-[color:var(--bar-on)]">
+                !
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[24px] font-semibold leading-tight">Allergy Matrix</span>
+                <span className="block text-[17px] leading-snug text-[#9B9890]">What each guest can eat, dish by dish</span>
+              </span>
+              <Chevron className="shrink-0 text-[#8E8C85]" />
+            </Link>
+          ) : null}
+
           {total ? (
             <>
               <div className="relative mt-4">

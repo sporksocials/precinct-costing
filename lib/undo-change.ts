@@ -15,6 +15,7 @@
  */
 import type { HistoryRow } from "./change-history";
 import { historyFieldLabel } from "./change-history";
+import { describeDishAllergens } from "./dish-allergens";
 import { sameValue } from "./draft-changes";
 import { formatQty } from "./parse-qty";
 import type { LineUnit, RecipeLine } from "./types";
@@ -73,6 +74,7 @@ export function showValue(field: string, v: unknown): string {
   }
   if (typeof v === "object") {
     const keys = Object.keys(v as R);
+    if (field === "dish_allergens") return describeDishAllergens(v);
     if (field === "diet_options") {
       // letters, with a dietary option's swap counted so a swap-only change does not read "gfo" to "gfo"
       return keys.length

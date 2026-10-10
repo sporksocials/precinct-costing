@@ -17,7 +17,7 @@ const SHOW = 8;
 
 /**
  * Allergy Matrix To Do (Troy, 10 Oct 2026): everything that needs doing, per venue, in one place, each row going straight to the dish
- * or the sheet. (a) Dishes Need Approval (new, never confirmed; ingredients changed, re-check) with a big Start Review button,
+ * or the sheet. (a) Dishes Need Approval (new, never confirmed; ingredients changed, re-check) each venue with its own Start Review button (one per venue, no global one),
  * (b) Marks Disagree, (c) Matrix Needs Reprinting. Nothing here changes anything: it lists, and links to where the fixing is done.
  */
 export function MatrixTodoPage() {
@@ -32,8 +32,6 @@ export function MatrixTodoPage() {
   const todos = useMemo(() => allTodos(store.venues, store.items, idx, matrixPrints), [store.venues, store.items, idx, matrixPrints]);
   const shown = venue ? todos.filter((t) => t.venue.id === venue.id) : todos;
   const withDishes = shown.filter((t) => t.rows.length > 0);
-  // Start Review only offers the dishes that can be confirmed now; dishes waiting on ingredients are handled by Check Ingredients
-  const waiting = withDishes.reduce((n, t) => n + t.ready.length, 0);
   const nothing = withDishes.every((t) => !approvalCount(t) && !t.marks.length && !t.reprint.length);
 
   return (
@@ -41,13 +39,6 @@ export function MatrixTodoPage() {
       <PageHeader title="Allergens" subtitle={venue ? `${VENUE_SHORT[venue.slug] ?? venue.name} · What needs doing` : "What needs doing, every venue"} />
       <AllergenTabs current="todo" venueSlug={venue?.slug} />
       <VenueFilter className="mb-3" stats={false} compact />
-
-      {waiting > 0 ? (
-        <Link href={reviewHref(venue?.slug ?? null)} className="btn-primary mb-4 flex w-full !min-h-[56px] items-center justify-center gap-2 !text-[17px] sm:max-w-sm">
-          <ClipboardCheck className="h-5 w-5" strokeWidth={2.25} aria-hidden />
-          Start Review ({waiting})
-        </Link>
-      ) : null}
 
       {!store.ready ? null : withDishes.length === 0 ? (
         <p className="py-6 text-[15px] text-label-2">No active food dishes yet. Add dishes on the Menu page and they appear here.</p>
@@ -74,9 +65,9 @@ function VenueTodoBlock({ todo, showName }: { todo: VenueTodo; showName: boolean
   const clear = !approvalCount(todo) && !todo.marks.length && !todo.reprint.length;
   return (
     <section className="mb-8" aria-label={name}>
-      {showName ? (
+      {showName || waiting > 0 ? (
         <div className="flex items-end justify-between gap-3 px-1 pb-1">
-          <h2 className="text-[22px] font-bold tracking-tight">{name}</h2>
+          {showName ? <h2 className="text-[22px] font-bold tracking-tight">{name}</h2> : <span />}
           {waiting > 0 ? (
             <Link href={reviewHref(todo.venue.slug)} className="btn-tinted !min-h-[44px] !px-4 !text-[15px]">
               Start Review ({waiting})

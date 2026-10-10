@@ -20,7 +20,8 @@ import type { MenuItem } from "./types";
  *    nested prep, not cleared by hand); a dish the chef offers a swap for carries the `gfo` option instead, with its note.
  *    Same for dairy.
  *  - A diet that is definitely ruled out (the dish contains gluten, or meat for Vegetarian) has no entry at all.
- *  - Sulphites are a quiet `sensitivities` tier and alcohol an `attributes` entry: neither is in `contains`.
+ *  - Sulphites and nitrites are main allergens (in `contains` / `mayContain`, in the fixed order, when the policy lists them).
+ *    Alcohol is an `attributes` entry, never in `contains`, and never listed.
  */
 
 export type DietBadgeId = "no_gluten_ingredients" | "no_dairy_ingredients" | "vegetarian" | "vegan";
@@ -75,7 +76,7 @@ export const DEFAULT_POLICY: BadgePolicy = MENU_ONLY;
 export interface BadgeModel {
   /** true when allergens are listed at all (false on a menu-only screen) */
   listsAllergens: boolean;
-  /** a drink: only egg, milk and nuts are marked, and there are no dietary or seafood badges */
+  /** a drink: only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites) are marked, and there are no dietary or seafood badges */
   drink: boolean;
   /** set when anything is unreviewed (or the recipe is empty): show this banner first, in every view */
   notReviewed: { unreviewedNames: string[] } | null;
@@ -83,9 +84,6 @@ export interface BadgeModel {
   contains: AllergenId[];
   /** keyword guesses on unreviewed ingredients: shown, never as fact */
   mayContain: AllergenId[];
-  /** sulphites: the quiet tier */
-  sensitivities: AllergenId[];
-  sensitivitiesMay: AllergenId[];
   /** alcohol: neutral attribute, outside the allergen row */
   attributes: "alcohol"[];
   attributesMay: "alcohol"[];
@@ -106,14 +104,17 @@ export function isDrinkItem(item?: { category?: string | null } | null): boolean
 }
 
 /**
- * The only allergens marked on a drink (Troy, 4 Oct 2026): egg, milk and nuts. Nothing else is listed on drinks: no
- * gluten or gluten free, no dietary badges. The ingredient data stays recorded.
+ * The ONLY allergens marked on a drink: egg, milk and nuts (Troy, 4 Oct 2026) plus sulphites (design call, 10 Oct 2026:
+ * wine, prosecco, vermouth and cider based drinks genuinely contain them, and sulphites became a main allergen). Nitrites,
+ * gluten, seeds and the rest are not listed on drinks, and there are no dietary badges. The ingredient data stays recorded.
+ * This one list drives the printed sheet (showsAllergen), the allergen suggestions for a drink's ingredients
+ * (components/allergen-suggest.tsx) and the dish card's suggestion chips (components/allergen-picker.tsx).
  */
-export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts"];
+export const DRINK_ALLERGEN_IDS: readonly AllergenId[] = ["egg", "milk", "peanuts", "tree_nuts", "sulphites"];
 
 /**
- * True when this allergen may be listed on this item under the policy. Sulphites and alcohol are never listed. Drinks
- * list only egg, milk and nuts, and only if the policy lists allergens at all.
+ * True when this allergen may be listed on this item under the policy. Alcohol is never listed. Drinks list only
+ * DRINK_ALLERGEN_IDS, and only if the policy lists allergens at all.
  */
 export function showsAllergen(item: { category?: string | null } | null | undefined, id: AllergenId, policy: BadgePolicy = DEFAULT_POLICY): boolean {
   if (!CONTAINS_IDS.includes(id) || !policy.allergens.includes(id)) return false;
@@ -166,9 +167,7 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
   }
 
   const drink = isDrinkItem(item);
-  // sulphites and alcohol are not on the menu, so they are never listed (the ingredient data stays recorded)
-  s.sensitivities = [];
-  s.sensitivitiesMay = [];
+  // alcohol is not an allergen and is never listed (the ingredient data stays recorded)
   s.attributes = [];
   s.attributesMay = [];
   s.contains = s.contains.filter((id) => showsAllergen(item, id, policy));
@@ -179,8 +178,8 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     options.length = 0;
     optionsMissingNote.length = 0;
   }
-  const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.sensitivities, ...s.sensitivitiesMay, ...s.attributes, ...s.attributesMay]);
-  const notes = [...CONTAINS_IDS, ...s.sensitivities, ...s.attributes]
+  const shown = new Set<AllergenId>([...s.contains, ...s.may, ...s.attributes, ...s.attributesMay]);
+  const notes = [...CONTAINS_IDS, ...s.attributes]
     .filter((id) => shown.has(id) && r.cells[id].note)
     .map((id) => ({ id, label: allergenLabel(id), note: r.cells[id].note as string }));
 
@@ -190,8 +189,6 @@ export function badgeModel(r: Rollup, item?: BadgeItem | null, policy: BadgePoli
     notReviewed: !policy.reviewBanner || r.reviewed ? null : { unreviewedNames: r.unreviewed },
     contains: s.contains,
     mayContain: s.may,
-    sensitivities: s.sensitivities,
-    sensitivitiesMay: s.sensitivitiesMay,
     attributes: s.attributes.filter((a): a is "alcohol" => a === "alcohol"),
     attributesMay: s.attributesMay.filter((a): a is "alcohol" => a === "alcohol"),
     diet,

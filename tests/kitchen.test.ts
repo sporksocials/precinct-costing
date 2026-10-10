@@ -292,7 +292,7 @@ describe("kitchen model", () => {
   it("a fully reviewed dish with nothing in it has no banner, no contains and positive diet badges", () => {
     const m = buildKitchenModel(parseKitchenData({ venue: { slug: "drift" }, dishes: [{ id: "d", name: "D" }], ingredients: [{ id: "i", name: "Lettuce", allergens: [], allergens_reviewed: true }], lines: [{ parent_type: "item", parent_id: "d", component_type: "ingredient", component_id: "i", qty: 50, unit: "g" }] }, SYNCED)!);
     const b = dishBadges(m, "d");
-    expect(b).toMatchObject({ notReviewed: null, contains: [], mayContain: [], sensitivities: [], attributes: [] });
+    expect(b).toMatchObject({ notReviewed: null, contains: [], mayContain: [], attributes: [] });
     expect(b.diet.map((d) => `${d.id}:${d.state}`)).toEqual(["no_gluten_ingredients:is", "no_dairy_ingredients:is", "vegetarian:is", "vegan:is"]);
   });
 
@@ -335,13 +335,23 @@ describe("kitchen badges for the new feed fields", () => {
   const rev = (id: string, name: string, extra: Record<string, unknown> = {}) => ({ id, name, allergens: [], allergens_reviewed: true, diet_flags: [], ...extra });
   const ln = (dish: string, ing: string, sort = 1) => ({ parent_type: "item", parent_id: dish, component_type: "ingredient", component_id: ing, qty: 100, unit: "g", note: null, sort });
 
-  it("a wine-only dish lists no sulphites or alcohol (not on the menu), and vegan is Not Confirmed", () => {
+  it("a wine-only dish lists sulphites as a main allergen under the full policy but never alcohol, and vegan is Not Confirmed", () => {
     const m = feed({ dishes: [{ id: "d", name: "Wine Jus" }], ingredients: [rev("w", "Red Wine", { allergens: ["sulphites", "alcohol"] })], lines: [ln("d", "w")] });
     const b = dishBadges(m, "d");
-    expect(b.contains).toEqual([]);
-    expect(b.sensitivities).toEqual([]);
+    expect(b.contains).toEqual(["sulphites"]);
     expect(b.attributes).toEqual([]);
     expect(b.diet.filter((d) => d.id === "vegetarian" || d.id === "vegan").every((d) => d.state === "not_confirmed")).toBe(true);
+  });
+  it("the Kitchen Station stays menu-only: sulphites, nitrites and seeds are never listed by default", () => {
+    const m = feed({
+      dishes: [{ id: "d", name: "Ham And Wine Toastie" }],
+      ingredients: [rev("w", "Red Wine", { allergens: ["sulphites", "alcohol"] }), rev("h", "Leg Ham", { allergens: ["nitrites", "sesame"] })],
+      lines: [ln("d", "w"), ln("d", "h", 2)],
+    });
+    const b = dishBadgesP(m, "d");
+    expect(b.listsAllergens).toBe(false);
+    expect(b.contains).toEqual([]);
+    expect(b.mayContain).toEqual([]);
   });
 
   it("a wine sauce with only the alcohol tick (no category in the feed) is never Vegan or Vegetarian", () => {

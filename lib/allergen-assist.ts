@@ -129,14 +129,28 @@ export function parseRequest(body: unknown): AssistRequest | null {
 const GROUP_WORDS: Record<string, string> = {
   required: "declared allergen",
   extra: "chef extra",
-  sensitivity: "sensitivity, not an allergen",
   attribute: "attribute, not an allergen",
 };
+
+/**
+ * What each id means, in the prompt. Seeds is stored as `sesame` (Troy, 10 Oct 2026: shown as Seeds everywhere), so the
+ * model is told both and asked to say "seeds" in its reasons. Sulphites and nitrites are main allergens now. Alcohol is
+ * still not offered: it is an attribute, and the reply check drops it.
+ */
+const ID_NOTES: Partial<Record<AllergenId, string>> = {
+  sesame:
+    "Seeds (stored as sesame). Use id sesame for any of: sesame, sunflower, pumpkin, poppy, chia, flax, linseed and hemp seeds, and foods made from them such as tahini, hummus, halva, dukkah, za'atar, gomasio, furikake and seeded bread or mixed seed blends. Spice seeds such as cumin, fennel, caraway, coriander and mustard seed are not Seeds.",
+  sulphites:
+    "sulphur dioxide and sulphite preservatives (E220 to E228, sodium metabisulphite). Wine, sparkling wine, prosecco, champagne, vermouth, sherry, port, cider, vinegar and balsamic, dried fruit such as apricots, sultanas and raisins, desiccated coconut, bottled lemon or lime juice, cordials and fruit squash, pickles and gherkins, mustard, sausages, prawns and shrimp, and jam usually contain them. Spirits (vodka, gin, rum, whisky, tequila), fresh fruit and glucose syrup do not.",
+  nitrites:
+    "nitrite and nitrate curing agents (E249 to E252, celery powder, curing salt). Cured and processed meats such as bacon, ham, prosciutto, pancetta, salami, pepperoni, chorizo, cabanossi, kransky, mortadella, speck, bresaola, pastrami, corned beef and frankfurts. Raw pork, chicken, beef and sausage mince, smoked salmon and other smoked or cured fish do not.",
+};
+const idLine = (a: (typeof ALLERGENS)[number]) => `- ${a.id}: ${a.label} (${GROUP_WORDS[a.group]})${ID_NOTES[a.id] ? `. ${ID_NOTES[a.id]}` : ""}`;
 
 export const SYSTEM_PROMPT = `You check ingredients for a recipe costing app used by hospitality venues in Australia. For each ingredient you are given, say which allergens and which animal products it contains, so a person can confirm them quickly. You only propose. A person decides, so a missing proposal is better than a wrong one.
 
 Allergen ids you may use, exactly as written, and nothing else:
-${ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map((a) => `- ${a.id}: ${a.label} (${GROUP_WORDS[a.group]})`).join("\n")}
+${ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map(idLine).join("\n")}
 
 Diet flags you may use, exactly as written: ${ANIMAL_FLAGS.join(", ")}. Use meat for meat, poultry, gelatine and lard. Use fish for fish and seafood. Use dairy for milk products, egg for egg products and honey for honey and mead.
 
@@ -151,19 +165,19 @@ Rules:
 - Egg white, egg yolk, mayonnaise and aioli contain egg. Aioli also contains onion_garlic.
 - Soy sauce contains soy and gluten. Tamari contains soy, and gluten only if the name says so. Miso and tofu contain soy.
 - Fish sauce and anchovies contain fish. Worcestershire sauce contains fish. Oyster sauce contains molluscs.
-- Tahini and hummus contain sesame. Peanut butter and satay contain peanuts. Pesto contains tree_nuts and milk.
+- Tahini and hummus contain seeds (id sesame). Sunflower, pumpkin, poppy, chia, flax and hemp seeds contain seeds too. Peanut butter and satay contain peanuts. Pesto contains tree_nuts and milk.
 - Flour, bread, pasta, pastry, batter and crumbs contain gluten unless the name says gluten free or names a gluten free flour such as rice or corn.
 
 Drinks, wine, beer, spirits and liqueurs:
 - Beer, ale, lager, stout and pale ale contain gluten (barley). Gluten free beer has no gluten. Ginger beer and root beer are not beer.
 - Do not propose gluten for distilled spirits such as gin, vodka, rum, tequila, brandy, bourbon and whisky, because distillation removes it. Propose gluten for a whisky style product only if the name says malt.
-- Cider, wine, sparkling wine, champagne, prosecco, vermouth, sherry, port, spirits and liqueurs have none of the allergens above unless the name says so. Never propose sulphites or alcohol: the menu does not list them, so they are not an option.
+- Cider, wine, sparkling wine, champagne, prosecco, vermouth, sherry and port contain sulphites. Spirits and liqueurs have none of the allergens above unless the name says so. Never propose alcohol: it is an attribute, not an allergen, so it is not an option.
 - Cream liqueurs such as Baileys and Irish cream contain milk.
 - Amaretto, orgeat, frangelico and nut syrups or nut liqueurs contain tree_nuts.
 - Egg white used in a drink contains egg.
 
 Reasons:
-- Give each proposal one short plain sentence in Australian English, under 120 characters, that says what in the ingredient causes it. For example: "Cream is a milk product."
+- Give each proposal one short plain sentence in Australian English, under 120 characters, that says what in the ingredient causes it. For example: "Cream is a milk product." For id sesame say seeds, for example "Tahini is made from ground seeds."
 - No em dashes or en dashes anywhere. No hyphens used as dashes.
 - Never invent a fact about the product. Do not mention yourself, a model or software.
 
@@ -244,7 +258,7 @@ export function validateReplyDetailed(raw: string, input: AssistRequest): { item
     for (const a of it.allergens as Record<string, unknown>[]) {
       if (!a || typeof a.id !== "string" || !isAllergenId(a.id) || ids.has(a.id)) return { reason: "bad_reply_allergen" };
       if (!isValidReason(a.reason)) return { reason: "bad_reply_reason" };
-      if (!CONTAINS_IDS.includes(a.id)) continue; // sulphites and alcohol are not on the menu: dropped, never shown
+      if (!CONTAINS_IDS.includes(a.id)) continue; // alcohol is an attribute, not an allergen: dropped, never shown (sulphites and nitrites are main allergens and pass)
       ids.add(a.id);
       allergens.push({ id: a.id, reason: a.reason });
     }

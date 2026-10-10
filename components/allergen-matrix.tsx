@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import React, { useMemo, useState } from "react";
-import { Check, Info, Minus, Printer, Wine, X } from "lucide-react";
+import { Check, Minus, Printer, Wine, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
   ALLERGENS,
@@ -59,12 +59,11 @@ const DIETS_ALL: { id: DietId; label: string }[] = [
 /** Only what the printed menu shows is listed (Troy, 4 Oct 2026): no allergen or computed diet columns, just the option letters and seafood origin. */
 const MENU_ONLY_VIEW = DEFAULT_POLICY.allergens.length === 0;
 const DIETS = DEFAULT_POLICY.computedDiet ? DIETS_ALL : [];
-/** the main allergen columns (required, then chef extras), then the two narrow quiet ones */
+/** the main allergen columns (required, then chef extras, so Sulphites and Nitrites sit with the rest when the policy lists allergens) */
 const MAIN = ALLERGENS.filter((a) => (a.group === "required" || a.group === "extra") && DEFAULT_POLICY.allergens.includes(a.id));
-/** sulphites and alcohol are not on the menu, so the grid has no columns for them */
-const SENS: typeof ALLERGENS = [];
+/** alcohol is not an allergen and is not on the menu, so the grid has no column for it */
 const ATTR: typeof ALLERGENS = [];
-const COLS = MAIN.length + SENS.length + ATTR.length + DIETS.length + 2;
+const COLS = MAIN.length + ATTR.length + DIETS.length + 2;
 
 function FilterChip({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
@@ -134,14 +133,14 @@ function Cell({ c, reviewed, label }: { c: AllergenCell; reviewed: boolean; labe
   );
 }
 
-/** Sulphites and Contains Alcohol: narrow, outlined and quiet. Never green: a quiet column makes no "free from" claim. */
-function QuietCell({ c, reviewed, label, kind }: { c: AllergenCell; reviewed: boolean; label: string; kind: "sensitivity" | "alcohol" }) {
+/** Contains Alcohol: narrow, outlined and quiet. Never green: a quiet column makes no "free from" claim. */
+function QuietCell({ c, reviewed, label }: { c: AllergenCell; reviewed: boolean; label: string }) {
   const box = "flex min-h-[44px] w-full items-center justify-center rounded-md";
-  const Icon = kind === "alcohol" ? Wine : Info;
+  const Icon = Wine;
   const from = c.sources.length ? ` (${c.sources.join(", ")})` : "";
   if (c.state === "contains")
     return (
-      <span className={cx(box, "mx-quiet")} title={`${label}: ${kind === "alcohol" ? "contains alcohol" : "sensitivity"}${from}`} aria-label={`${label}: ${kind === "alcohol" ? "contains alcohol" : "sensitivity"}`}>
+      <span className={cx(box, "mx-quiet")} title={`${label}: contains alcohol${from}`} aria-label={`${label}: contains alcohol`}>
         <Icon aria-hidden className="h-4 w-4" strokeWidth={2.25} />
       </span>
     );
@@ -326,9 +325,9 @@ export function AllergenMatrix() {
                       <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{a.short}</span>
                     </th>
                   ))}
-                  {[...SENS, ...ATTR].map((a, i) => (
+                  {ATTR.map((a, i) => (
                     <th key={a.id} scope="col" className={cx("h-[132px] w-[32px] min-w-[32px] px-0.5 align-bottom text-[12px] font-medium text-label-2", i === 0 && "border-l border-[color:var(--separator)]")}>
-                      <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{a.group === "sensitivity" ? `Sensitivity: ${a.short}` : a.short}</span>
+                      <span className="mx-auto inline-block rotate-180 pb-1 [writing-mode:vertical-rl]">{a.short}</span>
                     </th>
                   ))}
                   {DIETS.map((d, i) => (
@@ -369,9 +368,9 @@ export function AllergenMatrix() {
                             {showsAllergen(r.item, a.id) ? <Cell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.label} /> : null}
                           </td>
                         ))}
-                        {[...SENS, ...ATTR].map((a, i) => (
+                        {ATTR.map((a, i) => (
                           <td key={a.id} className={cx("border-b border-[color:var(--separator)] p-0.5", i === 0 && "border-l")}>
-                            {isDrinkItem(r.item) ? null : <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={a.group === "sensitivity" ? `Sensitivity: ${a.label}` : BADGE_LABELS.containsAlcohol} kind={a.group === "attribute" ? "alcohol" : "sensitivity"} />}
+                            {isDrinkItem(r.item) ? null : <QuietCell c={r.rollup.cells[a.id]} reviewed={r.rollup.reviewed} label={BADGE_LABELS.containsAlcohol} />}
                           </td>
                         ))}
                         {DIETS.map((d, i) => (

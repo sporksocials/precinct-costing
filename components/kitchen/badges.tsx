@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleHelp, Fish, Info, Minus, OctagonAlert, Replace, Truck, TriangleAlert, Wine } from "lucide-react";
+import { Check, CircleHelp, Fish, Minus, OctagonAlert, Replace, Truck, TriangleAlert, Wine } from "lucide-react";
 import { allergenLabel, ALLERGEN_NOTICE, type AllergenId } from "@/lib/allergens";
 import type { BadgeModel, DietBadge, OptionBadge, SeafoodBadge } from "@/lib/allergen-badges";
 import { barIngredientName } from "@/lib/bar";
@@ -63,14 +63,6 @@ function QuietPill({ icon, children, dashed }: { icon: React.ReactNode; children
     </span>
   );
 }
-export function SensitivityPill({ id, may }: { id: AllergenId; may?: boolean }) {
-  return (
-    <QuietPill dashed={may} icon={<Info aria-hidden className={ICON} size={22} strokeWidth={2.25} />}>
-      {allergenLabel(id)}
-      {may ? <span className="text-[18px]">Unconfirmed</span> : null}
-    </QuietPill>
-  );
-}
 export function AlcoholPill({ may }: { may?: boolean }) {
   return (
     <QuietPill dashed={may} icon={<Wine aria-hidden className={ICON} size={22} strokeWidth={2.25} />}>
@@ -129,7 +121,7 @@ function SeafoodMarker({ s }: { s: SeafoodBadge }) {
 /** The compact strip on a dish or prep tile. Never blank: it says "No Allergens Listed" only for a fully reviewed recipe with nothing to flag. */
 export function BadgeStrip({ m }: { m: BadgeModel }) {
   const seafood = seafoodShown(m);
-  const flagged = m.contains.length + m.mayContain.length + m.sensitivities.length + m.sensitivitiesMay.length + m.attributes.length + m.attributesMay.length > 0;
+  const flagged = m.contains.length + m.mayContain.length + m.attributes.length + m.attributesMay.length > 0;
   // a menu-only screen lists just the option letters and the seafood letter: nothing at all when a dish has neither
   if (!m.listsAllergens && !m.notReviewed && !m.options.length && !seafood) return null;
   return (
@@ -147,16 +139,6 @@ export function BadgeStrip({ m }: { m: BadgeModel }) {
       {m.mayContain.map((id) => (
         <li key={`may-${id}`}>
           <MayContainBadge id={id} />
-        </li>
-      ))}
-      {m.sensitivities.map((id) => (
-        <li key={`s-${id}`}>
-          <SensitivityPill id={id} />
-        </li>
-      ))}
-      {m.sensitivitiesMay.map((id) => (
-        <li key={`sm-${id}`}>
-          <SensitivityPill id={id} may />
         </li>
       ))}
       {m.attributes.length ? (
@@ -270,7 +252,6 @@ function SeafoodBlock({ s }: { s: SeafoodBadge }) {
 /** The full tiered block at the top of a dish or prep. Tiers with nothing in them are left out; the order never changes. */
 export function BadgeBlock({ m }: { m: BadgeModel }) {
   const mainEmpty = m.contains.length === 0 && m.mayContain.length === 0;
-  const hasSens = m.sensitivities.length + m.sensitivitiesMay.length > 0;
   const hasAlc = m.attributes.length + m.attributesMay.length > 0;
   const solid = m.diet.filter((d) => d.state === "is");
   const unconfirmed = m.diet.filter((d) => d.state === "not_confirmed");
@@ -316,21 +297,7 @@ export function BadgeBlock({ m }: { m: BadgeModel }) {
       </div>
       ) : null}
 
-      {hasSens ? (
-        <div className="mt-5">
-          <p className={TIER}>{BADGE_LABELS.sensitivities}</p>
-          <div className="flex flex-wrap gap-2.5">
-            {m.sensitivities.map((id) => (
-              <SensitivityPill key={id} id={id} />
-            ))}
-            {m.sensitivitiesMay.map((id) => (
-              <SensitivityPill key={`m-${id}`} id={id} may />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {hasAlc ? <div className={hasSens ? "mt-4 border-t-[0.5px] border-white/[0.12] pt-4" : "mt-5"}>{m.attributes.length ? <AlcoholPill /> : <AlcoholPill may />}</div> : null}
+      {hasAlc ? <div className="mt-5">{m.attributes.length ? <AlcoholPill /> : <AlcoholPill may />}</div> : null}
 
       {solid.length || unconfirmed.length ? (
         <div className="mt-5">

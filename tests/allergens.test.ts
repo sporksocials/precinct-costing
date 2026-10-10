@@ -35,7 +35,7 @@ describe("suggestAllergens", () => {
     expect(ids("Plain Flour")).toEqual(["gluten"]);
     expect(ids("Panko Crumbs")).toEqual(["gluten"]);
     expect(ids("Brioche Bun")).toEqual(["egg", "gluten"]);
-    expect(ids("King Prawns 16/20")).toEqual(["crustacea"]);
+    expect(ids("King Prawns 16/20")).toEqual(["crustacea", "sulphites"]);
     expect(ids("Calamari Tubes")).toEqual(["molluscs"]);
     expect(ids("Oysters Pacific")).toEqual(["molluscs"]);
     expect(ids("Barramundi Fillet")).toEqual(["fish"]);
@@ -82,7 +82,7 @@ describe("suggestAllergens", () => {
   });
 
   it("reads the supplier description too and reports the matched keyword", () => {
-    expect(suggestAllergens("House Sauce 5L", "Contains prawn paste")).toEqual([{ id: "crustacea", keyword: "prawn" }]);
+    expect(suggestAllergens("House Sauce 5L", "Contains prawn paste")).toEqual([{ id: "crustacea", keyword: "prawn" }, { id: "sulphites", keyword: "prawn" }]);
     expect(suggestAllergens("Parmesan")[0]).toEqual({ id: "milk", keyword: "parmesan" });
   });
 

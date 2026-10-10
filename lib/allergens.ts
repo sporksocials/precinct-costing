@@ -23,19 +23,19 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "./types";
  * none of which has to be declared. A reviewed drink ingredient with no animal flag therefore reads "maybe" (Not Confirmed)
  * for Vegetarian and Vegan, never "yes", unless it carries the explicit `vegan` marker in diet_flags (see isFiningRisk).
  *
- * GROUPS: sulphites are a "sensitivity" and alcohol an "attribute", not allergens. Both stay recorded under the same ids
- * and roll up the same way, but summarise() returns them in their own fields and every list of allergens (contains,
- * counts) is the main set only. lib/allergen-badges.ts turns a roll-up into the tiers the screens print.
+ * GROUPS (Troy, 10 Oct 2026): sulphites are a declared allergen (Food Standards Code, 10 mg/kg or more) and sit in the main
+ * "required" list; nitrites are a chef extra; alcohol stays an "attribute", not an allergen (recorded and rolled up under its
+ * own id, but summarise() returns it in its own fields and no list or count of allergens includes it). There is no quiet
+ * "sensitivity" tier any more. lib/allergen-badges.ts turns a roll-up into the tiers the screens print.
  */
 
 /**
- * required    : the Food Standards Code declared allergens (Schedule 9), shown as the main allergen badges
- * extra       : chef extras (not law), shown with the main badges
- * sensitivity : sulphites. Recorded and answered to a guest, but a quiet separate tier, never in the main allergen row
- * attribute   : alcohol. Not an allergen: a neutral "Contains Alcohol" attribute shown outside the allergen row
- * The ids stay as stored ('sulphites', 'alcohol' stay in the arrays); only grouping and display changed.
+ * required  : the Food Standards Code declared allergens (Schedule 9, which includes sulphites at 10 mg/kg or more), shown as the main allergen badges
+ * extra     : chef extras (not law, so Nitrites is here), shown with the main badges
+ * attribute : alcohol. Not an allergen: a neutral "Contains Alcohol" attribute shown outside the allergen row
+ * The ids stay as stored ('sesame' is displayed as "Seeds"; 'sulphites' and 'alcohol' stay in the arrays); only grouping and display changed.
  */
-export type AllergenGroup = "required" | "extra" | "sensitivity" | "attribute";
+export type AllergenGroup = "required" | "extra" | "attribute";
 
 export interface AllergenDef {
   id: AllergenId;
@@ -58,11 +58,12 @@ export const ALLERGEN_IDS = [
   "tree_nuts",
   "lupin",
   "molluscs",
+  "sulphites",
   // chef extras
   "chilli",
   "onion_garlic",
-  // sensitivity, then attribute (not part of the main allergen list)
-  "sulphites",
+  "nitrites",
+  // attribute (not part of the main allergen list)
   "alcohol",
 ] as const;
 export type AllergenId = (typeof ALLERGEN_IDS)[number];
@@ -79,15 +80,15 @@ export const ALLERGENS: AllergenDef[] = [
   { id: "tree_nuts", label: "Tree Nuts", short: "Tree Nuts", group: "required" },
   { id: "lupin", label: "Lupin", short: "Lupin", group: "required" },
   { id: "molluscs", label: "Molluscs", short: "Molluscs", group: "required" },
+  { id: "sulphites", label: "Sulphites", short: "Sulphites", group: "required" }, // Troy, 10 Oct 2026: a main allergen, after Molluscs
   { id: "chilli", label: "Chilli", short: "Chilli", group: "extra" },
   { id: "onion_garlic", label: "Onion & Garlic", short: "Onion & Garlic", group: "extra" },
-  { id: "sulphites", label: "Sulphites", short: "Sulphites", group: "sensitivity" },
+  { id: "nitrites", label: "Nitrites", short: "Nitrites", group: "extra" }, // not on the FSANZ list, so a chef extra; cured and processed meats
   { id: "alcohol", label: "Alcohol", short: "Contains Alcohol", group: "attribute" },
 ];
 
-/** The main allergen badges, in the fixed order: required, then chef extras. */
+/** The main allergen badges, in the fixed order: required (ending in Sulphites), then chef extras (ending in Nitrites). */
 export const CONTAINS_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map((a) => a.id);
-export const SENSITIVITY_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "sensitivity").map((a) => a.id);
 export const ATTRIBUTE_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "attribute").map((a) => a.id);
 export function allergenGroup(id: AllergenId): AllergenGroup {
   return ALLERGENS.find((a) => a.id === id)?.group ?? "required";
@@ -159,6 +160,19 @@ const NOT_GLUTEN_FLOUR = /\b(rice|corn|maize|tapioca|potato|chickpea|coconut|alm
 
 const GLUTEN_STRIP = new RegExp(`${NOT_GLUTEN_FLOUR.source}|${NOT_BEER.source}`, "g");
 
+/** E numbers and "preservative 2xx" wording for a range of additive codes (E220 to E228 sulphites, E249 to E252 nitrites). */
+function ENUMBERS(from: number, to: number): string[] {
+  const out: string[] = [];
+  for (let n = from; n <= to; n++) out.push(`e${n}`, `preservative ${n}`);
+  return out;
+}
+/** Seeds: "seeded mustard" is wholegrain mustard, and spice seeds are never the Seeds allergen. */
+const NOT_SEED_FOOD = /\b(seeded|seed)\s+mustard\b/g;
+/** Sulphites: sparkling water and the like are not wine, port salut is cheese, black or red currants are fresh, mustard seed and powder are dry spices. */
+const NOT_SULPHITE = /\bsparkling\s+(mineral\s+)?(water|soda|juice|lemonade|mineral)\b|\bport\s+salut\b|\b(black|red|white)\s?currants?\b|\bmustard\s+(seeds?|greens?|powder|oil|cress|leaf|leaves|microgreens?)\b/g;
+/** Nitrites: plant "bacon", salt-cured or cured fish, eggs, lemons and olives are not cured meat. */
+const NOT_NITRITE = /\b(coconut|vegan|plant|mushroom|veggie|vegetarian)\s+bacon\b|\bsalt[\s-]?cured\b|\bcured\s+(salmon|fish|trout|ocean trout|kingfish|tuna|yolks?|eggs?|lemons?|olives?)\b/g;
+
 const RULES: Rule[] = [
   {
     allergens: ["gluten"],
@@ -199,15 +213,59 @@ const RULES: Rule[] = [
     allergens: ["tree_nuts"],
     terms: ["almond", "cashew", "walnut", "pistachio", "pistacchio", "hazelnut", "macadamia", "pecan", "brazil nut", "pine nut", "pinenut", "praline", "nutella", "frangipane", "marzipan", "amaretto", "orgeat", "mixed nuts", "nut butter", "nut meal", "dukkah", "pesto", "gianduja", "nougat"],
   },
-  { allergens: ["sesame"], terms: ["sesame", "tahini", "gomasio", "hummus", "halva", "halvah", "zaatar", "dukkah", "hoisin"] },
+  {
+    // SEEDS (stored id "sesame", shown as "Seeds"). Seed foods and their products, not spice seeds: cumin, fennel, caraway,
+    // coriander and mustard seed are left out on purpose, and the bare word "seed" is never a term ("seedless", "seeded mustard").
+    allergens: ["sesame"],
+    strip: NOT_SEED_FOOD,
+    terms: [
+      "sesame", "tahini", "tahina", "gomasio", "gomashio", "hummus", "humus", "houmous", "halva", "halvah", "zaatar", "zatar", "dukkah", "duqqa", "hoisin", "furikake",
+      "sunflower seed", "sunflower kernel", "pumpkin seed", "pepita", "poppy seed", "poppyseed", "chia", "flax", "flaxseed", "linseed", "hemp seed", "hemp heart",
+      "mixed seed", "seed mix", "seed blend", "seed and nut", "seeded",
+    ],
+  },
   { allergens: ["soy"], terms: ["soy", "soya", "soybean", "tofu", "tempeh", "edamame", "miso", "tamari", "lecithin", "teriyaki", "hoisin", "kecap manis"] },
   { allergens: ["lupin"], terms: ["lupin", "lupine"] },
   {
+    // SULPHITES (a declared allergen at 10 mg/kg or more): wine and its relatives, vinegar, dried fruit, preserved or
+    // preservative-carrying foods. Spirits, plain fresh fruit, glucose syrup and cola post-mix are NOT included.
     allergens: ["sulphites"],
-    terms: ["wine", "vinegar", "balsamic", "dried apricot", "sultana", "raisin", "dried fruit", "currant", "sulphite", "sulfite", "prosecco", "champagne", "cider", "sparkling", "pickle", "pickled", "sherry", "vermouth", "port"],
+    strip: NOT_SULPHITE,
+    terms: [
+      // wine, sparkling wine and fortified wine
+      "wine", "prosecco", "champagne", "cava", "sparkling", "cider", "vermouth", "sherry", "port", "marsala", "madeira", "sangria",
+      "chardonnay", "sauvignon blanc", "sauvignon", "semillon", "riesling", "pinot noir", "pinot grigio", "pinot gris", "shiraz", "merlot", "cabernet", "malbec", "tempranillo", "moscato",
+      // vinegar and things kept in it
+      "vinegar", "balsamic", "pickle", "pickled", "gherkin", "cornichon",
+      // dried fruit and coconut
+      "dried fruit", "dried apricot", "dried peach", "dried pear", "dried apple", "dried fig", "dried mango", "dried pineapple", "sultana", "raisin", "currant", "prune", "desiccated coconut", "coconut desiccated", "shredded coconut", "coconut shredded",
+      // bottled juice, cordial and soft drink syrups that carry a sulphite preservative
+      "bottled lemon juice", "bottled lime juice", "lemon juice bottled", "lime juice bottled", "reconstituted lemon", "reconstituted lime", "lemon juice concentrate", "lime juice concentrate", "juice concentrate", "concentrated juice", "from concentrate", "cordial",
+      "fruit squash", "orange squash", "lemon squash", "lime squash", "post mix lemonade", "post mix lemon", "post mix lime", "post mix orange", "post mix fruit", "postmix lemonade", "postmix lemon", "postmix lime", "postmix orange", "postmix fruit",
+      // other usual carriers
+      "mustard", "sausage", "snag", "chipolata", "bratwurst", "prawn", "shrimp", "jam", "marmalade",
+      // named outright
+      "sulphite", "sulfite", "metabisulphite", "metabisulfite", "sulphur dioxide", "sulfur dioxide",
+      ...ENUMBERS(220, 228),
+    ],
   },
   { allergens: ["chilli"], terms: ["chilli", "chili", "chile", "sriracha", "jalapeno", "habanero", "cayenne", "harissa", "sambal", "gochujang", "tabasco", "chipotle", "peri peri", "piri piri", "birds eye", "kimchi", "hot sauce", "nduja"] },
   { allergens: ["onion_garlic"], terms: ["onion", "garlic", "shallot", "eschalot", "leek", "chive", "scallion", "spring onion", "aioli", "pesto", "tzatziki", "sofrito", "soffritto", "mirepoix", "french onion"] },
+  {
+    // NITRITES (a chef extra, not on the FSANZ list): cured and processed meats, plus the curing agents themselves.
+    // Raw pork, chicken, beef and sausage mince, smoked fish and cured fish are NOT nitrite by default.
+    allergens: ["nitrites"],
+    strip: NOT_NITRITE,
+    terms: [
+      "bacon", "ham", "leg ham", "gammon", "prosciutto", "pancetta", "salami", "pepperoni", "chorizo", "cabanossi", "kransky", "mortadella", "speck", "bresaola", "jamon", "pastrami", "corned beef", "salt beef",
+      "soppressata", "sopressa", "capocollo", "capicola", "coppa", "lardons", "lap cheong", "nduja", "polony", "luncheon meat", "deli meat",
+      "frankfurt", "frankfurter", "hot dog", "hotdog",
+      "cured", "smoked ham", "smoked sausage", "smoked turkey", "smoked chicken", "smoked duck", "smoked pork", "smoked meat",
+      "celery salt", "celery powder", "celery juice powder",
+      "nitrite", "nitrate", "saltpetre", "saltpeter", "instacure", "curing salt", "prague powder",
+      ...ENUMBERS(249, 252),
+    ],
+  },
   {
     allergens: ["alcohol"],
     strip: NOT_BEER,
@@ -221,6 +279,7 @@ const RULES: Rule[] = [
     terms: [
       "beef", "pork", "chicken", "lamb", "bacon", "ham", "prosciutto", "salami", "chorizo", "sausage", "duck", "turkey", "veal", "mince", "steak", "brisket", "ribs", "pancetta", "guanciale", "pepperoni", "gelatin", "gelatine",
       "lard", "jerky", "wagyu", "venison", "rabbit", "kangaroo", "pulled pork", "bone broth", "meatball", "mortadella", "speck", "nduja", "goat meat", "oxtail", "tripe", "pate", "foie gras", "worcestershire",
+      "cabanossi", "kransky", "bresaola", "pastrami", "jamon", "gammon", "frankfurt", "frankfurter", "hot dog", "hotdog", "soppressata", "sopressa", "capocollo", "capicola", "coppa", "lardons", "lap cheong", "polony", "luncheon meat", "deli meat",
     ],
   },
   { animal: ["honey"], terms: ["honey", "hot honey", "mead"] },
@@ -629,25 +688,20 @@ export interface RollupSummary {
   contains: AllergenId[];
   /** the main allergens a keyword suggests on an unreviewed ingredient */
   may: AllergenId[];
-  /** sensitivities (sulphites): confirmed, then suggested. Never counted in `contains` */
-  sensitivities: AllergenId[];
-  sensitivitiesMay: AllergenId[];
   /** attributes (alcohol): confirmed, then suggested. Not allergens */
   attributes: AllergenId[];
   attributesMay: AllergenId[];
 }
 
 /**
- * Short lists for a summary line. `contains` / `may` hold only the main allergens; sulphites and alcohol come back in
- * their own fields so no count or list of "allergens" ever includes them.
+ * Short lists for a summary line. `contains` / `may` hold only the main allergens (sulphites and nitrites included);
+ * alcohol comes back in its own fields so no count or list of "allergens" ever includes it.
  */
 export function summarise(r: Rollup): RollupSummary {
   const pick = (ids: AllergenId[], state: CellState) => ids.filter((a) => r.cells[a].state === state);
   return {
     contains: pick(CONTAINS_IDS, "contains"),
     may: pick(CONTAINS_IDS, "may_contain"),
-    sensitivities: pick(SENSITIVITY_IDS, "contains"),
-    sensitivitiesMay: pick(SENSITIVITY_IDS, "may_contain"),
     attributes: pick(ATTRIBUTE_IDS, "contains"),
     attributesMay: pick(ATTRIBUTE_IDS, "may_contain"),
   };

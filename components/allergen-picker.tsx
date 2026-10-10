@@ -99,7 +99,7 @@ export function IngredientAllergenEditor({ ing, description }: { ing: Ingredient
   const results = useRef<HTMLDivElement>(null);
   const ready = allergensReady(ing);
   const st0 = ingredientAllergenState(ing, description);
-  // sulphites and alcohol are not on the menu: never suggested
+  // alcohol is not an allergen: never suggested (sulphites and nitrites are main allergens and are)
   const st = { ...st0, suggested: st0.suggested.filter((x) => CONTAINS_IDS.includes(x.id)) };
   const heurIds = st.suggested.map((s) => s.id);
   const heurDiet = st.suggestedAnimal.filter((s) => s.flag === "meat" || s.flag === "honey");
@@ -322,7 +322,7 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
       return { ...d, allergen_notes: n };
     });
 
-  // drinks mark only egg, milk and nuts: nothing else is listed, cleared or offered (Troy, 4 Oct 2026)
+  // drinks mark only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites): nothing else is listed, cleared or offered (Troy, 4 Oct 2026; sulphites added 10 Oct 2026)
   const drink = kind === "item" && isDrinkItem(rec as MenuItem);
   const marked = ALLERGENS.filter((a) => showsAllergen(kind === "item" ? (rec as MenuItem) : null, a.id));
   const rows = marked.filter((a) => r.cells[a.id].state !== "none");
@@ -334,7 +334,6 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
   const btn = "btn-plain !min-h-[44px] !px-3 !text-[14px] sm:!min-h-[34px]";
   const item = kind === "item" ? (rec as MenuItem) : null;
   const pillFor = (a: (typeof ALLERGENS)[number], state: "contains" | "may_contain" | "none") => {
-    if (a.group === "sensitivity") return { cls: "border border-[color:var(--label-3)] text-label-2", text: state === "contains" ? "Sensitivity" : "Sensitivity (unconfirmed)" };
     if (a.group === "attribute") return { cls: "border border-[color:var(--label-3)] text-label-2", text: state === "contains" ? BADGE_LABELS.containsAlcohol : `${BADGE_LABELS.containsAlcohol} (unconfirmed)` };
     return state === "contains" ? { cls: "bg-danger-soft text-danger", text: "Contains" } : { cls: "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn", text: "May contain (unconfirmed)" };
   };
@@ -462,7 +461,7 @@ function ReviewRow({ ing, ready, drink, onReview }: { ing: Ingredient; ready: bo
   const store = useStore();
   const [error, setError] = useState<string | null>(null);
   const st0 = ingredientAllergenState(ing);
-  // on a drink only egg, milk and nuts are suggested; alcohol and sulphites stay recorded but are not offered here
+  // on a drink only DRINK_ALLERGEN_IDS (egg, milk, nuts, sulphites) are suggested; the rest stay recorded but are not offered here
   const st = { ...st0, suggested: st0.suggested.filter((s) => (drink ? DRINK_ALLERGEN_IDS : CONTAINS_IDS).includes(s.id)) };
   const confirm = async (id: AllergenId) => {
     setError(null);

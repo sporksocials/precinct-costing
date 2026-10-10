@@ -140,6 +140,20 @@ export type DietOptionKey = "gfo" | "vo" | "vgo" | "dfo";
 export type DietMarkKey = "gf" | "v" | "vg";
 export type DietOptions = Partial<Record<DietOptionKey, DietOptionEntry>> & Partial<Record<DietMarkKey, DietMarkEntry>>;
 
+/**
+ * A dish's OWN allergens section (`cost_menu_items.dish_allergens`, Troy, 10 Oct 2026): hand-listed by the chef when the dish
+ * is built and the only thing the Allergy Matrix reads. `contains` is what the dish contains as written on the menu,
+ * `without[id]` says how it can be made without that allergen ("no aioli"; the id must also be in `contains`), and
+ * `confirmed_at` / `confirmed_by` are the head chef's sign-off (absent = not signed off, the matrix shows Not checked).
+ * Everything is optional and read tolerantly (lib/dish-allergens.ts).
+ */
+export interface DishAllergensEntry {
+  contains?: string[];
+  without?: Record<string, string>;
+  confirmed_at?: string | null;
+  confirmed_by?: string | null;
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -164,6 +178,8 @@ export interface MenuItem {
   diet_options?: DietOptions | null;
   /** the menu wording markets the dish as seafood, so it needs an origin letter (A / I / M) */
   seafood_label?: boolean | null;
+  /** the dish's own hand-listed allergens, read only by the Allergy Matrix; absent until the dish allergens migration is applied */
+  dish_allergens?: DishAllergensEntry | null;
   /** Bar display (cocktails/mocktails only): which glass, e.g. "Rocks Glass, Salt Rim" */
   glass?: string | null;
   /** Bar display: ordered method steps */

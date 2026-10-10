@@ -1,6 +1,7 @@
 import type { Conflict, FieldConflict, LineConflict, TheirChanges } from "./edit-conflict";
 import { gp, money } from "./format";
 import { formatQty } from "./parse-qty";
+import { describeDishAllergens } from "./dish-allergens";
 import { fieldLabel } from "./draft-changes";
 import type { RecipeLine } from "./types";
 
@@ -38,6 +39,7 @@ function valueLines(key: string, v: unknown, ctx: ViewCtx): string[] {
     const parts = v.map((x) => (typeof x === "string" ? x : JSON.stringify(x)));
     return STEP_KEYS.has(key) ? parts.map((p, i) => `${i + 1}. ${p}`) : [parts.join(", ")];
   }
+  if (key === "dish_allergens" && typeof v === "object") return [describeDishAllergens(v)];
   if (typeof v === "object") {
     const entries = Object.entries(v as Record<string, unknown>);
     if (!entries.length) return ["None"];

@@ -26,6 +26,7 @@ import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
 import { GelatoDietary } from "./gelato-dietary";
 import { DietOptionsGroup } from "./diet-options";
+import { DishAllergensGroup } from "./dish-allergens";
 import { isDrinkItem } from "@/lib/allergen-badges";
 import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
 import { isBarCategory } from "@/lib/bar";
@@ -35,6 +36,7 @@ import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { applyHouseRules } from "@/lib/house-rules";
 import { copyDietOptions, pruneStaleRemoved } from "@/lib/diet-options";
+import { unconfirmedCopy } from "@/lib/dish-allergens";
 import { ResearchDrinkCard } from "./research-drink";
 import { RecordHistory } from "./record-history";
 import { printHref } from "@/lib/print-job";
@@ -789,6 +791,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           />
 
           {isFlavour ? <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} /> : <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />}
+          {item && item.category === "Food" ? <DishAllergensGroup item={item} saved={saved as MenuItem} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
           {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
@@ -1075,7 +1078,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
         const idMap = new Map(clean.map((l) => [l.id, newId()] as const));
         const nid = await store.insertItem(
           // a copy of an existing drink is not a new build: it is never offered Research This Drink
-          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null, ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap) } : {}) },
+          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null, ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap) } : {}), ...(rest.dish_allergens ? { dish_allergens: unconfirmedCopy(rest.dish_allergens) } : {}) },
           clean.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
         );
         onClose();

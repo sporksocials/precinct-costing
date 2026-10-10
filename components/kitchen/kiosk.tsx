@@ -29,7 +29,10 @@ export function KitchenKiosk() {
           .getEntriesByType("resource")
           .map((e) => e.name)
           .filter((n) => n.startsWith(location.origin));
-        target.postMessage({ type: "warm", pages: Array.from(new Set(["/kitchen", location.pathname + location.search])), assets });
+        // a venue's station also saves its Allergy Matrix page and feed ahead, so the matrix opens with no signal even if it was never visited
+        const venue = /^\/kitchen\/([a-z0-9-]+)(?:\/|$)/.exec(location.pathname)?.[1];
+        const ahead = venue && venue !== "setup" ? [`/kitchen/${venue}`, `/kitchen/${venue}/matrix`, `/api/kitchen/${venue}`, `/api/kitchen/${venue}/matrix`] : [];
+        target.postMessage({ type: "warm", pages: Array.from(new Set(["/kitchen", location.pathname + location.search, ...ahead])), assets });
       } catch {
         // no service worker (private browsing, older browser): the station still works online
       }

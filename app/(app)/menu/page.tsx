@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Grid3x3, IceCreamCone, Plus, SlidersHorizontal } from "lucide-react";
+import { Grid3x3, IceCreamCone, Plus, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { flavourName, isVirtualItemId, virtualItemId } from "@/lib/gelato";
 import { beerItemId, serveOffered } from "@/lib/beer";
 import type { Prep } from "@/lib/types";
@@ -274,6 +274,10 @@ export default function MenuPage() {
               <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
               <div className="ml-auto flex items-center gap-1">
                 <SelectControls sel={sel} />
+                <Link href={`/matrix${venue ? `?venue=${venue.slug}` : ""}`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold text-accent transition active:opacity-70">
+                  <ShieldCheck className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
+                  Allergy Matrix
+                </Link>
                 <PosListButton />
               </div>
             </div>

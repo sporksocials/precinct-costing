@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { MatrixState } from "@/lib/allergy-matrix";
 
 /**
  * Colours of the kitchen allergen and dietary badges. Kept in one plain module so tests/kitchen.test.ts can check every
@@ -49,3 +50,15 @@ export function toneStyle(t: Tone, opts: { dashed?: boolean } = {}): CSSProperti
     borderStyle: opts.dashed ? "dashed" : "solid",
   };
 }
+
+/**
+ * The four Allergy Matrix answers (components/kitchen/matrix.tsx). Colour only backs up the word and icon on every cell: red No
+ * (X), yellow Swap (triangle, with the note), green Yes (tick), hatched grey Not checked (question mark). tests/kitchen-matrix.test.ts
+ * checks every text and background pair against WCAG AA.
+ */
+export const MX = {
+  red: { fg: "#2A0509", bg: "#FF8A96", edge: "#FFC2C8" },
+  yellow: { fg: "#2B2000", bg: "#F2C46D", edge: "#FFE0A0" },
+  green: { fg: "#06240F", bg: "#8FD9A4", edge: "#8FD9A4" },
+  grey: { fg: "#E6E3DA", bg: "#26262A", stripe: "#34343A", edge: "#8E8C85" },
+} satisfies Record<MatrixState, Tone>;

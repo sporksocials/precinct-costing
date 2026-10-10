@@ -26,6 +26,7 @@ const FIELD_LABELS: Record<string, string> = {
   allergen_notes: "Allergens",
   dietary_labels: "Dietary Labels",
   diet_options: "Diet Options",
+  dish_allergens: "Dish Allergens",
   seafood_label: "Seafood Label",
   glass: "Glass",
   method: "Method",

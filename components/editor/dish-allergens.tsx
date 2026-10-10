@@ -2,13 +2,13 @@
 
 import React, { useMemo, useState } from "react";
 import { Check, TriangleAlert } from "lucide-react";
-import { allergenLabel, withDraft, type AllergenId } from "@/lib/allergens";
+import { allergenLabel, withDraft, type AllergenId, type Rollup } from "@/lib/allergens";
 import { sameValue } from "@/lib/draft-changes";
 import {
   DISH_ALLERGEN_IDS,
   NOTE_MAX,
   applyProposal,
-  chipHint,
+  chipHintLines,
   confirmAllergens,
   currentComponents,
   proposeContains,
@@ -134,18 +134,13 @@ function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuI
 
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Contains</p>
-          <div className="flex flex-wrap gap-x-2 gap-y-3" role="group" aria-label="Allergens this dish contains">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Allergens this dish contains">
             {DISH_ALLERGEN_IDS.map((id) => {
               const on = !!da?.contains.includes(id);
-              const hint = chipHint(r, id);
-              return (
-                <div key={id} className="max-w-[11.5rem]">
-                  <AllergenChip id={id} on={on} disabled={!ready} onClick={() => write(toggleAllergen(item.dish_allergens, id, !on))} />
-                  {hint ? <p className="mt-1 px-2 text-[12px] leading-snug text-label-3">{hint}</p> : null}
-                </div>
-              );
+              return <AllergenChip key={id} id={id} on={on} disabled={!ready} onClick={() => write(toggleAllergen(item.dish_allergens, id, !on))} />;
             })}
           </div>
+          <HintList r={r} />
         </div>
 
         {da && da.contains.length ? (
@@ -175,7 +170,7 @@ function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuI
             </button>
           ) : null}
         </div>
-        <p className="text-[13px] text-label-2">Start From Ingredients fills the ticks as a first guess for you to correct. It saves nothing and never confirms. The small line under a chip names the ingredients that suggest it.</p>
+        <p className="text-[13px] text-label-2">Start From Ingredients fills the ticks as a first guess for you to correct. It saves nothing and never confirms. The list under the chips says which ingredients point at an allergen.</p>
       </div>
     </SafetyBlock>
   );
@@ -205,6 +200,30 @@ export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: Me
         <RecipeAllergens kind="item" rec={item} lines={lines} readOnly embedded />
       </Disclosure>
     </>
+  );
+}
+
+/**
+ * "Where These Come From": under the chips, one plain line for each allergen the ingredients point at. Ticked = a person ticked it on
+ * that ingredient. Name suggests = only the ingredient's name looks like it and nobody has checked. Replaces the faint text that sat
+ * under each chip and pushed the chips out of line. Nothing here changes an answer.
+ */
+export function HintList({ r }: { r: Pick<Rollup, "cells"> }) {
+  const lines = chipHintLines(r, DISH_ALLERGEN_IDS);
+  if (!lines.length) return null;
+  return (
+    <div className="mt-3 rounded-xl bg-fill px-3 py-2.5">
+      <p className="text-[13px] font-medium text-label-2">Where These Come From</p>
+      <ul className="mt-1 space-y-1">
+        {lines.map((l) => (
+          <li key={l.id} className="text-[13px] leading-snug text-label-2">
+            <span className="font-semibold text-label">{l.label}</span>
+            <span className="text-label-3"> · </span>
+            {l.text}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

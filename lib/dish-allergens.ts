@@ -318,6 +318,38 @@ export function chipHint(r: Pick<Rollup, "cells">, id: AllergenId): string | nul
   return `${c.state === "contains" ? "ticked on" : "name suggests"}: ${names.join(", ")}`;
 }
 
+/** One line of the "Where These Come From" list under the chips. `sure` = someone ticked it on the ingredient; otherwise only the name suggests it. */
+export interface HintLine {
+  id: AllergenId;
+  label: string;
+  sure: boolean;
+  text: string;
+}
+
+/**
+ * The list under the allergen chips that says why the app is pointing at an allergen (replaces the faint text that used to sit
+ * under each chip and pushed the chips out of line). Plain words, in the fixed allergen order, only for allergens something
+ * points at. A hint, never an answer: it changes nothing.
+ */
+export function chipHintLines(r: Pick<Rollup, "cells">, ids: readonly AllergenId[]): HintLine[] {
+  const out: HintLine[] = [];
+  for (const id of ids) {
+    const c = r.cells[id];
+    if (!c || c.state === "none") continue;
+    const names = c.sources.filter((s) => s !== "Chef");
+    if (!names.length) continue;
+    const sure = c.state === "contains";
+    const list = names.join(", ");
+    out.push({
+      id,
+      label: allergenLabel(id),
+      sure,
+      text: sure ? `Ticked on the ingredient ${list}.` : `The ingredient name suggests it: ${list}. Nobody has checked it yet.`,
+    });
+  }
+  return out;
+}
+
 /**
  * Allergens the ingredients now list as CONTAINED (confirmed ticks, not keyword guesses) that the dish's own section does
  * not carry. A review prompt for the head chef and the staff list; it never changes a cell.

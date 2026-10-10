@@ -247,3 +247,19 @@ describe("hints under the chips only name the ingredients, in words", () => {
     expect(chipHint(cells("contains", ["Chef"]), "soy")).toBeNull();
   });
 });
+
+describe("chipHintLines (Where These Come From)", () => {
+  const cells = (state: "contains" | "may_contain" | "none", sources: string[]) => ({ cells: { soy: { state, sources }, egg: { state: "may_contain", sources: ["Eggs (Each)", "Hollandaise", "Chef"] } } }) as never;
+  it("says ticked for a confirmed tick and that nobody has checked for a name guess, in allergen order", async () => {
+    const { chipHintLines } = await import("@/lib/dish-allergens");
+    const lines = chipHintLines(cells("contains", ["Soy Sauce"]), ["egg", "soy", "milk"] as never);
+    expect(lines.map((l) => l.id)).toEqual(["egg", "soy"]);
+    expect(lines[0].sure).toBe(false);
+    expect(lines[0].text).toBe("The ingredient name suggests it: Eggs (Each), Hollandaise. Nobody has checked it yet.");
+    expect(lines[1]).toMatchObject({ sure: true, text: "Ticked on the ingredient Soy Sauce." });
+  });
+  it("is empty when nothing points at an allergen", async () => {
+    const { chipHintLines } = await import("@/lib/dish-allergens");
+    expect(chipHintLines({ cells: {} } as never, ["soy"] as never)).toEqual([]);
+  });
+});

@@ -5,8 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check, ChevronLeft, CircleCheck, ExternalLink, TriangleAlert } from "lucide-react";
 import { allergenLabel, rollup, type AllergenId } from "@/lib/allergens";
+import { HintList } from "@/components/editor/dish-allergens";
 import { DIET_MARKS, dietMarkDef, type DietMarkId } from "@/lib/diet-legend";
-import { DISH_ALLERGEN_IDS, NOTE_MAX, chipHint, readDishAllergens } from "@/lib/dish-allergens";
+import { DISH_ALLERGEN_IDS, NOTE_MAX, readDishAllergens } from "@/lib/dish-allergens";
 import { parentKey } from "@/lib/costing";
 import { allTodos } from "@/lib/matrix-todo";
 import {
@@ -260,31 +261,29 @@ export function MatrixReviewPage() {
             ) : (
               <p className="mt-1 text-[13px] text-label-2">Tick everything the menu says this dish contains.</p>
             )}
-            <div className="mt-3 flex flex-wrap gap-x-2 gap-y-3" role="group" aria-label="Allergens this dish contains">
+            <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Allergens this dish contains">
               {DISH_ALLERGEN_IDS.map((id) => {
                 const on = draft.contains.includes(id);
                 const guess = !draft.touched && on;
-                const hint = chipHint(r, id);
                 return (
-                  <div key={id} className="max-w-[11.5rem]">
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => patchDraft((d) => toggleReviewAllergen(d, id))}
-                      className={cx(
-                        "inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-[15px] font-medium transition-[background-color,color,transform] duration-200 ease-ios active:scale-[0.97]",
-                        on ? (guess ? "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn" : "bg-accent-fill text-accent-on") : "bg-fill text-label hover:bg-fill-2",
-                      )}
-                    >
-                      {on ? <Check aria-hidden className="h-4 w-4" strokeWidth={3} /> : null}
-                      {allergenLabel(id)}
-                      {guess ? <span className="text-[12px] font-semibold">Suggested</span> : null}
-                    </button>
-                    {hint ? <p className="mt-1 px-2 text-[12px] leading-snug text-label-3">{hint}</p> : null}
-                  </div>
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => patchDraft((d) => toggleReviewAllergen(d, id))}
+                    className={cx(
+                      "inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-4 text-[15px] font-medium transition-[background-color,color,transform] duration-200 ease-ios active:scale-[0.97]",
+                      on ? (guess ? "border border-dashed border-[color:var(--warn)] bg-warn-soft text-warn" : "bg-accent-fill text-accent-on") : "bg-fill text-label hover:bg-fill-2",
+                    )}
+                  >
+                    {on ? <Check aria-hidden className="h-4 w-4" strokeWidth={3} /> : null}
+                    {allergenLabel(id)}
+                    {guess ? <span className="text-[12px] font-semibold">Suggested</span> : null}
+                  </button>
                 );
               })}
             </div>
+            <HintList r={r} />
 
             {draft.contains.length ? (
               <div className="mt-5">

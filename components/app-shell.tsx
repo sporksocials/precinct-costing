@@ -10,6 +10,7 @@ import { NewRecipeProvider } from "./new-recipe";
 import { UnsavedGuardProvider } from "./unsaved-guard";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
+import { ScrollMemory } from "./scroll-memory";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
 
 const MAIN = [
@@ -175,6 +176,7 @@ function Frame({ children }: { children: React.ReactNode }) {
   const noTabs = hidesTabBar(pathname);
   return (
     <div className="lg:pl-[248px]">
+      <ScrollMemory />
       <main
         className={cx(
           "mx-auto w-full max-w-[1100px] px-4 pt-[max(env(safe-area-inset-top),0.5rem)] sm:px-6 lg:px-10 lg:pb-16",

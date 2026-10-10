@@ -9,7 +9,7 @@ import { useBackHref } from "./use-back-href";
 export function BackLink({ path, fallback, rules, className, children, onClick }: { path: string; fallback: string; rules?: BackRules; className?: string; children: ReactNode; onClick?: React.MouseEventHandler<HTMLAnchorElement> }) {
   const href = useBackHref(path, fallback, rules);
   return (
-    <Link href={href} className={className} onClick={onClick}>
+    <Link href={href} className={className} onClick={onClick} data-pc-back>
       {children}
     </Link>
   );

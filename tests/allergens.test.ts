@@ -3,6 +3,7 @@ import { buildIndex } from "@/lib/costing";
 import { beerItemId } from "@/lib/beer";
 import { virtualItemId } from "@/lib/gelato";
 import {
+  allergenLabel,
   dietTags,
   isFiningCategory,
   isFiningRisk,
@@ -43,6 +44,8 @@ describe("suggestAllergens", () => {
     expect(ids("Satay Sauce")).toEqual(["peanuts"]);
     expect(ids("Macadamia Nuts")).toEqual(["tree_nuts"]);
     expect(ids("Tahini")).toEqual(["sesame"]);
+    // the stored id stays "sesame" but everyone sees "Seeds" (Troy, 10 Oct 2026)
+    expect(allergenLabel("sesame")).toBe("Seeds");
     expect(ids("Firm Tofu")).toEqual(["soy"]);
     expect(ids("Lupin Flour")).toEqual(["gluten", "lupin"]);
     expect(ids("Sriracha")).toEqual(["chilli"]);

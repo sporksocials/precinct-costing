@@ -74,7 +74,7 @@ export const ALLERGENS: AllergenDef[] = [
   { id: "fish", label: "Fish", short: "Fish", group: "required" },
   { id: "milk", label: "Milk", short: "Milk", group: "required" },
   { id: "peanuts", label: "Peanuts", short: "Peanuts", group: "required" },
-  { id: "sesame", label: "Sesame", short: "Sesame", group: "required" },
+  { id: "sesame", label: "Seeds", short: "Seeds", group: "required" }, // the id stays "sesame" (it is stored on records); Troy, 10 Oct 2026: shown as "Seeds"
   { id: "soy", label: "Soy", short: "Soy", group: "required" },
   { id: "tree_nuts", label: "Tree Nuts", short: "Tree Nuts", group: "required" },
   { id: "lupin", label: "Lupin", short: "Lupin", group: "required" },

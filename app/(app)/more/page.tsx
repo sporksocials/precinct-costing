@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, HeartPulse, History, Lightbulb, Settings, ShieldCheck, Store, Tag, Trash2, Wheat } from "lucide-react";
+import { ClipboardList, HeartPulse, History, Lightbulb, ListChecks, Settings, ShieldCheck, Store, Tag, Trash2, Wheat } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
@@ -22,6 +22,7 @@ export default function MorePage() {
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
         <Row href="/allergens" title="Menu Labels" leading={<Icon className="bg-[#8a4b2a]"><Wheat className={ic} /></Icon>} chevron />
         <Row href="/matrix" title="Allergy Matrix" leading={<Icon className="bg-[#6a3a7a]"><ShieldCheck className={ic} /></Icon>} chevron />
+        <Row href="/matrix/todo" title="Matrix To Do" sub="Dishes to approve, marks, sheets to reprint" leading={<Icon className="bg-[#6a3a7a]"><ListChecks className={ic} /></Icon>} chevron />
         <Row
           href="/research-notes"
           title="Research Notes"

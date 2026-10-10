@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, CircleDollarSign, Clock, Store, Tag, TrendingUp } from "lucide-react";
+import { AlertTriangle, Check, CircleDollarSign, Clock, Printer, ShieldAlert, Store, Tag, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import { catalogueGaps, dealFeedRows, checkCostGroups, checkCostRows, happyHourRows, ingredientsInActiveUse, missingPriceGroups, priceIncreases, staleIngredients, underTarget, underTargetRows, type UnderRow } from "@/lib/insights";
@@ -40,6 +40,8 @@ import { OffersFeed } from "@/components/offers-feed";
 import { DealsFeed } from "@/components/deals-feed";
 import { liveOffersToCheck, liveOffersUnderTarget } from "@/lib/offers";
 import { underRowName, type OpenAlerts } from "@/lib/dashboard";
+import { allTodos, allergenApprovalAlerts, approvalSub, approvalTitle, reprintAlerts, reprintSub, reprintTitle } from "@/lib/matrix-todo";
+import { useAllergenIndex } from "@/components/allergen-picker";
 
 /** "Monday, 5 October" for the store's Brisbane `today`. */
 export function formatToday(iso: string): string {
@@ -53,9 +55,11 @@ export function formatToday(iso: string): string {
  */
 export function useOpenAlerts(venueId: number | null): OpenAlerts & { ignoredKeys: Set<string> } {
   const store = useStore();
+  const { loadPortalPrices, loadMatrixPrints } = store;
   useEffect(() => {
-    store.loadPortalPrices();
-  }, [store]);
+    loadPortalPrices();
+    loadMatrixPrints();
+  }, [loadPortalPrices, loadMatrixPrints]);
   const ignoredKeys = useMemo(() => ignoredKeySet(store.ignoredAlerts), [store.ignoredAlerts]);
   const under = useMemo(() => openRows(underTargetRows(store.itemCosts.values(), venueId), (r) => belowTargetKey(r.cost), ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
   const check = useMemo(() => openRows(checkCostGroups(checkCostRows(store.itemCosts.values(), venueId)), checkCostKey, ignoredKeys), [store.itemCosts, venueId, ignoredKeys]);
@@ -82,14 +86,20 @@ export function useOpenAlerts(venueId: number | null): OpenAlerts & { ignoredKey
   const deals = useMemo(() => openRows(dealFeedRows(store.deals, store.ingredients, inUse, store.today), dealKey, ignoredKeys), [store.deals, store.ingredients, inUse, store.today, ignoredKeys]);
   const offersBelow = useMemo(() => openRows(liveOffersUnderTarget(store.offers, store.offerCosts, venueId), (r) => offerBelowTargetKey(r.offer), ignoredKeys), [store.offers, store.offerCosts, venueId, ignoredKeys]);
   const offersCheck = useMemo(() => openRows(liveOffersToCheck(store.offers, store.offerCosts, venueId), (r) => offerCheckKey(r.offer), ignoredKeys), [store.offers, store.offerCosts, venueId, ignoredKeys]);
+  // the two safety alerts (dishes waiting for allergen approval, a matrix that changed since it was printed): one row per venue,
+  // never ignorable, so they take no part in the ignored keys above and never touch the GP average
+  const allergenIdx = useAllergenIndex();
+  const todos = useMemo(() => allTodos(store.venues, store.items, allergenIdx, store.matrixPrints), [store.venues, store.items, allergenIdx, store.matrixPrints]);
+  const allergenApproval = useMemo(() => allergenApprovalAlerts(todos, venueId), [todos, venueId]);
+  const reprint = useMemo(() => reprintAlerts(todos, venueId), [todos, venueId]);
   return useMemo(
-    () => ({ under, missing, rises, check, stale, gaps, happy, deals, offersBelow, offersCheck, ignoredKeys }),
-    [under, missing, rises, check, stale, gaps, happy, deals, offersBelow, offersCheck, ignoredKeys],
+    () => ({ under, missing, rises, check, stale, gaps, happy, deals, offersBelow, offersCheck, allergenApproval, reprint, ignoredKeys }),
+    [under, missing, rises, check, stale, gaps, happy, deals, offersBelow, offersCheck, allergenApproval, reprint, ignoredKeys],
   );
 }
 
 /** Ids a link like /alerts#below-target can land on. */
-const ANCHORS = new Set(["check-cost", "below-target", "price-rises", "missing-price"]);
+const ANCHORS = new Set(["check-cost", "below-target", "price-rises", "missing-price", "allergen-approval"]);
 
 /**
  * The complete Today feed (it lives on /alerts): every alert kind in its own group, Open | Ignored, Review & Apply and
@@ -109,7 +119,7 @@ export function TodayFeed({ venueId, showHeading = true }: { venueId: number | n
   const [view, setView] = useAlertView();
   useRefreshIgnored();
 
-  const { under, missing, rises, check, stale, gaps, happy, deals: dealRows, offersBelow, offersCheck, ignoredKeys } = useOpenAlerts(venueId);
+  const { under, missing, rises, check, stale, gaps, happy, deals: dealRows, offersBelow, offersCheck, allergenApproval, reprint, ignoredKeys } = useOpenAlerts(venueId);
   const changes = useMemo(
     () =>
       buildReviewChanges(
@@ -131,7 +141,7 @@ export function TodayFeed({ venueId, showHeading = true }: { venueId: number | n
 
   // the heading date follows the store's Brisbane `today`, so it moves at midnight in a tab left open
   const today = formatToday(store.today);
-  const clear = !offersBelow.length && !offersCheck.length && !missing.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
+  const clear = !allergenApproval.length && !reprint.length && !offersBelow.length && !offersCheck.length && !missing.length && !under.length && !rises.length && !stale.length && !gaps.length && !check.length && !happy.length && !dealRows.length;
   const shownUnder = allUnder ? under : under.slice(0, 5);
   const shownRises = allRises ? rises : rises.slice(0, 3);
   const shownCheck = allCheck ? check : check.slice(0, 4);
@@ -177,6 +187,30 @@ export function TodayFeed({ venueId, showHeading = true }: { venueId: number | n
                   {ignoredCount ? ` ${ignoredCount} ignored ${ignoredCount === 1 ? "alert is" : "alerts are"} under Ignored.` : ""}
                 </span>
               </span>
+            </div>
+          ) : null}
+
+          {/* safety first: allergen approval, then (lowest) a matrix that needs reprinting. No Ignore button: these cannot be ignored */}
+          {allergenApproval.length ? (
+            <div id="allergen-approval" className="scroll-mt-4">
+              <Group title={`Allergen Approval · ${allergenApproval.length}`} className="mt-4" inset="3.75rem" footer="Dishes with no valid allergen sign-off read Not checked on the Allergy Matrix. These cannot be ignored.">
+                {allergenApproval.map((a) => (
+                  <Row
+                    key={a.key}
+                    href={a.href}
+                    leading={
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-danger-soft text-danger">
+                        <ShieldAlert className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                      </span>
+                    }
+                    title={approvalTitle(a.count)}
+                    wrapSub
+                    sub={[venueName(store, a.venueId), approvalSub(a)].filter(Boolean).join(" · ")}
+                    trailing={<span className="text-[15px] font-semibold text-accent sm:text-[13px]">Review</span>}
+                    chevron
+                  />
+                ))}
+              </Group>
             </div>
           ) : null}
 
@@ -430,6 +464,24 @@ export function TodayFeed({ venueId, showHeading = true }: { venueId: number | n
                 />
               ))}
               {gaps.length > 4 ? <Row onClick={() => setAllGaps((x) => !x)} title={<span className="text-accent">{allGaps ? "Show Fewer" : `Show All ${gaps.length}`}</span>} /> : null}
+            </Group>
+          ) : null}
+          {reprint.length ? (
+            <Group title={`Matrix Needs Reprinting · ${reprint.length}`} className="mt-6" inset="3.75rem" footer="The sheet on the wall no longer matches the matrix. Open the To Do list to see what changed. These cannot be ignored.">
+              {reprint.map((a) => (
+                <Row
+                  key={a.key}
+                  href={a.href}
+                  leading={
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-warn-soft text-warn">
+                      <Printer className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                    </span>
+                  }
+                  title={reprintTitle(venueName(store, a.venueId))}
+                  sub={reprintSub(a.count)}
+                  chevron
+                />
+              ))}
             </Group>
           ) : null}
         </>

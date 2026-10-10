@@ -301,7 +301,7 @@ type Rec = MenuItem | Prep;
  * The badge panel on top is the answer (tiers in a fixed order); below it the chef can add or remove an allergen and
  * write a "made without" note. Anything not reviewed is flagged first, and nothing here ever says "gluten free".
  */
-export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" | "prep"; rec: Rec; lines: RecipeLine[]; setDraft: (fn: (d: Rec) => Rec) => void }) {
+export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded }: { kind: "item" | "prep"; rec: Rec; lines: RecipeLine[]; setDraft?: (fn: (d: Rec) => Rec) => void; readOnly?: boolean; embedded?: boolean }) {
   const store = useStore();
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -310,12 +310,14 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
 
   const add = rec.allergen_add ?? [];
   const notes = rec.allergen_notes ?? {};
+  // readOnly (a food dish's "What The Ingredients Say" reference): nothing here edits the dish, so the edit helpers do nothing
+  const draftFn = setDraft ?? (() => undefined);
   const setAdd = (id: AllergenId, on: boolean) =>
-    setDraft((d) => ({ ...d, allergen_add: on ? [...new Set([...(d.allergen_add ?? []), id])] : (d.allergen_add ?? []).filter((x) => x !== id), allergen_remove: (d.allergen_remove ?? []).filter((x) => x !== id) }));
+    draftFn((d) => ({ ...d, allergen_add: on ? [...new Set([...(d.allergen_add ?? []), id])] : (d.allergen_add ?? []).filter((x) => x !== id), allergen_remove: (d.allergen_remove ?? []).filter((x) => x !== id) }));
   const setRemove = (id: AllergenId, on: boolean) =>
-    setDraft((d) => ({ ...d, allergen_remove: on ? [...new Set([...(d.allergen_remove ?? []), id])] : (d.allergen_remove ?? []).filter((x) => x !== id), allergen_add: (d.allergen_add ?? []).filter((x) => x !== id) }));
+    draftFn((d) => ({ ...d, allergen_remove: on ? [...new Set([...(d.allergen_remove ?? []), id])] : (d.allergen_remove ?? []).filter((x) => x !== id), allergen_add: (d.allergen_add ?? []).filter((x) => x !== id) }));
   const setNote = (id: AllergenId, text: string) =>
-    setDraft((d) => {
+    draftFn((d) => {
       const n = { ...(d.allergen_notes ?? {}) };
       if (text.trim()) n[id] = text.trim();
       else delete n[id];
@@ -343,8 +345,8 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
 
   return (
     <Group
-      title={model.listsAllergens ? "Allergens" : "Menu Labels"}
-      className="mt-6"
+      title={embedded ? undefined : model.listsAllergens ? "Allergens" : "Menu Labels"}
+      className={embedded ? "!mt-0" : "mt-6"}
       trailing={model.listsAllergens && r.reviewed ? <span className="pb-0.5 text-[13px] font-medium text-good">All ingredients reviewed</span> : null}
       footer={model.listsAllergens ? ALLERGEN_NOTICE : undefined}
     >
@@ -372,24 +374,26 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
                         </span>
                         <span className="mt-0.5 block text-[13px] text-label-2">{c.sources.length ? `From ${c.sources.map((s) => (s === "Chef" ? "the chef" : s)).join(", ")}` : ""}</span>
                       </span>
-                      <span className="flex gap-2">
-                        {c.state === "may_contain" ? (
-                          <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, true)}>
-                            Confirm
-                          </button>
-                        ) : null}
-                        {chefAdded ? (
-                          <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, false)}>
-                            Undo Add
-                          </button>
-                        ) : (
-                          <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, true)}>
-                            {c.state === "may_contain" ? "Clear" : "Remove"}
-                          </button>
-                        )}
-                      </span>
+                      {readOnly ? null : (
+                        <span className="flex gap-2">
+                          {c.state === "may_contain" ? (
+                            <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, true)}>
+                              Confirm
+                            </button>
+                          ) : null}
+                          {chefAdded ? (
+                            <button type="button" className={btn} disabled={!ready} onClick={() => setAdd(a.id, false)}>
+                              Undo Add
+                            </button>
+                          ) : (
+                            <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, true)}>
+                              {c.state === "may_contain" ? "Clear" : "Remove"}
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    <NoteField label={a.label} value={notes[a.id] ?? ""} disabled={!ready} onCommit={(t) => setNote(a.id, t)} />
+                    {readOnly ? notes[a.id] ? <p className="mt-1 text-[13px] text-label-2">Note: {notes[a.id]}</p> : null : <NoteField label={a.label} value={notes[a.id] ?? ""} disabled={!ready} onCommit={(t) => setNote(a.id, t)} />}
                   </li>
                 );
               })}
@@ -406,15 +410,17 @@ export function RecipeAllergens({ kind, rec, lines, setDraft }: { kind: "item" |
                   <span className="line-through decoration-label-3">{a.label}</span>
                   <span className="text-[13px] text-label-2">{r.cells[a.id].was.length ? ` · was from ${r.cells[a.id].was.join(", ")}` : ""}</span>
                 </span>
-                <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, false)}>
-                  Undo
-                </button>
+                {readOnly ? null : (
+                  <button type="button" className={btn} disabled={!ready} onClick={() => setRemove(a.id, false)}>
+                    Undo
+                  </button>
+                )}
               </div>
             ))}
           </div>
         ) : null}
 
-        {model.listsAllergens ? (
+        {model.listsAllergens && !readOnly ? (
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Add Allergen</p>
           <div className="flex flex-wrap gap-2">

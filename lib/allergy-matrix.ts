@@ -1,7 +1,7 @@
 import { allergenLabel, type AllergenId } from "./allergens";
 import type { DietMarkId, DietOptionId } from "./diet-legend";
-import { isConfirmed, type DishAllergens } from "./dish-allergens";
-import { compareGroups, groupLabel } from "./kitchen";
+import { isConfirmed, type DishAllergens, type SignOffState } from "./dish-allergens";
+import { OTHER_LABEL, groupLabel } from "./kitchen";
 
 /**
  * The Allergy Matrix (Troy, 10 Oct 2026): the laminated A4 sheet each kitchen keeps for its dishes, built from the app's data.
@@ -10,6 +10,10 @@ import { compareGroups, groupLabel } from "./kitchen";
  * NO GUESSING, NO OVERRIDES. A cell is read ONLY from the dish's own allergens section (lib/dish-allergens.ts), its hand-set
  * marks (GF, V, VG) and its options (GFO, VO, VGO, DFO). Nothing here looks at ingredients, roll-ups or keyword suggestions,
  * and there is no way to override a cell: a chef changes the dish in the recipe editor. `tests/allergy-matrix.test.ts` pins that.
+ *
+ * "Confirmed" means a VALID sign-off (lib/dish-allergens.ts `signOffState`): a dish whose ingredients changed since it was signed off
+ * reads Not checked until somebody confirms again. The dishes handed to these rules already carry that decision: the
+ * sign-off is removed from `allergens` unless it is valid (`effectiveAllergens`), and `signOff` says which case it was.
  *
  * Four colours, each backed by a word and an icon so a black and white print still reads:
  *   red    "No"           cannot eat
@@ -26,6 +30,22 @@ export const STATE_MARK: Record<MatrixState, string> = { red: "x", yellow: "!", 
 
 export const MATRIX_LEGEND = "Red = cannot eat. Yellow = must be substituted, see the note. Green = can eat with no substitutions. Grey = not checked, ask the head chef.";
 export const MATRIX_FOOTER_NOTE = "Confirm with the head chef if unsure";
+/** The standing cross-contact line printed on every sheet and shown on the iPad when a venue has not set its own (Settings). */
+export const DEFAULT_CROSS_CONTACT = "Shared fryer and grill: cross-contact is possible. Ask the head chef if unsure.";
+/** The cost_settings key that holds a venue's cross-contact line (text_value; migration 20261010160000). */
+export function crossContactSettingKey(venueSlug: string): string {
+  return `cross_contact_${venueSlug}`;
+}
+/** The venue's saved line from the settings rows, or null when it has none. */
+export function crossContactFromSettings(rows: readonly { key: string; text_value?: string | null }[], venueSlug: string): string | null {
+  const t = rows.find((r) => r.key === crossContactSettingKey(venueSlug))?.text_value;
+  return t && t.trim() ? t.trim() : null;
+}
+export const CROSS_CONTACT_MAX = 160;
+/** The venue's own cross-contact line, or the default when it is blank. */
+export function crossContactLine(text: string | null | undefined): string {
+  return text && text.trim() ? text.trim().replace(/\s+/g, " ") : DEFAULT_CROSS_CONTACT;
+}
 export const SEE_CHEF = "See chef";
 
 export type MatrixColumnId = "gluten_free" | "onion_garlic" | "dairy" | "seafood" | "chilli" | "eggs" | "nuts_seeds" | "vegetarian" | "vegan" | "sulphites" | "nitrites";
@@ -71,8 +91,12 @@ export interface MatrixDish {
   id: string;
   name: string;
   section: string | null;
-  /** the dish's own allergens section; null = the dish has none */
+  /** the dish's own allergens section; null = the dish has none. The sign-off is already removed when it is not valid. */
   allergens: DishAllergens | null;
+  /** why the dish reads as it does: valid sign-off, ingredients changed since, signed off before tracking, or never signed off. Absent = worked out from `allergens` */
+  signOff?: SignOffState;
+  /** the date the (possibly no longer valid) sign-off was made, for "Ingredients changed since ..." */
+  signedAt?: string | null;
   /** the hand-set marks (GF, V, VG) */
   marks: readonly DietMarkId[];
   /** each option the dish offers, as its full wording ("Leave out X. Add Y. note"); an empty string = the option exists with no words */
@@ -142,8 +166,10 @@ export function cell(dish: MatrixDish, columnId: MatrixColumnId): MatrixCell {
 
 export interface MatrixRow {
   dish: MatrixDish;
-  /** the dish has been signed off */
+  /** the dish has a VALID sign-off */
   confirmed: boolean;
+  /** valid, changed (ingredients changed since the sign-off), legacy (signed off before tracking) or never */
+  signOff: SignOffState;
   cells: Record<MatrixColumnId, MatrixCell>;
   needsReview: boolean;
   /** staff view only: contradictions between the hand-set marks and the dish's allergens (never changes a cell) */
@@ -169,7 +195,8 @@ function warningsFor(dish: MatrixDish): string[] {
 
 export function buildRow(dish: MatrixDish): MatrixRow {
   const cells = Object.fromEntries(MATRIX_COLUMNS.map((c) => [c.id, cell(dish, c.id)])) as Record<MatrixColumnId, MatrixCell>;
-  return { dish, confirmed: isConfirmed(dish.allergens), cells, needsReview: !!dish.needsReview, warnings: warningsFor(dish) };
+  const confirmed = isConfirmed(dish.allergens);
+  return { dish, confirmed, signOff: dish.signOff ?? (confirmed ? "valid" : "never"), cells, needsReview: !!dish.needsReview, warnings: warningsFor(dish) };
 }
 
 export function buildRows(dishes: readonly MatrixDish[]): MatrixRow[] {
@@ -183,7 +210,20 @@ export interface MatrixSection {
   rows: MatrixRow[];
 }
 
-/** One matrix per section: sections in the kitchen's menu order (then alphabetical, "Other" last), dishes by name inside each. */
+/** Section order (Troy, 10 Oct 2026: "just sort alphabetically"): A to Z, "Other" last. */
+export function compareSections(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === OTHER_LABEL) return 1;
+  if (b === OTHER_LABEL) return -1;
+  return a.localeCompare(b, "en-AU", { sensitivity: "base" }) || a.localeCompare(b);
+}
+
+/** Dish order inside a section: A to Z by name. */
+export function compareDishes(a: { name: string }, b: { name: string }): number {
+  return a.name.localeCompare(b.name, "en-AU", { sensitivity: "base" }) || a.name.localeCompare(b.name);
+}
+
+/** One matrix per section: sections A to Z ("Other" last), dishes A to Z inside each. */
 export function matrixSections(rows: readonly MatrixRow[]): MatrixSection[] {
   const by = new Map<string, MatrixRow[]>();
   for (const r of rows) {
@@ -193,8 +233,8 @@ export function matrixSections(rows: readonly MatrixRow[]): MatrixSection[] {
     else by.set(label, [r]);
   }
   return [...by.entries()]
-    .sort(([a], [b]) => compareGroups(a, b))
-    .map(([label, rs]) => ({ label, rows: [...rs].sort((a, b) => a.dish.name.localeCompare(b.dish.name)) }));
+    .sort(([a], [b]) => compareSections(a, b))
+    .map(([label, rs]) => ({ label, rows: [...rs].sort((a, b) => compareDishes(a.dish, b.dish)) }));
 }
 
 /** "28 of 41 dishes confirmed". */
@@ -236,6 +276,61 @@ export function guestNeeds(rows: readonly MatrixRow[], columnId: MatrixColumnId)
   const out: GuestNeeds = { column: matrixColumn(columnId), green: [], yellow: [], red: [], grey: [] };
   for (const row of rows) out[row.cells[columnId].state].push({ row, cell: row.cells[columnId] });
   return out;
+}
+
+/**
+ * Several needs at once (Troy, 10 Oct 2026): a guest who is dairy free AND gluten free. A dish suits ALL the picks or it does not:
+ *   red     any pick is red (the dish cannot be made to suit all of them)
+ *   grey    any pick is grey and none is red (not checked, so nothing can be promised; grey outranks yellow, fail safe)
+ *   yellow  any pick is yellow and none is red or grey (each yellow pick lists its own note)
+ *   green   green for every pick
+ */
+export function combineStates(states: readonly MatrixState[]): MatrixState {
+  if (states.includes("red")) return "red";
+  if (states.includes("grey")) return "grey";
+  if (states.includes("yellow")) return "yellow";
+  return "green";
+}
+
+export interface GuestPick {
+  column: MatrixColumn;
+  cell: MatrixCell;
+}
+
+export interface MultiGuestEntry {
+  row: MatrixRow;
+  state: MatrixState;
+  /** one entry per pick, in the order the picks were made, so the card can say which pick needs which note */
+  picks: GuestPick[];
+  /** yellow only: the pick and the note it needs ("Dairy: no aioli") */
+  notes: { label: string; note: string }[];
+}
+
+export interface MultiGuestNeeds {
+  columns: MatrixColumn[];
+  green: MultiGuestEntry[];
+  yellow: MultiGuestEntry[];
+  red: MultiGuestEntry[];
+  grey: MultiGuestEntry[];
+}
+
+/** Every dish sorted for a guest with one or more needs. With one pick this is the same answer as `guestNeeds`. Matrix order is kept. */
+export function guestNeedsMulti(rows: readonly MatrixRow[], columnIds: readonly MatrixColumnId[]): MultiGuestNeeds {
+  const ids = [...new Set(columnIds)];
+  const out: MultiGuestNeeds = { columns: ids.map(matrixColumn), green: [], yellow: [], red: [], grey: [] };
+  for (const row of rows) {
+    const picks = out.columns.map((column) => ({ column, cell: row.cells[column.id] }));
+    const state = combineStates(picks.map((p) => p.cell.state));
+    const notes = picks.filter((p) => p.cell.state === "yellow").map((p) => ({ label: p.column.label, note: p.cell.note ?? SEE_CHEF }));
+    out[state].push({ row, state, picks, notes });
+  }
+  return out;
+}
+
+/** "Dairy Free And Gluten Free Guest" style heading for the picks. */
+export function guestHeading(columns: readonly MatrixColumn[]): string {
+  const names = columns.map((c) => c.label);
+  return `${names.length <= 1 ? names[0] ?? "" : `${names.slice(0, -1).join(", ")} And ${names[names.length - 1]}`} Guest`;
 }
 
 export const GUEST_GROUPS: readonly { key: MatrixState; title: string }[] = [

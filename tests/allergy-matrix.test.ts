@@ -46,7 +46,7 @@ const NOW = "2026-10-10T03:00:00.000Z";
 /** a dish whose allergens section is signed off */
 function dish(over: Partial<MatrixDish> & { contains?: AllergenId[]; without?: Partial<Record<AllergenId, string>>; signed?: boolean | null } = {}): MatrixDish {
   const { contains = [], without = {}, signed = true, ...rest } = over;
-  const allergens = signed === null ? null : { contains, without, confirmedAt: signed ? NOW : null, confirmedBy: signed ? "chef@example.com" : null };
+  const allergens = signed === null ? null : { contains, without, confirmedAt: signed ? NOW : null, confirmedBy: signed ? "chef@example.com" : null, components: null, needsSignoff: false };
   return { id: "d1", name: "Test Dish", section: "Mains", allergens, marks: [], options: {}, ...rest };
 }
 const state = (d: MatrixDish, c: MatrixColumnId) => cell(d, c).state;
@@ -246,12 +246,12 @@ describe("sections, order and progress", () => {
     dish({ id: "5", name: "Mystery", section: null, signed: false }),
     dish({ id: "6", name: "Aperitivo Board", section: "Aperitivo" }),
   ]);
-  it("groups by section in the kitchen's menu order, unknown sections after, Other last, dishes by name", () => {
+  it("sorts sections A to Z with Other last, and dishes A to Z inside each (Troy: just sort alphabetically)", () => {
     const s = matrixSections(rows);
-    expect(s.map((x) => x.label)).toEqual(["Breakfast", "Bowls & Salads", "Burgers", "Aperitivo", "Other"]);
-    expect(s[0].rows.map((r) => r.dish.name)).toEqual(["Eggs On Toast", "Waffles"]);
+    expect(s.map((x) => x.label)).toEqual(["Aperitivo", "Bowls & Salads", "Breakfast", "Burgers", "Other"]);
+    expect(s[2].rows.map((r) => r.dish.name)).toEqual(["Eggs On Toast", "Waffles"]);
   });
-  it("counts progress and lists what needs confirming in menu order", () => {
+  it("counts progress and lists what needs confirming in the same alphabetical order", () => {
     const p = matrixProgress(rows);
     expect(p).toMatchObject({ total: 6, confirmed: 4 });
     expect(p.needing.map((r) => r.dish.name)).toEqual(["Waffles", "Mystery"]);
@@ -349,13 +349,13 @@ describe("dish allergens: ticking, notes, confirming", () => {
     expect(readDishAllergens(raw)!.without).toEqual({});
   });
   it("Confirm stamps the time and the signed-in email", () => {
-    const next = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW);
-    expect(next).toEqual({ contains: ["milk"], without: {}, confirmed_at: NOW, confirmed_by: "chef@example.com" });
+    const next = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, ["prep:p1", "ingredient:i1"]);
+    expect(next).toEqual({ contains: ["milk"], without: {}, confirmed_at: NOW, confirmed_by: "chef@example.com", components: ["ingredient:i1", "prep:p1"] });
     expect(isConfirmed(readDishAllergens(next))).toBe(true);
-    expect(confirmAllergens(null, null, NOW)).toEqual({ contains: [], without: {}, confirmed_at: NOW });
+    expect(confirmAllergens(null, null, NOW, [])).toEqual({ contains: [], without: {}, confirmed_at: NOW, components: [] });
   });
   it("ANY edit after confirmation clears it, and says so", () => {
-    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW);
+    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, []);
     const tick = toggleAllergen(signed, "egg", true);
     expect(tick.clearedConfirmation).toBe(true);
     expect(isConfirmed(readDishAllergens(tick.next))).toBe(false);
@@ -369,7 +369,7 @@ describe("dish allergens: ticking, notes, confirming", () => {
     expect(prop.clearedConfirmation).toBe(true);
   });
   it("an edit that changes nothing keeps the sign-off", () => {
-    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW);
+    const signed = confirmAllergens(toggleAllergen(null, "milk", true).next, "chef@example.com", NOW, []);
     expect(toggleAllergen(signed, "milk", true)).toMatchObject({ clearedConfirmation: false, next: signed });
     expect(setWithoutNote(signed, "milk", "")).toMatchObject({ clearedConfirmation: false });
     expect(setWithoutNote(signed, "egg", "no egg")).toMatchObject({ clearedConfirmation: false });
@@ -379,7 +379,7 @@ describe("dish allergens: ticking, notes, confirming", () => {
     expect(toggleAllergen({ contains: ["milk"], without: {} }, "egg", true).clearedConfirmation).toBe(false);
   });
   it("a duplicate keeps the lists and loses the sign-off", () => {
-    const signed = confirmAllergens(setWithoutNote(toggleAllergen(null, "milk", true).next, "milk", "no cheese").next, "chef@example.com", NOW);
+    const signed = confirmAllergens(setWithoutNote(toggleAllergen(null, "milk", true).next, "milk", "no cheese").next, "chef@example.com", NOW, ["ingredient:i1"]);
     const copy = unconfirmedCopy(signed) as Record<string, unknown>;
     expect(copy).toEqual({ contains: ["milk"], without: { milk: "no cheese" } });
     expect(unconfirmedCopy(null)).toBeNull();
@@ -404,8 +404,12 @@ function indexFor(items: MenuItem[], ingredients: Ingredient[], lines: RecipeLin
 
 describe("ingredients feed only the proposal and the review prompt", () => {
   const ingredients = [ing("i-bun", "Brioche Bun", ["gluten", "milk"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", [], false)];
-  const m = item({ dish_allergens: { contains: ["gluten"], without: {}, confirmed_at: NOW } });
+  // signed off with the components the dish is made from, so the sign-off is valid (lib/dish-allergens.ts)
+  const m = item({ dish_allergens: { contains: ["gluten"], without: {}, confirmed_at: NOW, components: ["ingredient:i-bun", "ingredient:i-mayo", "ingredient:i-prawn"] } });
   const index = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn"), line("l3", "m1", "i-mayo")]);
+  // the same three components, but none of them lists an allergen any more
+  const plainIngredients = [ing("i-bun", "Brioche Bun", []), ing("i-prawn", "Prawns", []), ing("i-mayo", "Mayo", [])];
+  const plainIndex = indexFor([m], plainIngredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn"), line("l3", "m1", "i-mayo")]);
   const r = rollup({ kind: "item", id: "m1" }, index);
 
   it("Start From Ingredients proposes what the roll-up lists, and marks the guesses", () => {
@@ -421,22 +425,29 @@ describe("ingredients feed only the proposal and the review prompt", () => {
     expect(reviewWarningText(["milk"])).toBe("Ingredients have changed since this was confirmed. They now list Milk, which is not ticked above. Check it and confirm again.");
     expect(reviewWarningText([])).toBe("");
   });
-  it("the matrix cells ignore the ingredients completely: same dish section, different recipe, same cells", () => {
-    const withBun = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn")]);
-    const empty = indexFor([m], ingredients, []);
-    const a = buildRow(matrixDishFromItem(m, withBun)).cells;
-    const b = buildRow(matrixDishFromItem(m, empty)).cells;
+  it("the matrix cells ignore the ingredients' allergens completely: same dish section, same components, different allergen data, same cells", () => {
+    const a = buildRow(matrixDishFromItem(m, index)).cells;
+    const b = buildRow(matrixDishFromItem(m, plainIndex)).cells;
     expect(a).toEqual(b);
     expect(a.dairy.state).toBe("green"); // the bun has milk in its ingredients, but the dish section does not list it
     expect(a.seafood.state).toBe("green");
     expect(a.gluten_free.state).toBe("red");
   });
-  it("an ingredient change flags the dish for review and still changes no cell", () => {
+  it("an ingredient's allergens changing flags the dish for review and still changes no cell", () => {
     const a = matrixDishFromItem(m, index);
-    const b = matrixDishFromItem(m, indexFor([m], ingredients, []));
+    const b = matrixDishFromItem(m, plainIndex);
     expect(a.needsReview).toBe(true);
     expect(b.needsReview).toBe(false);
     expect(buildRow(a).cells).toEqual(buildRow(b).cells);
+  });
+  it("swapping an ingredient is different: the sign-off stops counting and every allergen cell reads Not checked", () => {
+    const swapped = indexFor([m], ingredients, [line("l1", "m1", "i-bun"), line("l2", "m1", "i-prawn")]); // Mayo removed
+    const dish = matrixDishFromItem(m, swapped);
+    expect(dish.signOff).toBe("changed");
+    const row = buildRow(dish);
+    expect(row.confirmed).toBe(false);
+    expect(row.cells.dairy.state).toBe("grey");
+    expect(row.cells.seafood.state).toBe("grey");
   });
   it("a dish nobody has signed off is not even checked against its ingredients", () => {
     expect(matrixDishFromItem(item({ dish_allergens: { contains: [] } }), index).needsReview).toBe(false);
@@ -454,7 +465,7 @@ describe("the matrix modules never derive a cell from ingredients or keyword gue
     }
   });
   it("the roll-up is used only where the plan allows: the store adapter (review prompt) and the editor panel (proposal)", () => {
-    const users = ["lib/allergy-matrix-store.ts", "components/editor/dish-allergens.tsx", "components/matrix/matrix-page.tsx", "components/matrix/parts.tsx", "components/matrix/print-view.tsx", "components/kitchen/matrix.tsx"].filter((f) => /\brollup\b|useBadgeModel/.test(read(f)));
+    const users = ["lib/allergy-matrix-store.ts", "components/editor/dish-allergens.tsx", "components/matrix/matrix-page.tsx", "components/matrix/parts.tsx", "components/matrix/print-view.tsx", "components/matrix/todo-page.tsx", "components/matrix/printed.tsx", "components/kitchen/matrix.tsx", "lib/matrix-prints.ts", "lib/matrix-todo.ts"].filter((f) => /\brollup\b|useBadgeModel/.test(read(f)));
     expect(users.sort()).toEqual(["components/editor/dish-allergens.tsx", "lib/allergy-matrix-store.ts"]);
     // in the store adapter the roll-up result only ever reaches reviewMissing
     const store = read("lib/allergy-matrix-store.ts");
@@ -648,8 +659,9 @@ describe("print stylesheet", () => {
     expect(MIN_BODY_PT).toBeGreaterThanOrEqual(11);
     const sizes = [...MATRIX_PRINT_CSS.matchAll(/font-size:\s*([\d.]+)pt/g)].map((m) => Number(m[1]));
     const foot = MATRIX_PRINT_CSS.match(/\.am-foot[^}]*font-size:\s*([\d.]+)pt/);
-    expect(Number(foot?.[1])).toBe(10); // only the footer is smaller
-    expect(sizes.filter((n) => n < 11)).toEqual([10]);
+    expect(Number(foot?.[1])).toBe(10); // only the footer is smaller (and the QR caption under its code); no answer cell is
+    expect(sizes.filter((n) => n < 11).sort((a, b) => b - a)).toEqual([10, 8]);
+    expect(MATRIX_PRINT_CSS).toMatch(/\.am-cross\s*\{[^}]*font-size:\s*11pt/); // the cross-contact line is body size
   });
 });
 
@@ -665,12 +677,12 @@ describe("wiring", () => {
   const read = (p: string) => readFileSync(p, "utf8");
   it("the editor shows Dish Allergens on Food dishes only, through the draft", () => {
     const src = read("components/editor/recipe-editor.tsx");
-    expect(src).toMatch(/item\.category === "Food" \? <DishAllergensGroup/);
-    expect(src).toMatch(/<DishAllergensGroup[^>]*onPatch=\{\(p\) => setDraft/);
+    expect(src).toMatch(/item && isFood \? <AllergensDietaryCard/);
+    expect(src).toMatch(/<AllergensDietaryCard[^>]*onPatch=\{\(p\) => setDraft/);
   });
   it("Duplicate and What If copy the lists but not the sign-off", () => {
-    expect(read("components/editor/recipe-editor.tsx")).toMatch(/dish_allergens: unconfirmedCopy\(rest\.dish_allergens\)/);
-    expect(read("components/editor/what-if.tsx")).toMatch(/dish_allergens: unconfirmedCopy\(rest\.dish_allergens\)/);
+    expect(read("components/editor/recipe-editor.tsx")).toMatch(/newDishPatch\(rest\.category, rest\.dish_allergens/);
+    expect(read("components/editor/what-if.tsx")).toMatch(/newDishPatch\(rest\.category, rest\.dish_allergens/);
   });
   it("the matrix is linked from the sidebar, the More page, the Menu page and Menu Labels", () => {
     expect(read("components/app-shell.tsx")).toContain('href: "/matrix"');

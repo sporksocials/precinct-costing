@@ -2,7 +2,7 @@ import { barIngredientName } from "./bar";
 import { DIET_MARK_IDS, DIET_OPTION_IDS, type DietMarkId, type DietOptionId } from "./diet-legend";
 import { optionText, swapSentence } from "./diet-options";
 import { readDishAllergens } from "./dish-allergens";
-import type { MatrixDish } from "./allergy-matrix";
+import { crossContactLine, type MatrixDish } from "./allergy-matrix";
 import { formatQty } from "./parse-qty";
 import { LINE_UNITS, type LineUnit } from "./types";
 
@@ -17,6 +17,8 @@ import { LINE_UNITS, type LineUnit } from "./types";
 export interface KitchenMatrixData {
   venue: { slug: string; name: string };
   dishes: MatrixDish[];
+  /** the venue's standing cross-contact line (Settings), or the default; shown in the footer of every iPad screen */
+  crossContact: string;
   /** when this copy was read from the database (ISO) */
   syncedAt: string;
 }
@@ -68,12 +70,17 @@ function parseDish(x: unknown): MatrixDish | null {
     }
   }
   const marks = new Set(strings(d.marks));
+  // the sign-off time is kept; who signed is never shown on the iPad, so it is dropped here even if a feed ever sent it.
+  // The feed already applied the re-check rule (a sign-off whose ingredients changed arrives with no confirmed_at), so a
+  // confirmed_at here IS a valid sign-off. The components list is not read: the iPad never needs it.
+  const allergens = ((da) => (da ? { ...da, confirmedBy: null, components: null, needsSignoff: false } : null))(readDishAllergens(d.dish_allergens));
   return {
     id,
     name,
     section: textOrNull(d.section),
-    // the sign-off time is kept; who signed is never shown on the iPad, so it is dropped here even if a feed ever sent it
-    allergens: ((da) => (da ? { ...da, confirmedBy: null } : null))(readDishAllergens(d.dish_allergens)),
+    allergens,
+    signOff: allergens?.confirmedAt ? "valid" : "never",
+    signedAt: allergens?.confirmedAt ?? null,
     marks: DIET_MARK_IDS.filter((m): m is DietMarkId => marks.has(m)),
     options,
   };
@@ -87,6 +94,7 @@ export function parseKitchenMatrix(raw: unknown, syncedAt: string): KitchenMatri
   return {
     venue: { slug: venue.slug, name: String(venue.name ?? venue.slug) },
     dishes: (Array.isArray(r.dishes) ? r.dishes : []).map(parseDish).filter((x): x is MatrixDish => x !== null),
+    crossContact: crossContactLine(typeof r.cross_contact === "string" ? r.cross_contact : null),
     syncedAt,
   };
 }

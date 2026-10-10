@@ -35,6 +35,7 @@ const TABLE_KEYS: Record<string, string> = {
   cost_research_notes: "researchNotes", // not in older demo data: empty
   cost_bar_options: "barOptions", // not in older demo data: empty
   cost_ignored_alerts: "ignoredAlerts", // not in older demo data: empty
+  cost_matrix_prints: "matrixPrints", // Allergy Matrix print log (migration 20261010150000); empty unless the demo data has some
   cost_audit_log: "auditLog", // not in demo data: always empty
   cost_sell_price_log: "sellPriceLog", // not in demo data: always empty
   cost_change_history: "changeHistory", // not in demo data: filled in memory by logHistory below

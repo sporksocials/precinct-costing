@@ -67,7 +67,15 @@ export function MatrixLegend({ className }: { className?: string }) {
 export function RowStatus({ row }: { row: MatrixRow }) {
   return (
     <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
-      {row.confirmed ? <span className="text-label-2">Confirmed</span> : <span className="font-semibold text-warn">Not confirmed</span>}
+      {row.confirmed ? (
+        <span className="text-label-2">Confirmed</span>
+      ) : row.signOff === "changed" || row.signOff === "legacy" ? (
+        <span className="inline-flex items-center gap-1 font-semibold text-warn">
+          <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.75} /> Ingredients changed, re-check
+        </span>
+      ) : (
+        <span className="font-semibold text-warn">Not confirmed</span>
+      )}
       {row.needsReview ? (
         <span className="inline-flex items-center gap-1 font-semibold text-warn">
           <TriangleAlert aria-hidden className="h-3 w-3" strokeWidth={2.75} /> Check ingredients

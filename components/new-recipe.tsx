@@ -5,6 +5,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { useStore } from "@/lib/store";
 import { initialResearchStatus } from "@/lib/research-drink";
 import { type MenuItem, type Prep } from "@/lib/types";
+import { NEW_DISH_NOTE, newDishPatch } from "@/lib/dish-allergens";
 import { DRINK_CATEGORIES } from "@/lib/insights";
 import { parseServeCount, portionsForMode, type ServesMode } from "@/lib/serves";
 import { NEW_ITEM_CATEGORIES, beerDefaultVenueId, guessCategory, type AddChoice, type AddDestination } from "@/lib/add-choices";
@@ -134,6 +135,8 @@ function NewRecipeSheet({ args, onClose, onBack }: { args: OpenArgs; onClose: ()
           notes: null,
           // a new cocktail or mocktail is offered Research This Drink on its recipe page; everything else never is
           research_status: initialResearchStatus(category),
+          // a new FOOD dish starts off the menu, with its Active switch locked until its allergens are confirmed (lib/dish-allergens.ts)
+          ...newDishPatch(category, null, store.items.some((i) => "dish_allergens" in i)),
         };
         const id = await store.insertItem(item, []);
         onClose();
@@ -188,6 +191,7 @@ function NewRecipeSheet({ args, onClose, onBack }: { args: OpenArgs; onClose: ()
             <div>
               <p className="section-label !px-1">Category{!picked && name.trim() ? <span className="text-label-3"> · guessed from the name</span> : null}</p>
               <Chips ariaLabel="Category" value={category} onChange={setCategory} options={cats.map((c) => ({ value: c, label: c }))} className="flex-wrap [&>button:not([aria-checked=true])]:bg-fill" />
+              {category === "Food" ? <p className="px-1 pt-1.5 text-[13px] text-label-2">{NEW_DISH_NOTE}.</p> : null}
             </div>
             <div>
               <p className="section-label !px-1">Serves</p>

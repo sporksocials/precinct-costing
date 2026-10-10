@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Printer, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ListChecks, Printer, TriangleAlert } from "lucide-react";
 import { buildRows, matrixProgress, matrixSections, progressLine } from "@/lib/allergy-matrix";
 import { matrixPrintHref } from "@/lib/allergy-matrix-print";
 import { matrixDishesForVenue } from "@/lib/allergy-matrix-store";
+import { ALL_SECTIONS, printStatus } from "@/lib/matrix-prints";
+import { approvalCount, venueTodo } from "@/lib/matrix-todo";
 import { useStore } from "@/lib/store";
 import { Chips, Empty, Group, PageHeader, Row } from "../ui";
 import { useAllergenIndex } from "../allergen-picker";
 import { useUrlState } from "../use-url-state";
+import { PrintStatusBlock, sheetName } from "./printed";
 import { useVenue, VenueFilter, VENUE_SHORT } from "../venue";
 import { DishCard, MatrixLegend, MatrixTable } from "./parts";
 
@@ -26,6 +29,10 @@ export function MatrixPage() {
   const idx = useAllergenIndex();
   const { venue, setVenue } = useVenue();
   const [sectionParam, setSection] = useUrlState("section", ALL);
+  const { loadMatrixPrints, matrixPrints } = store;
+  useEffect(() => {
+    loadMatrixPrints();
+  }, [loadMatrixPrints]);
 
   const perVenue = useMemo(
     () =>
@@ -45,6 +52,11 @@ export function MatrixPage() {
 
   const venueName = venue ? VENUE_SHORT[venue.slug] ?? venue.name : "";
   const progress = current?.progress ?? null;
+  const itemName = useMemo(() => new Map(store.items.map((i) => [i.id, i.name])), [store.items]);
+  const todo = useMemo(() => (current ? venueTodo(current.venue, current.rows, matrixPrints, (id) => itemName.get(id) ?? null) : null), [current, matrixPrints, itemName]);
+  const waiting = todo ? approvalCount(todo) : 0;
+  // every sheet of this venue: All Sections, then each section (the print log is per venue and section)
+  const sheetKeys = useMemo(() => [ALL_SECTIONS, ...sections.map((s) => s.label)], [sections]);
   const needing = progress?.needing ?? [];
   const needingShown = showAllNeeding ? needing : needing.slice(0, 8);
 
@@ -81,10 +93,17 @@ export function MatrixPage() {
             <Link href={matrixPrintHref(venue!.slug, null)} className="btn-plain !min-h-[44px] !px-4 !text-[15px]">
               <Printer className="h-4 w-4" strokeWidth={2.25} /> Print All Sections
             </Link>
+            <Link href={`/matrix/todo?venue=${venue!.slug}`} className="btn-plain !min-h-[44px] !px-4 !text-[15px]">
+              <ListChecks className="h-4 w-4" strokeWidth={2.25} /> To Do List{waiting ? ` (${waiting})` : ""}
+            </Link>
             <Link href="/allergens" className="btn-text !min-h-[44px]">
               Menu Labels
             </Link>
           </div>
+
+          {venue && matrixPrints ? (
+            <PrintStatusBlock className="mb-3" status={printStatus(matrixPrints, venue.id, section === ALL ? ALL_SECTIONS : section, current.rows, (id) => itemName.get(id) ?? null)} venueSlug={venue.slug} sheetKey={section === ALL ? ALL_SECTIONS : section} />
+          ) : null}
 
           <MatrixLegend className="mb-4" />
 
@@ -109,10 +128,10 @@ export function MatrixPage() {
               <Group
                 title={`Needs Confirming (${needing.length})`}
                 className="mt-0"
-                footer="A dish that is not confirmed shows Not checked on the sheet and on the kitchen iPad. Open the dish and press Confirm Allergens."
+                footer="A dish that is not confirmed shows Not checked on the sheet and on the kitchen iPad. A dish whose ingredients changed after it was signed off needs a re-check. Open the dish and press Confirm Allergens, or use the To Do list to go through them one by one."
               >
                 {needingShown.map((r) => (
-                  <Row key={r.dish.id} href={`/items/${r.dish.id}`} title={r.dish.name} sub={r.dish.section ?? undefined} trailing={<span className="text-[13px] font-semibold text-warn">Not confirmed</span>} chevron />
+                  <Row key={r.dish.id} href={`/items/${r.dish.id}`} title={r.dish.name} sub={r.dish.section ?? undefined} trailing={<span className="text-[13px] font-semibold text-warn">{r.signOff === "changed" || r.signOff === "legacy" ? "Re-check" : "Not confirmed"}</span>} chevron />
                 ))}
               </Group>
               {needing.length > 8 ? (
@@ -124,6 +143,19 @@ export function MatrixPage() {
           ) : (
             <p className="mb-4 text-[15px] font-medium text-good">Every dish is confirmed.</p>
           )}
+
+          {venue && matrixPrints ? (
+            <div className="mt-6">
+              <Group title="Printed Sheets" className="mt-0" footer="Each print gets a version number. If a dish changes after a sheet is printed, the sheet says so here and you can print it again.">
+                {sheetKeys.map((k) => (
+                  <div key={k} className="px-4 py-2.5">
+                    <p className="text-[17px] font-medium sm:text-[15px]">{sheetName(k)}</p>
+                    <PrintStatusBlock status={printStatus(matrixPrints, venue.id, k, current.rows, (id) => itemName.get(id) ?? null)} venueSlug={venue.slug} sheetKey={k} />
+                  </div>
+                ))}
+              </Group>
+            </div>
+          ) : null}
 
           {progress && progress.review.length ? (
             <div className="mt-6">

@@ -9,9 +9,9 @@ import {
   MATRIX_LEGEND,
   STATE_WORD,
   buildRows,
-  guestNeeds,
+  guestHeading,
+  guestNeedsMulti,
   instruction,
-  matrixColumn,
   matrixSections,
   signedOffDate,
   uncolumnedContains,
@@ -20,6 +20,7 @@ import {
   type MatrixRow,
   type MatrixState,
 } from "@/lib/allergy-matrix";
+import { crossContactLine } from "@/lib/allergy-matrix";
 import { allergenLabel } from "@/lib/allergens";
 import { syncedLabel } from "@/lib/bar";
 import { dietMarkDef, dietOptionDef, DIET_OPTION_IDS } from "@/lib/diet-legend";
@@ -35,7 +36,11 @@ import { BackBar, CARD, Chevron, EmptyState, HEADING, StaleBanner } from "./part
  *
  *  - The grid: dishes down the side, Troy's columns across (the whole sheet on a landscape iPad; scrolls sideways on a portrait one
  *    with the dish names fixed on the left).
- *  - Tap a column heading: Guest Needs. Every dish sorted into Can Eat, Can Eat With Changes, Cannot Eat and Not Checked.
+ *  - Tap one or more column headings, then See Guest Needs: every dish sorted into Can Eat, Can Eat With Changes, Cannot Eat and Not
+ *    Checked for a guest who needs ALL of the picks (green only if green for every pick; red if any pick is red; see
+ *    `guestNeedsMulti` in lib/allergy-matrix.ts). A visible count and Clear All sit above the grid.
+ *  - Large Text (a switch in the footer, remembered on this iPad): everything about 25 percent bigger.
+ *  - The venue's cross-contact line is the footer of every screen and is always visible.
  *  - Tap a dish: a card with every answer in plain words, the option swaps and the head chef's sign-off.
  * Every cell has its colour, an icon AND a word. A dish nobody has signed off reads grey, Not checked, never green.
  */
@@ -47,12 +52,40 @@ const ALL = "all";
 
 const ICON: Record<MatrixState, LucideIcon> = { red: X, yellow: TriangleAlert, green: Check, grey: CircleHelp };
 
-type View = { kind: "grid" } | { kind: "guest"; col: MatrixColumnId } | { kind: "dish"; id: string; from: MatrixColumnId | null };
+type View = { kind: "grid" } | { kind: "guest" } | { kind: "dish"; id: string; fromGuest: boolean };
+
+const LARGE_KEY = "kitchen-matrix-large-text";
+/** how much bigger Large Text makes everything (about 25 percent) */
+export const LARGE_ZOOM = 1.25;
+
+/** The Large Text switch, remembered on this iPad. Storage can be blocked or full, so every read and write is guarded and the screen works without it. */
+function useLargeText(): [boolean, (v: boolean) => void] {
+  const [large, setLarge] = useState(false);
+  useEffect(() => {
+    try {
+      setLarge(window.localStorage.getItem(LARGE_KEY) === "1");
+    } catch {
+      /* storage blocked: stays off */
+    }
+  }, []);
+  const set = useCallback((v: boolean) => {
+    setLarge(v);
+    try {
+      window.localStorage.setItem(LARGE_KEY, v ? "1" : "0");
+    } catch {
+      /* not remembered, still on for this visit */
+    }
+  }, []);
+  return [large, set];
+}
 
 export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venueName: string; initial: KitchenMatrixData | null }) {
   const [data, setData] = useState<KitchenMatrixData | null>(initial);
   const [view, setView] = useState<View>({ kind: "grid" });
   const [section, setSection] = useState(ALL);
+  const [picks, setPicks] = useState<MatrixColumnId[]>([]);
+  const [large, setLarge] = useLargeText();
+  const togglePick = useCallback((c: MatrixColumnId) => setPicks((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c])), []);
   const [now, setNow] = useState(() => (initial ? Date.parse(initial.syncedAt) : 0));
 
   // ---------- background refresh (keeps the last good copy when the network drops) ----------
@@ -98,7 +131,7 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
     if (view.kind === "dish" && !dishRow) setView({ kind: "grid" });
   }, [view, dishRow]);
 
-  const viewKey = view.kind === "grid" ? "grid" : view.kind === "guest" ? `guest:${view.col}` : `dish:${view.id}`;
+  const viewKey = view.kind === "grid" ? "grid" : view.kind === "guest" ? "guest" : `dish:${view.id}`;
   useLayoutEffect(() => {
     window.scrollTo(0, 0);
   }, [viewKey]);
@@ -121,29 +154,42 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
 
   const stale = <StaleBanner syncedAt={data?.syncedAt ?? null} now={now} />;
   const root = cx(`kitchen-${slug}`, "kitchen-root flex min-h-[100dvh] w-full touch-manipulation flex-col bg-[#0E0E10] text-[#F5F3EE]");
+  const crossContact = data?.crossContact ?? crossContactLine(null);
+  const screen = (children: React.ReactNode) => (
+    <div role="main" className={root}>
+      {/* Large Text scales everything inside by about 25 percent (the footer is outside it so the switch never moves) */}
+      <div className="flex flex-1 flex-col" style={large ? ({ zoom: LARGE_ZOOM } as React.CSSProperties) : undefined}>
+        {children}
+      </div>
+      <Footer text={crossContact} large={large} onLarge={setLarge} />
+    </div>
+  );
 
   // ---------- one dish ----------
   if (data && view.kind === "dish" && dishRow) {
-    const backLabel = view.from ? `BACK TO ${matrixColumn(view.from).label.toUpperCase()} GUEST` : "BACK TO MATRIX";
-    return (
-      <div role="main" className={root}>
-        <BackBar label={backLabel} onBack={() => setView(view.from ? { kind: "guest", col: view.from } : { kind: "grid" })} />
+    const backLabel = view.fromGuest ? "BACK TO GUEST NEEDS" : "BACK TO MATRIX";
+    return screen(
+      <>
+        <BackBar label={backLabel} onBack={() => setView(view.fromGuest ? { kind: "guest" } : { kind: "grid" })} />
         {stale}
         <DishCard row={dishRow} />
-      </div>
+      </>,
     );
   }
 
   // ---------- guest needs ----------
   if (data && view.kind === "guest") {
-    const needs = guestNeeds(shownRows, view.col);
-    return (
-      <div role="main" className={root}>
+    const needs = guestNeedsMulti(shownRows, picks);
+    return screen(
+      <>
         <BackBar label="BACK TO MATRIX" onBack={toGrid} />
         {stale}
         <div className="mx-auto w-full max-w-[1000px] px-6 pb-12 pt-6">
-          <h1 className="font-display text-[44px] uppercase leading-none tracking-[1px]">{needs.column.label} Guest</h1>
-          <p className="mt-2 text-[19px] leading-snug text-[#9B9890]">What a guest can have. Green needs nothing changed. Yellow can be made with the change shown.</p>
+          <h1 className="font-display text-[44px] uppercase leading-none tracking-[1px]">{picks.length ? guestHeading(needs.columns) : "Guest Needs"}</h1>
+          <p className="mt-2 text-[19px] leading-snug text-[#9B9890]">
+            {picks.length > 1 ? "Dishes that suit a guest with ALL of these needs. " : "What a guest can have. "}Green needs nothing changed. Yellow can be made with the change shown.
+          </p>
+          <PickChips picks={picks} onToggle={togglePick} onClear={() => { setPicks([]); toGrid(); }} />
           {sections.length > 1 ? <SectionChips sections={sections.map((s) => s.label)} active={activeSection} onPick={setSection} /> : null}
           <div className="mt-5 space-y-4">
             {GUEST_GROUPS.map((g) => {
@@ -159,10 +205,17 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
                     <ul>
                       {list.map((e, i) => (
                         <li key={e.row.dish.id} className={i ? "border-t-[0.5px] border-white/[0.07]" : ""}>
-                          <button type="button" onClick={() => setView({ kind: "dish", id: e.row.dish.id, from: view.col })} className="flex min-h-[64px] w-full items-center gap-3 px-5 py-3 text-left active:bg-[#232327]">
+                          <button type="button" onClick={() => setView({ kind: "dish", id: e.row.dish.id, fromGuest: true })} className="flex min-h-[64px] w-full items-center gap-3 px-5 py-3 text-left active:bg-[#232327]">
                             <span className="min-w-0 flex-1">
                               <span className="block text-[22px] font-medium leading-tight">{e.row.dish.name}</span>
-                              {e.cell.state === "yellow" ? <span className="mt-1 block text-[20px] font-semibold leading-snug text-[#F2C46D]">{e.cell.note}</span> : null}
+                              {e.state === "yellow"
+                                ? e.notes.map((n) => (
+                                    <span key={n.label} className="mt-1 block text-[20px] font-semibold leading-snug text-[#F2C46D]">
+                                      {e.picks.length > 1 ? `${n.label}: ` : ""}
+                                      {n.note}
+                                    </span>
+                                  ))
+                                : null}
                               {e.row.dish.section && activeSection === ALL ? <span className="mt-0.5 block text-[16px] text-[#9B9890]">{e.row.dish.section}</span> : null}
                             </span>
                             <Chevron className="shrink-0 text-[#8E8C85]" />
@@ -179,13 +232,12 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
           </div>
           {needs.grey.length ? <p className="mt-4 text-[17px] leading-snug text-[#9B9890]">Not Checked means the head chef has not signed that dish off yet. Do not tell a guest anything about it. Ask the head chef.</p> : null}
         </div>
-      </div>
+      </>,
     );
   }
 
   // ---------- the grid ----------
-  return (
-    <div role="main" className={root}>
+  return screen(
       <div className="flex w-full flex-col">
         {stale}
         <div className="mx-auto w-full max-w-[1400px] px-4 pb-4 pt-[calc(28px+env(safe-area-inset-top))] sm:px-6">
@@ -203,11 +255,36 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
               </p>
             ) : null}
           </div>
-          <p className="mt-[2px] text-[18px] text-[#9B9890]">{venueName}. Tap a heading to see what a guest can have. Tap a dish for the details.</p>
+          <p className="mt-[2px] text-[18px] text-[#9B9890]">{venueName}. Tap one or more headings to see what a guest with those needs can have. Tap a dish for the details.</p>
 
           {data ? <Legend /> : null}
           {data && sections.length > 1 ? <SectionChips sections={sections.map((s) => s.label)} active={activeSection} onPick={setSection} /> : null}
         </div>
+
+        {/* the picks: always visible and sticky, so the count and Clear All stay in reach while the grid scrolls */}
+        {data && rows.length ? (
+          <div className="sticky top-0 z-10 border-y-[0.5px] border-white/[0.12] bg-[#0E0E10]/95 backdrop-blur">
+            <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2 sm:px-6">
+              <p className="min-w-0 flex-1 basis-[220px] text-[19px] leading-snug" aria-live="polite">
+                <span className="font-bold">
+                  {picks.length} {picks.length === 1 ? "need" : "needs"} picked
+                </span>
+                <span className="text-[#9B9890]">{picks.length ? `: ${picks.map((id) => MATRIX_COLUMNS.find((c) => c.id === id)?.label).join(", ")}` : ". Tap the headings below."}</span>
+              </p>
+              <button type="button" onClick={() => setPicks([])} disabled={!picks.length} className="min-h-[56px] rounded-full px-5 text-[19px] font-semibold text-[color:var(--bar-text)] disabled:opacity-40">
+                Clear All
+              </button>
+              <button
+                type="button"
+                disabled={!picks.length}
+                onClick={() => setView({ kind: "guest" })}
+                className="min-h-[56px] rounded-2xl bg-[color:var(--bar-accent)] px-6 text-[20px] font-bold text-[color:var(--bar-on)] active:opacity-90 disabled:opacity-40"
+              >
+                See Guest Needs
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mx-auto w-full max-w-[1400px] px-4 pb-10 sm:px-6">
           {!data ? (
@@ -215,9 +292,65 @@ export function KitchenMatrix({ slug, venueName, initial }: { slug: string; venu
           ) : !rows.length ? (
             <EmptyState title="No Dishes Yet" body="Dishes appear here once they are on the menu in the costing app." />
           ) : (
-            <Grid sections={shown} showHeads={activeSection === ALL && sections.length > 1} onGuest={(col) => setView({ kind: "guest", col })} onDish={(id) => setView({ kind: "dish", id, from: null })} />
+            <Grid sections={shown} showHeads={activeSection === ALL && sections.length > 1} picks={picks} onPick={togglePick} onDish={(id) => setView({ kind: "dish", id, fromGuest: false })} />
           )}
         </div>
+      </div>,
+  );
+}
+
+/** The footer of every screen: the venue's standing cross-contact line (always visible) and the Large Text switch. */
+function Footer({ text, large, onLarge }: { text: string; large: boolean; onLarge: (v: boolean) => void }) {
+  return (
+    <footer className="sticky bottom-0 z-20 border-t-[0.5px] border-white/[0.18] bg-[#1C1C1F] pb-[env(safe-area-inset-bottom)]">
+      <div className="mx-auto flex w-full max-w-[1400px] items-center gap-4 px-4 py-3 sm:px-6">
+        <p className={cx("min-w-0 flex-1 font-semibold leading-snug text-[#F2C46D]", large ? "text-[22px]" : "text-[17px]")}>{text}</p>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={large}
+          onClick={() => onLarge(!large)}
+          className="flex min-h-[56px] shrink-0 items-center gap-3 rounded-full border-[0.5px] border-white/[0.18] bg-[#232327] px-5 text-[17px] font-semibold active:bg-[#2C2C31]"
+        >
+          Large Text
+          <span aria-hidden className={cx("relative inline-flex h-[31px] w-[51px] items-center rounded-full", large ? "bg-[color:var(--bar-accent)]" : "bg-white/[0.2]")}>
+            <span className={cx("inline-block h-[27px] w-[27px] rounded-full bg-white transition-transform", large ? "translate-x-[22px]" : "translate-x-[2px]")} />
+          </span>
+          <span className="sr-only">{large ? "On" : "Off"}</span>
+        </button>
+      </div>
+    </footer>
+  );
+}
+
+/** The needs picked so far as 56px toggles (add or remove one), with a count and Clear All. Used above the grid and on the guest screen. */
+function PickChips({ picks, onToggle, onClear }: { picks: MatrixColumnId[]; onToggle: (c: MatrixColumnId) => void; onClear: () => void }) {
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[19px] font-semibold" aria-live="polite">
+          {picks.length} {picks.length === 1 ? "need" : "needs"} picked
+        </p>
+        <button type="button" onClick={onClear} disabled={!picks.length} className="min-h-[56px] rounded-full px-5 text-[19px] font-semibold text-[color:var(--bar-text)] disabled:opacity-40">
+          Clear All
+        </button>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2" role="group" aria-label="Needs picked">
+        {MATRIX_COLUMNS.map((c) => {
+          const on = picks.includes(c.id);
+          return (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => onToggle(c.id)}
+              className={cx("min-h-[56px] rounded-full px-5 text-[19px] font-medium leading-[24px]", on ? "bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" : "border-[0.5px] border-white/[0.18] bg-transparent text-[#F5F3EE]")}
+            >
+              {on ? "\u2713 " : ""}
+              {c.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -286,7 +419,7 @@ function AnswerCell({ cell, label }: { cell: MatrixCell; label: string }) {
   );
 }
 
-function Grid({ sections, showHeads, onGuest, onDish }: { sections: { label: string; rows: MatrixRow[] }[]; showHeads: boolean; onGuest: (c: MatrixColumnId) => void; onDish: (id: string) => void }) {
+function Grid({ sections, showHeads, picks, onPick, onDish }: { sections: { label: string; rows: MatrixRow[] }[]; showHeads: boolean; picks: MatrixColumnId[]; onPick: (c: MatrixColumnId) => void; onDish: (id: string) => void }) {
   return (
     <div className={cx(CARD, "overflow-x-auto")}>
       <table className="w-full min-w-[1000px] border-separate border-spacing-0">
@@ -299,10 +432,15 @@ function Grid({ sections, showHeads, onGuest, onDish }: { sections: { label: str
               <th key={c.id} scope="col" className="min-w-[76px] p-1 align-bottom">
                 <button
                   type="button"
-                  onClick={() => onGuest(c.id)}
-                  aria-label={`${c.label}: see what a guest can have`}
-                  className="flex min-h-[64px] w-full items-center justify-center rounded-lg border-[0.5px] border-white/[0.18] bg-[#232327] px-1 py-2 text-center text-[15px] font-semibold leading-tight text-[#F5F3EE] active:bg-[#2C2C31]"
+                  onClick={() => onPick(c.id)}
+                  aria-pressed={picks.includes(c.id)}
+                  aria-label={`${c.label}: pick this need for a guest`}
+                  className={cx(
+                    "flex min-h-[64px] w-full items-center justify-center rounded-lg border-[0.5px] px-1 py-2 text-center text-[15px] font-semibold leading-tight active:bg-[#2C2C31]",
+                    picks.includes(c.id) ? "border-transparent bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" : "border-white/[0.18] bg-[#232327] text-[#F5F3EE]",
+                  )}
                 >
+                  {picks.includes(c.id) ? "\u2713 " : ""}
                   {c.label}
                 </button>
               </th>

@@ -1,49 +1,75 @@
 "use client";
 
-import React, { useState } from "react";
-import { Check, CircleCheck, TriangleAlert } from "lucide-react";
-import { allergenLabel, type AllergenId } from "@/lib/allergens";
+import React, { useMemo, useState } from "react";
+import { Check, TriangleAlert } from "lucide-react";
+import { allergenLabel, withDraft, type AllergenId } from "@/lib/allergens";
 import { sameValue } from "@/lib/draft-changes";
 import {
   DISH_ALLERGEN_IDS,
   NOTE_MAX,
   applyProposal,
+  chipHint,
   confirmAllergens,
-  isConfirmed,
+  currentComponents,
   proposeContains,
   readDishAllergens,
   reviewMissing,
   reviewWarningText,
   setWithoutNote,
+  signOffState,
+  staleSignOffText,
   toggleAllergen,
   type EditResult,
+  type SignOffState,
 } from "@/lib/dish-allergens";
 import { dateWithYear } from "@/lib/record-created";
 import { useStore } from "@/lib/store";
 import type { MenuItem, RecipeLine } from "@/lib/types";
-import { cx, Group, useToast } from "../ui";
+import { cx, Disclosure, useToast } from "../ui";
 import { usePersonName } from "../use-person-name";
-import { useBadgeModel } from "../allergen-picker";
+import { RecipeAllergens, useAllergenIndex, useBadgeModel } from "../allergen-picker";
+import { DietOptionsGroup } from "./diet-options";
+import { SAFETY_CARD_ID, SafetyBlock, SafetyCard, SafetyStatus } from "./safety-card";
+
+/** The id the Finish Setting Up checklist and the post-save nudge scroll to: the shared Allergens And Dietary card. */
+export const DISH_ALLERGENS_ID = SAFETY_CARD_ID;
+
+type Sign = ReturnType<typeof useDishSignOff>;
 
 /**
- * Dish Allergens (Troy, 10 Oct 2026): the dish's OWN allergens section, hand-listed by the chef when the dish is built. The
- * Allergy Matrix (/matrix, the printed sheet and the kitchen iPad) reads only this, the dish's marks and its options. It never
- * works anything out from ingredients, and there is no way to change a cell anywhere but here.
- *
- * Edits go through the recipe editor's draft (manual Save, leave guard, conflict check) like every other field. Any edit to
- * the ticks or a "can be made without" note after the dish was confirmed takes the confirmation away, in the draft, and says
- * so: the dish reads Not checked on the matrix until Confirm Allergens is pressed again and saved. Ingredients are used in
- * exactly two places, both prompts: Start From Ingredients (fills the ticks as a proposal the chef then edits) and the quiet
- * "Ingredients have changed" line. Neither can change the matrix by itself.
+ * Where a food dish's allergen sign-off stands RIGHT NOW in the editor: its own section, the components the draft is made from
+ * (through every nested prep), and whether the sign-off is valid, changed since, legacy, or never made. One place, so the panel,
+ * the checklist and the Active switch lock always agree (lib/dish-allergens.ts has the rule).
  */
-export function DishAllergensGroup({ item, saved, lines, onPatch }: { item: MenuItem; saved: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void }) {
+export function useDishSignOff(item: MenuItem | null, lines: RecipeLine[]) {
+  const base = useAllergenIndex();
+  const linesByParent = useMemo(() => (item ? withDraft(base, "item", item, lines).linesByParent : base.linesByParent), [base, item, lines]);
+  const components = useMemo(() => (item ? currentComponents("item", item.id, linesByParent) : []), [item, linesByParent]);
+  const da = readDishAllergens(item?.dish_allergens);
+  const state: SignOffState = signOffState(da, components);
+  return { da, components, state };
+}
+
+/**
+ * Dish Allergens (Troy, 10 Oct 2026): the dish's OWN allergens section, hand-listed by the chef when the dish is built. This is the
+ * ONE allergen section on a food dish. The Allergy Matrix (/matrix, the printed sheet and the kitchen iPad) reads only this, the
+ * dish's marks and its options. It never works anything out from ingredients, and there is no way to change a cell anywhere but here.
+ *
+ * Edits go through the recipe editor's draft (manual Save, leave guard, conflict check) like every other field. Any edit to the
+ * ticks or a "can be made without" note after the dish was confirmed takes the confirmation away, in the draft, and says so.
+ * A sign-off also stops counting when the dish's ingredients change (swap, add, remove, anywhere in the nesting): the panel then
+ * says "Ingredients changed since <date>. Re-check and confirm again." and the dish reads Not Checked until it is confirmed again.
+ * Ingredients are used only as hints and prompts: the faint "from: Soy Sauce" line under a chip, Start From Ingredients (fills the
+ * ticks as a proposal the chef then edits) and the quiet "Ingredients have changed" line. None of them can change the matrix.
+ * Below the panel, "What The Ingredients Say" keeps the worked-out roll-up as a collapsed read-only reference.
+ */
+function DishAllergensBlock({ item, saved, lines, onPatch, sign }: { item: MenuItem; saved: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void; sign: Sign }) {
   const store = useStore();
   const toast = useToast();
-  const nameOf = usePersonName();
   const ready = "dish_allergens" in item || "dish_allergens" in saved;
   const { r } = useBadgeModel("item", item, lines);
-  const da = readDishAllergens(item.dish_allergens);
-  const confirmed = isConfirmed(da);
+  const { da, components, state } = sign;
+  const confirmed = state === "valid";
   // the sign-off was taken away by an edit in this visit (so the panel can say why it reads Not confirmed)
   const [cleared, setCleared] = useState(false);
   const missing = confirmed ? reviewMissing(da, r) : [];
@@ -74,40 +100,30 @@ export function DishAllergensGroup({ item, saved, lines, onPatch }: { item: Menu
   };
 
   const confirm = () => {
-    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString()) });
+    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString(), components) });
     setCleared(false);
     toast.show({ message: "Confirmed. Save to put it on the matrix." });
   };
 
-  const who = da?.confirmedBy ? nameOf(da.confirmedBy) ?? da.confirmedBy : null;
-  const status = confirmed && da?.confirmedAt ? `Confirmed${who ? ` by ${who}` : ""} on ${dateWithYear(da.confirmedAt)}` : cleared ? "Changed. Not confirmed yet" : "Not confirmed yet";
+  const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
+  const stale = staleSignOffText(state, signedOn);
 
   return (
-    <Group
-      title="Dish Allergens"
-      className="mt-6"
-      trailing={
-        confirmed ? (
-          <span className="inline-flex items-center gap-1 pb-0.5 text-[13px] font-medium text-good">
-            <CircleCheck aria-hidden className="h-3.5 w-3.5" strokeWidth={2.5} /> Confirmed
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 pb-0.5 text-[13px] font-medium text-warn">
-            <TriangleAlert aria-hidden className="h-3.5 w-3.5" strokeWidth={2.5} /> Not confirmed
-          </span>
-        )
-      }
-      footer="Listed by hand when the dish is built, as the menu describes it. The Allergy Matrix reads this and nothing else, so the matrix never guesses from the ingredients."
-    >
-      <div className="space-y-5 px-4 py-4">
+    <SafetyBlock title="Dish Allergens" explain="What the menu says this dish contains. Signed off by a person." footer="Listed by hand when the dish is built, as the menu describes it. The Allergy Matrix reads this and nothing else, so the matrix never guesses from the ingredients.">
+      <div className="space-y-5 px-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">Dish allergens can’t be saved until the database has its dish allergens update.</p> : null}
 
-        <div>
-          <p className="text-[15px] font-medium sm:text-[13px]">{status}</p>
-          <p className="mt-0.5 text-[13px] text-label-2">
-            {confirmed ? (dirty ? "Save to keep this on the matrix." : "This dish shows its real answers on the matrix.") : "Until it is confirmed, this dish shows Not Checked on the matrix."}
+        {stale ? (
+          <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn" role="status">
+            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
+            <span>{stale}</span>
           </p>
-        </div>
+        ) : cleared && !confirmed ? (
+          <p className="text-[13px] font-medium text-warn">Changed. Confirm again when you are done.</p>
+        ) : null}
+        <p className="text-[13px] text-label-2">
+          {confirmed ? (dirty ? "Save to keep this on the matrix." : "This dish shows its real answers on the matrix.") : "Until it is confirmed, this dish shows Not Checked on the matrix."}
+        </p>
 
         {missing.length ? (
           <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn" role="status">
@@ -118,10 +134,16 @@ export function DishAllergensGroup({ item, saved, lines, onPatch }: { item: Menu
 
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Contains</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Allergens this dish contains">
+          <div className="flex flex-wrap gap-x-2 gap-y-3" role="group" aria-label="Allergens this dish contains">
             {DISH_ALLERGEN_IDS.map((id) => {
               const on = !!da?.contains.includes(id);
-              return <AllergenChip key={id} id={id} on={on} disabled={!ready} onClick={() => write(toggleAllergen(item.dish_allergens, id, !on))} />;
+              const hint = chipHint(r, id);
+              return (
+                <div key={id} className="max-w-[11.5rem]">
+                  <AllergenChip id={id} on={on} disabled={!ready} onClick={() => write(toggleAllergen(item.dish_allergens, id, !on))} />
+                  {hint ? <p className="mt-1 px-2 text-[12px] leading-snug text-label-3">{hint}</p> : null}
+                </div>
+              );
             })}
           </div>
         </div>
@@ -149,13 +171,40 @@ export function DishAllergensGroup({ item, saved, lines, onPatch }: { item: Menu
           </button>
           {!confirmed ? (
             <button type="button" className="btn-primary !min-h-[44px] !px-4 !text-[15px]" disabled={!ready} onClick={confirm}>
-              Confirm Allergens
+              {stale ? "Confirm Again" : "Confirm Allergens"}
             </button>
           ) : null}
         </div>
-        <p className="text-[13px] text-label-2">Start From Ingredients fills the ticks as a first guess for you to correct. It saves nothing and never confirms.</p>
+        <p className="text-[13px] text-label-2">Start From Ingredients fills the ticks as a first guess for you to correct. It saves nothing and never confirms. The small line under a chip names the ingredients that suggest it.</p>
       </div>
-    </Group>
+    </SafetyBlock>
+  );
+}
+
+/**
+ * The whole food safety section of a food dish (Troy, 10 Oct 2026): ONE shared card, "Allergens And Dietary", holding Dish Allergens,
+ * Dietary Marks and Dietary Options as sibling blocks (same headings, spacing, helper text and 44px controls), with a status line in
+ * the header that says whether the section is done. Nothing is collapsed. Below it, "What The Ingredients Say" keeps the worked-out
+ * roll-up as a collapsed read-only reference (the only collapsed thing).
+ */
+export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: MenuItem; saved: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void }) {
+  const nameOf = usePersonName();
+  const sign = useDishSignOff(item, lines);
+  const { da, state } = sign;
+  const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
+  const who = da?.confirmedBy ? nameOf(da.confirmedBy) ?? da.confirmedBy : null;
+  // the header says who and when once confirmed; when ingredients changed, the Dish Allergens block spells out the date and what to do
+  const detail = state === "valid" ? `Confirmed${who ? ` by ${who}` : ""} on ${signedOn}` : null;
+  return (
+    <>
+      <SafetyCard className="mt-7" status={<SafetyStatus state={state} detail={detail} />}>
+        <DishAllergensBlock item={item} saved={saved} lines={lines} onPatch={onPatch} sign={sign} />
+        <DietOptionsGroup item={item} lines={lines} onPatch={onPatch} card />
+      </SafetyCard>
+      <Disclosure title="What The Ingredients Say" hint="Worked out from the ingredients. A reference only: it does not change the matrix.">
+        <RecipeAllergens kind="item" rec={item} lines={lines} readOnly embedded />
+      </Disclosure>
+    </>
   );
 }
 

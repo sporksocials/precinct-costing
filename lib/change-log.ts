@@ -209,9 +209,11 @@ export function auditEvent(r: AuditRow, lk: Lookups = NO_LOOKUPS): ChangeEvent {
     }
 
     if (table === "settings") {
-      const meta = SETTING_LABELS[key] ?? { label: humanise(key), fmt: guessFmt(key) };
-      const o = op === "update" ? oldRaw : jsonField(oldRaw, "value");
-      const n = op === "update" ? newRaw : jsonField(newRaw, "value");
+      // a venue's cross-contact line (Allergy Matrix) is a text setting: key cross_contact_<slug>, the words live in text_value
+      const cross = key.startsWith("cross_contact_");
+      const meta = cross ? { label: `Cross-contact line (${humanise(key.slice("cross_contact_".length))})`, fmt: textOr } : SETTING_LABELS[key] ?? { label: humanise(key), fmt: guessFmt(key) };
+      const o = op === "update" ? oldRaw : jsonField(oldRaw, cross ? "text_value" : "value");
+      const n = op === "update" ? newRaw : jsonField(newRaw, cross ? "text_value" : "value");
       const d = dirOf(o, n);
       return { ...base, kind: "setting", title: op === "insert" ? `Setting added: ${meta.label}` : op === "delete" ? `Setting removed: ${meta.label}` : meta.label, detail: op === "update" ? "Setting changed" : op === "insert" ? "Setting added" : "Setting removed", oldValue: o == null ? dash : meta.fmt(o), newValue: n == null ? dash : meta.fmt(n), refHref: "/settings", direction: d, tone: "none" };
     }

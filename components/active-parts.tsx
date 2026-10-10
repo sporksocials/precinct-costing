@@ -112,6 +112,7 @@ export function ActiveToggle({
   sub = ACTIVE_SUB,
   undo = false,
   onError,
+  lockedReason,
   children,
 }: {
   checked: boolean;
@@ -124,6 +125,8 @@ export function ActiveToggle({
   /** show an Undo toast after the change (pages that save instantly) */
   undo?: boolean;
   onError?: (message: string) => void;
+  /** a plain reason the switch cannot be turned on yet (a new food dish before its allergens are confirmed): the switch is disabled and says why */
+  lockedReason?: string | null;
   /** extra impact shown in the confirmation (e.g. the dishes a live deal moves) */
   children?: React.ReactNode;
 }) {
@@ -172,7 +175,9 @@ export function ActiveToggle({
       <Toggle
         label={label}
         sub={
-          note ? (
+          lockedReason ? (
+            <span className="font-medium text-warn">{lockedReason}</span>
+          ) : note ? (
             <>
               {sub}
               <span className="mt-1 block text-label">{note}</span>
@@ -182,6 +187,7 @@ export function ActiveToggle({
           )
         }
         checked={checked}
+        disabled={!!lockedReason && !checked}
         onChange={request}
       />
       <Sheet open={confirm} onClose={() => (busy ? undefined : setConfirm(false))} hideHeader size="sm">

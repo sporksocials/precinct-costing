@@ -26,7 +26,10 @@ import { WhatIfSheet } from "./what-if";
 import { RecipeAllergens } from "../allergen-picker";
 import { GelatoDietary } from "./gelato-dietary";
 import { DietOptionsGroup } from "./diet-options";
-import { DishAllergensGroup } from "./dish-allergens";
+import { AllergensDietaryCard, DISH_ALLERGENS_ID, useDishSignOff } from "./dish-allergens";
+import { FinishSetup, scrollToSection } from "./finish-setup";
+import { setupModel } from "@/lib/finish-setup";
+import { NUDGE_TEXT, impactHeadline, impactNames, lostSignOff, prepSaveImpact } from "@/lib/allergy-recheck";
 import { isDrinkItem } from "@/lib/allergen-badges";
 import { NameSuggestRow, useNameTidy } from "@/components/name-suggest";
 import { isBarCategory } from "@/lib/bar";
@@ -36,7 +39,7 @@ import { KitchenDisplayFields } from "./kitchen-fields";
 import { methodField, RecordResearchNotes, type RecipeTarget } from "./research-notes";
 import { applyHouseRules } from "@/lib/house-rules";
 import { copyDietOptions, pruneStaleRemoved } from "@/lib/diet-options";
-import { unconfirmedCopy } from "@/lib/dish-allergens";
+import { activeLockedReason, newDishPatch } from "@/lib/dish-allergens";
 import { ResearchDrinkCard } from "./research-drink";
 import { RecordHistory } from "./record-history";
 import { printHref } from "@/lib/print-job";
@@ -138,6 +141,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [focusServes, setFocusServes] = useState(false);
   const [pending, setPending] = useState<PendingConflict | null>(null);
+  // a prep whose ingredients changed is about to be saved: the dishes it would send back for an allergen re-check (impact first)
+  const [impactAsk, setImpactAsk] = useState<{ names: string[]; resolve: (ok: boolean) => void } | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   // the latest copy the database was seen holding at Save time (a clash we did not write over), for the quiet notice
@@ -229,6 +234,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         setStatus("idle");
         if (opts.settle) toast.show({ message: opts.settle.choice === "mine" ? "Saved with your version" : `Saved with ${whoOf(outcome.theirs)}’s version` });
         else if (outcome.theirs.changed) toast.show({ message: mergedToast(whoOf(outcome.theirs), outcome.theirs.updatedAt) }, 7000);
+        // the post-save nudge: a signed-off food dish whose ingredients changed no longer counts as confirmed
+        if (kind === "item" && (outcome.record as MenuItem).category === "Food" && lostSignOff({ dish_allergens: (b.draft as MenuItem).dish_allergens, lines: b.lines }, { dish_allergens: (outcome.record as MenuItem).dish_allergens, lines: outcome.lines }, id, s.index.linesByParent)) {
+          toast.show({ message: NUDGE_TEXT, action: { label: "Open Allergens", onClick: () => scrollToSection(DISH_ALLERGENS_ID) } }, 12000);
+        }
         return { status: "saved" };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -260,11 +269,28 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
     [runSave],
   );
 
+  /**
+   * Impact first (Troy, 10 Oct 2026): saving a PREP whose ingredients changed sends every confirmed food dish that uses it back for an
+   * allergen re-check. Before the save, say which dishes, with Save Anyway and Cancel. Resolves true to go on.
+   */
+  const gateImpact = useCallback((): Promise<boolean> => {
+    if (kind !== "prep") return Promise.resolve(true);
+    const s = storeRef.current;
+    const dishes = prepSaveImpact(id, s.items, s.index.linesByParent, baseRef.current.lines, linesRef.current.filter((l) => l.component_id));
+    if (!dishes) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => setImpactAsk({ names: dishes.map((d) => d.name), resolve }));
+  }, [kind, id]);
+  const answerImpact = (ok: boolean) => {
+    impactAsk?.resolve(ok);
+    setImpactAsk(null);
+  };
+
   /** Saves everything pending. Resolves true only when saved (a clash opens the sheet and resolves false). */
   const save = useCallback(async (): Promise<boolean> => {
+    if (!(await gateImpact())) return false;
     const r = await saveRaw();
     return r.status === "saved" || r.status === "idle";
-  }, [saveRaw]);
+  }, [saveRaw, gateImpact]);
 
   /** Puts the draft back to the last saved version. */
   const discard = () => {
@@ -442,6 +468,17 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const groupColumn = useMemo(() => hasGroupColumn(store.items), [store.items]);
   const showGroup = !!item && groupColumn && (isBarCategory(item.category) || !!item.menu_group);
   const groupChoices = useMemo(() => (item && showGroup ? groupNamesAt(store.items, item.venue_id, item.id) : []), [store.items, item, showGroup]);
+  // food dishes: where the allergen sign-off stands (valid, or ingredients changed since), the Finish Setting Up checklist, and the new-dish lock on Active
+  const isFood = !!item && item.category === "Food";
+  const dishSign = useDishSignOff(isFood ? item : null, lines);
+  const setup = useMemo(
+    () =>
+      isFood && item
+        ? setupModel({ lineCount: lines.filter((l) => l.component_id).length, signOff: dishSign.state, dietOptions: item.diet_options, kitchenMethod: item.kitchen_method, kitchenReady: item.kitchen_ready })
+        : null,
+    [isFood, item, lines, dishSign.state],
+  );
+  const activeLock = isFood ? activeLockedReason(dishSign.da, dishSign.state) : null;
   const prepYield = prep ? Number(prep.yield_qty) || 0 : 0;
   const prepCostPerUnit = prep && prepYield > 0 ? recipe.total / prepYield : 0;
   const venue = store.venueById.get((draft as MenuItem).venue_id ?? -1);
@@ -628,11 +665,13 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             {[venue ? venue.name : "Shared prep", item ? item.category : isFlavour ? "Gelato flavour" : "Prep"].join(" · ")}
           </p>
 
+          {setup ? <FinishSetup model={setup} /> : null}
+
           <div className="group-list mt-5">
             <Row onClick={() => setSheet("venue")} title="Venue" trailing={<span className="text-label-2">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "Shared"}</span>} chevron />
             {item ? <Row onClick={() => setSheet("category")} title="Category" trailing={<span className="text-label-2">{item.category}</span>} chevron /> : null}
             {!(item && isBarCategory(item.category)) ? (
-              <ActiveToggle checked={draft.active} record={kind} name={draft.name || (kind === "item" ? "this menu item" : "this prep")} impact={impact} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
+              <ActiveToggle checked={draft.active} record={kind} name={draft.name || (kind === "item" ? "this menu item" : "this prep")} impact={impact} lockedReason={activeLock} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
             ) : null}
             {item ? (
               <>
@@ -660,6 +699,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           </div>
 
           {/* ingredients */}
+          <div id="setup-ingredients" className="scroll-mt-20" />
           <Group title="Ingredients" className="mt-7 lg:[--inset:2.25rem]" trailing={lines.length ? <span className="text-[13px] text-label-2 tnum">{money(recipe.total)} total</span> : null}>
             {lines.length > 1 ? <CostBar lines={recipe.lines} total={recipe.total} /> : null}
             {lines.map((l) => {
@@ -733,6 +773,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           </Group>
           {isNew && !desktop && lines.length === 0 ? <MobileAutofocus /> : null}
           {addFocused ? <div className="h-[45vh] lg:hidden" aria-hidden /> : null}
+          {/* food dishes: Dish Allergens, Dietary Marks and Dietary Options together in one card, right under the ingredients */}
+          {item && isFood ? <AllergensDietaryCard item={item} saved={saved as MenuItem} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
           {itemCost && item && (itemCost.needsCheck || itemCost.hhSellInc != null) ? (
             <div className="mt-6 space-y-2 lg:hidden">
               <CheckCostBanner cost={itemCost} />
@@ -790,9 +832,9 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             refreshKey={`${dirty}|${saved.updated_at ?? ""}`}
           />
 
-          {isFlavour ? <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} /> : <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />}
-          {item && item.category === "Food" ? <DishAllergensGroup item={item} saved={saved as MenuItem} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
-          {item && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
+          {/* a food dish's allergen section is the shared card under Ingredients (above); everything else keeps its panel here */}
+          {isFlavour ? <GelatoDietary rec={draft as Prep} lines={lines} setDraft={setDraft} /> : isFood ? null : <RecipeAllergens kind={kind} rec={draft} lines={lines} setDraft={setDraft} />}
+          {item && !isFood && !isDrinkItem(item) ? <DietOptionsGroup item={item} lines={lines} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
 
           {item && isBarCategory(item.category) ? <BarDisplayFields item={item} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
           {(item && item.category === "Food") || (prep && !isFlavour) ? <KitchenDisplayFields kind={kind} rec={draft} venueSlug={venue?.slug} onPatch={(p) => setDraft((d) => ({ ...d, ...p }) as Rec)} /> : null}
@@ -993,6 +1035,31 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           setResolveError(null);
         }}
       />
+      <Sheet open={!!impactAsk} onClose={() => answerImpact(false)} hideHeader size="sm">
+        <div className="pb-2 pt-5 text-center">
+          <p className="text-[20px] font-semibold">Dishes Will Need A Re-Check</p>
+          <p className="mx-auto mt-1.5 max-w-xs text-[15px] text-label-2">{impactAsk ? impactHeadline(impactAsk.names.length) : ""}</p>
+          {impactAsk ? (
+            <ul className="mx-auto mt-3 max-w-xs space-y-0.5 text-center text-[15px] text-label sm:text-[13px]" aria-label="Confirmed dishes that use this prep">
+              {impactNames(impactAsk.names).shown.map((n, i) => (
+                <li key={`${n}-${i}`} className="truncate">
+                  {n}
+                </li>
+              ))}
+              {impactNames(impactAsk.names).more ? <li className="text-label-2">and {impactNames(impactAsk.names).more} more</li> : null}
+            </ul>
+          ) : null}
+          <p className="mx-auto mt-3 max-w-xs text-[13px] text-label-2">Until each one is confirmed again, it reads Not Checked on the Allergy Matrix.</p>
+          <div className="mt-5 space-y-2">
+            <button type="button" className="btn-primary w-full" onClick={() => answerImpact(true)}>
+              Save Anyway
+            </button>
+            <button type="button" className="btn-plain w-full" onClick={() => answerImpact(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Sheet>
       <DiscardSheet open={sheet === "discard"} count={changes.count} labels={changes.labels} onConfirm={discard} onClose={() => setSheet(null)} />
       {sheet === "duplicate" ? <DuplicateSheet kind={kind} draft={draft} lines={lines} onClose={() => setSheet(null)} /> : null}
       {sheet === "delete" ? (
@@ -1065,6 +1132,8 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clean = lines.filter((l) => l.component_id);
+  // only when the database has the dish allergens column (the key is on the record) can the new-dish lock be saved
+  const hasDishAllergens = "dish_allergens" in draft;
 
   async function go() {
     if (!name.trim() || (kind === "item" && venueId == null)) return;
@@ -1078,7 +1147,8 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
         const idMap = new Map(clean.map((l) => [l.id, newId()] as const));
         const nid = await store.insertItem(
           // a copy of an existing drink is not a new build: it is never offered Research This Drink
-          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null, ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap) } : {}), ...(rest.dish_allergens ? { dish_allergens: unconfirmedCopy(rest.dish_allergens) } : {}) },
+          // a copy of a FOOD dish is a new dish: it starts off the menu with its allergens unconfirmed, and its Active switch stays locked until they are
+          { ...rest, name: name.trim(), venue_id: venueId!, source: "duplicate", research_status: null, ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap) } : {}), ...newDishPatch(rest.category, rest.dish_allergens, hasDishAllergens) },
           clean.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
         );
         onClose();

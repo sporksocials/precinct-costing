@@ -12,6 +12,7 @@ import { formatVerifiedTime } from "@/lib/health";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { cleanName, isOwnerEmail, NAME_MAX } from "@/lib/people";
 import type { AllowedUser } from "@/lib/types";
+import { CROSS_CONTACT_MAX, DEFAULT_CROSS_CONTACT, crossContactFromSettings, crossContactSettingKey } from "@/lib/allergy-matrix";
 
 export default function SettingsPage() {
   const store = useStore();
@@ -94,6 +95,22 @@ export default function SettingsPage() {
           })}
         </div>
         <p className="px-4 pt-1.5 text-[13px] text-label-2">Blank uses {gp(DEFAULT_TARGET_GP, 0)}. “Under” counts menu items priced below their target now. A recipe can override its own target under Details.</p>
+      </section>
+
+      <section className="mt-6">
+        <h2 className="section-label">Allergy Matrix Cross-Contact Line</h2>
+        <div className="group-list">
+          {store.venues.map((v) => (
+            <CrossContactRow
+              key={`${v.id}:${crossContactFromSettings(store.rawSettings, v.slug) ?? ""}`}
+              label={VENUE_SHORT[v.slug] ?? v.name}
+              saved={crossContactFromSettings(store.rawSettings, v.slug) ?? ""}
+              onSave={(t) => store.updateTextSetting(crossContactSettingKey(v.slug), t)}
+              onError={(m) => setError(m)}
+            />
+          ))}
+        </div>
+        <p className="px-4 pt-1.5 text-[13px] text-label-2">One short line per venue, printed in the footer of every Allergy Matrix sheet and shown on the kitchen iPad. Leave it blank to use: “{DEFAULT_CROSS_CONTACT}”</p>
       </section>
 
       <Group title="Data Health" footer="Checks costs, prices and recipes for anything that could make a number wrong.">
@@ -208,6 +225,46 @@ export default function SettingsPage() {
   );
 }
 
+
+/** One venue's cross-contact line: saves when the field is left (like the other settings), with one quiet "Saved" line. */
+function CrossContactRow({ label, saved, onSave, onError }: { label: string; saved: string; onSave: (text: string) => Promise<void>; onError: (message: string) => void }) {
+  const [text, setText] = useState(saved);
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const commit = () => {
+    if (text.trim().replace(/\s+/g, " ") === saved) return;
+    setState("saving");
+    onSave(text).then(
+      () => setState("saved"),
+      (e) => {
+        setState("idle");
+        onError(e instanceof Error ? e.message : String(e));
+      },
+    );
+  };
+  return (
+    <div className="px-4 py-3">
+      <label className="block">
+        <span className="block pb-1 text-[17px] font-medium sm:text-[15px]">{label}</span>
+        <textarea
+          rows={2}
+          className="field resize-none"
+          maxLength={CROSS_CONTACT_MAX}
+          placeholder={DEFAULT_CROSS_CONTACT}
+          aria-label={`${label} cross-contact line`}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value.replace(/\n/g, " "));
+            setState("idle");
+          }}
+          onBlur={commit}
+        />
+      </label>
+      <p className="mt-1 min-h-[18px] text-[13px] text-label-2" aria-live="polite">
+        {state === "saving" ? "Saving…" : state === "saved" ? "Saved" : text.trim() ? "" : "Using the standard line"}
+      </p>
+    </div>
+  );
+}
 
 /** One person on the sign-in list: their first name (or "No name set") over their email, an Edit button for the owner, and Remove. */
 function PersonRow({ user, you, canName, onEdit, onRemove }: { user: AllowedUser; you: boolean; canName: boolean; onEdit: () => void; onRemove: () => void }) {

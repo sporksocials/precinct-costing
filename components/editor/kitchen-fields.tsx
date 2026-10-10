@@ -23,6 +23,7 @@ export function KitchenDisplayFields({ kind, rec, venueSlug, onPatch }: { kind: 
 
   return (
     <>
+      <div id="kitchen-ready" className="scroll-mt-20" />
       <Group
         title="Kitchen Display"
         className="mt-6"
@@ -65,6 +66,7 @@ export function KitchenDisplayFields({ kind, rec, venueSlug, onPatch }: { kind: 
           </FieldRow>
         ) : null}
       </Group>
+      <div id="kitchen-method" className="scroll-mt-20" />
       <OrderedList
         title={item ? "Assembly" : "Method"}
         noun="Step"

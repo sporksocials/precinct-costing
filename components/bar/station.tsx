@@ -6,6 +6,7 @@ import { barChips, barPhotoSrc, glassType, ingredientDisplay, isStale, staleAge,
 import type { BarPremix } from "@/lib/bar-premix";
 import { drinksInView, flavourCount, goBack as navBack, goHome, NAV_START, openDrink as navOpenDrink, openGroup as navOpenGroup, resolveScreen, sameNav, stationCards, type StationCard, type StationNav } from "@/lib/menu-groups";
 import { cx } from "../ui";
+import { useFromChooser } from "../station-chooser";
 import { BottleIcon, GlassIcon } from "./glass-icon";
 
 /**
@@ -75,6 +76,8 @@ export const HEADING = "text-[15px] font-medium tracking-[0.5px] text-[#9B9890]"
 
 export function BarStation({ slug, venueName, initial, premixCount: initialPremixCount = 0 }: { slug: string; venueName: string; initial: BarMenu | null; premixCount?: number }) {
   const [menu, setMenu] = useState<BarMenu | null>(initial);
+  // the way back to the venue chooser shows only when this session came through it: an iPad opened on its own bar never offers another
+  const fromChooser = useFromChooser("bar");
   // how many pre-mix bottles the venue has; the "Pre-Mix Bottles" row shows only when there is at least one
   const [premixCount, setPremixCount] = useState(initialPremixCount);
   // where the screen is: the main grid, an open flavour list (a menu group) and/or an open recipe (lib/menu-groups.ts)
@@ -191,13 +194,15 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
         <div className="flex w-full flex-col">
           <StaleBanner syncedAt={menu?.syncedAt ?? null} now={now} />
           <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
-            <Link href="/bar" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
-              <span aria-hidden className="text-[16px] leading-none">
-                &#8592;
-              </span>
-              All Venues
-            </Link>
-            <div className="mt-[6px] flex items-baseline justify-between gap-4">
+            {fromChooser ? (
+              <Link href="/bar" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
+                <span aria-hidden className="text-[16px] leading-none">
+                  &#8592;
+                </span>
+                All Venues
+              </Link>
+            ) : null}
+            <div className={cx("flex items-baseline justify-between gap-4", fromChooser && "mt-[6px]")}>
               <h1 className="font-display text-[48px] uppercase leading-none tracking-[1px]">{menu?.venue.name ?? venueName}</h1>
               {menu ? (
                 <p className="shrink-0 text-[13px] text-[#9B9890]" aria-live="polite">
@@ -205,7 +210,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
                 </p>
               ) : null}
             </div>
-            <p className="mt-[2px] text-[16px] text-[#9B9890]">Drinks Station</p>
+            <p className="mt-[2px] text-[16px] text-[#9B9890]">Drinks</p>
 
             {items.length ? (
               <>
@@ -280,7 +285,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
             {!menu ? (
               <EmptyState title="Can’t Load Recipes" body="Check the iPad’s Wi-Fi. This screen tries again every 30 seconds." action={{ label: "Try Again", onClick: () => void refresh() }} />
             ) : !items.length ? (
-              <EmptyState title="No Drinks On This Screen Yet" body="A drink shows here once it has a glass and a method in Precinct Costing. Drinks that are still being built out are not displayed." />
+              <EmptyState title="No Drinks On This Screen Yet" body="A drink shows here once it has a glass and a method in the CFP App. Drinks that are still being built out are not displayed." />
             ) : !cards.length ? (
               // only a search can come up empty: a chip exists only for a category that has drinks
               <EmptyState title="No Matches" body={`Nothing matches “${searchQuery.trim()}”.`} />

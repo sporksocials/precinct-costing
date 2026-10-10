@@ -7,7 +7,7 @@ import { KitchenKiosk } from "@/components/kitchen/kiosk";
  * not the costing app's sign-in.
  */
 export const metadata: Metadata = {
-  title: "Kitchen Station",
+  title: "Kitchen",
   description: "Dish and prep recipes for the kitchen, Caloundra Food Precinct",
   manifest: "/kitchen/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Kitchen", statusBarStyle: "black-translucent" },

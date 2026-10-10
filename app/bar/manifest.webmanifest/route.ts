@@ -1,21 +1,6 @@
-/** Web app manifest for the drinks station: a Home Screen icon opens the venue select, not the costing app. */
+import { stationManifest } from "@/lib/station-names";
+
+/** Web app manifest for the drinks app when it is added from the chooser: a Home Screen icon named "Drinks" that opens the venue select, not the costing app. Added from a venue's own screen, the venue manifest next to this one is used instead. */
 export function GET() {
-  return Response.json(
-    {
-      name: "Drinks Station",
-      short_name: "Drinks",
-      description: "Drink recipes for the bar, Caloundra Food Precinct",
-      start_url: "/bar",
-      scope: "/bar",
-      display: "standalone",
-      background_color: "#0E0E10",
-      theme_color: "#0E0E10",
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-      ],
-    },
-    { headers: { "Content-Type": "application/manifest+json" } },
-  );
+  return Response.json(stationManifest("bar"), { headers: { "Content-Type": "application/manifest+json" } });
 }

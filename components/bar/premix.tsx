@@ -99,7 +99,7 @@ export function BarPremixPage({ slug, venueName, initial }: { slug: string; venu
           </div>
         ) : !premixes.length ? (
           <div className="mt-6">
-            <EmptyState title="No Pre-Mixes Added Yet" body="A pre-mix shows here once it is added in Precinct Costing." />
+            <EmptyState title="No Pre-Mixes Added Yet" body="A pre-mix shows here once it is added in the CFP App." />
           </div>
         ) : (
           <>

@@ -1,21 +1,6 @@
-/** Web app manifest for the kitchen station: a Home Screen icon opens the kitchen select, not the costing app. */
+import { stationManifest } from "@/lib/station-names";
+
+/** Web app manifest for the kitchen app when it is added from the chooser: a Home Screen icon named "Kitchen" that opens the venue select, not the costing app. Added from a venue's own screen, the venue manifest next to this one is used instead. */
 export function GET() {
-  return Response.json(
-    {
-      name: "Kitchen Station",
-      short_name: "Kitchen",
-      description: "Dish and prep recipes for the kitchen, Caloundra Food Precinct",
-      start_url: "/kitchen",
-      scope: "/kitchen",
-      display: "standalone",
-      background_color: "#0E0E10",
-      theme_color: "#0E0E10",
-      icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-        { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-      ],
-    },
-    { headers: { "Content-Type": "application/manifest+json" } },
-  );
+  return Response.json(stationManifest("kitchen"), { headers: { "Content-Type": "application/manifest+json" } });
 }

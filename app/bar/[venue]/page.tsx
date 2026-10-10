@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { BarStation } from "@/components/bar/station";
 import { isBarVenue, type BarMenu } from "@/lib/bar";
 import { fetchBarMenu, fetchBarPremix } from "@/lib/bar-server";
+import { drinksAppName } from "@/lib/station-names";
 
 export const dynamic = "force-dynamic";
 
 const NAMES: Record<string, string> = { drift: "Drift Bar", chiobu: "Chiobu", greedy: "Greedy Gringo's" };
 
 export function generateMetadata({ params }: { params: { venue: string } }): Metadata {
-  return { title: `${NAMES[params.venue] ?? "Bar"} · Drinks Station` };
+  return { title: drinksAppName(params.venue) };
 }
 
 export default async function BarVenuePage({ params }: { params: { venue: string } }) {

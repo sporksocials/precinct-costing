@@ -7,6 +7,7 @@ import type { BadgeModel } from "@/lib/allergen-badges";
 import { buildKitchenModel, dishBadges, prepBadges } from "@/lib/kitchen-model";
 import { syncedLabel } from "@/lib/bar";
 import { cx } from "../ui";
+import { useFromChooser } from "../station-chooser";
 import { DishDetail, PrepDetail } from "./detail";
 import { BadgeStrip, KitchenLegend } from "./badges";
 import { CARD, Chevron, EmptyState, StaleBanner, TilePhoto } from "./parts";
@@ -32,6 +33,8 @@ type Screen = { kind: "dish" | "prep"; id: string };
 
 export function KitchenStation({ slug, venueName, initial }: { slug: string; venueName: string; initial: KitchenData | null }) {
   const [data, setData] = useState<KitchenData | null>(initial);
+  // the way back to the kitchen chooser shows only when this session came through it: an iPad opened on its own kitchen never offers another
+  const fromChooser = useFromChooser("kitchen");
   const [tab, setTab] = useState<TabKey>("dishes");
   const [trail, setTrail] = useState<Screen[]>([]);
   const [section, setSection] = useState("all");
@@ -149,13 +152,15 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
       <div className="flex w-full flex-col">
         {stale}
         <div className="mx-auto w-full max-w-[1000px] px-6 pb-[18px] pt-[calc(28px+env(safe-area-inset-top))]">
-          <Link href="/kitchen" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
-            <span aria-hidden className="text-[18px] leading-none">
-              &#8592;
-            </span>
-            All Kitchens
-          </Link>
-          <div className="mt-[6px] flex items-baseline justify-between gap-4">
+          {fromChooser ? (
+            <Link href="/kitchen" className="inline-flex min-h-[44px] items-center gap-[6px] pr-3 text-[16px] font-medium text-[color:var(--bar-text)]">
+              <span aria-hidden className="text-[18px] leading-none">
+                &#8592;
+              </span>
+              All Kitchens
+            </Link>
+          ) : null}
+          <div className={cx("flex items-baseline justify-between gap-4", fromChooser && "mt-[6px]")}>
             <h1 className="font-display text-[48px] uppercase leading-none tracking-[1px]">{venueName}</h1>
             {data ? (
               <p className="shrink-0 text-[14px] text-[#9B9890]" aria-live="polite">
@@ -163,10 +168,10 @@ export function KitchenStation({ slug, venueName, initial }: { slug: string; ven
               </p>
             ) : null}
           </div>
-          <p className="mt-[2px] text-[18px] text-[#9B9890]">Kitchen Station</p>
+          <p className="mt-[2px] text-[18px] text-[#9B9890]">Kitchen</p>
 
           {data ? (
-            <div role="tablist" aria-label="Kitchen Station" className="mt-5 grid grid-cols-2 gap-[6px] rounded-[18px] border-[0.5px] border-white/10 bg-[#1C1C1F] p-[6px]">
+            <div role="tablist" aria-label="Kitchen" className="mt-5 grid grid-cols-2 gap-[6px] rounded-[18px] border-[0.5px] border-white/10 bg-[#1C1C1F] p-[6px]">
               {TABS.map((t) => {
                 const on = t.key === tab;
                 return (

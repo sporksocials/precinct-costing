@@ -7,7 +7,7 @@ import { BarKiosk } from "@/components/bar/kiosk";
  * not the costing app's sign-in.
  */
 export const metadata: Metadata = {
-  title: "Drinks Station",
+  title: "Drinks",
   description: "Drink recipes for the bar, Caloundra Food Precinct",
   manifest: "/bar/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Drinks", statusBarStyle: "black-translucent" },

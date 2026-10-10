@@ -164,11 +164,11 @@ describe("the drinks station wording", () => {
       expect(read(f), f).not.toMatch(/all cocktails/i);
     }
   });
-  it("says Drinks Station and Back To All Drinks", () => {
-    expect(read("app/bar/page.tsx")).toContain("DRINKS STATION");
-    expect(read("app/bar/layout.tsx")).toContain('title: "Drinks Station"');
-    expect(read("app/bar/manifest.webmanifest/route.ts")).toContain('name: "Drinks Station"');
-    expect(read("app/bar/setup/page.tsx")).toContain("Set up each drinks station iPad once");
+  it("says Drinks and Back To All Drinks", () => {
+    expect(read("app/bar/page.tsx")).toContain(">DRINKS</h1>");
+    expect(read("app/bar/layout.tsx")).toContain('title: "Drinks"');
+    expect(read("app/bar/manifest.webmanifest/route.ts")).toContain('stationManifest("bar")');
+    expect(read("app/bar/setup/page.tsx")).toContain("Set up each drinks iPad once");
     expect(read("components/bar/station.tsx")).toContain("BACK TO ALL DRINKS");
     expect(read("components/bar/premix.tsx")).toContain("BACK TO ALL DRINKS");
     expect(read("components/bar/station.tsx")).toContain('placeholder="Search drinks"');

@@ -6,9 +6,9 @@
 export function GET() {
   return Response.json(
     {
-      name: "Caloundra Food Precinct · Costing",
-      short_name: "Costing",
-      description: "Recipe costing for the Caloundra Food Precinct",
+      name: "CFP App",
+      short_name: "CFP App",
+      description: "Caloundra Food Precinct App: recipe costing, menu, ordering and allergens",
       start_url: "/",
       display: "standalone",
       background_color: "#0E0E10",

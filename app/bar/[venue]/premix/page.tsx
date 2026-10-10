@@ -4,13 +4,14 @@ import { BarPremixPage } from "@/components/bar/premix";
 import { isBarVenue } from "@/lib/bar";
 import type { BarPremix } from "@/lib/bar-premix";
 import { fetchBarPremix } from "@/lib/bar-server";
+import { drinksAppName } from "@/lib/station-names";
 
 export const dynamic = "force-dynamic";
 
 const NAMES: Record<string, string> = { drift: "Drift Bar", chiobu: "Chiobu", greedy: "Greedy Gringo's" };
 
 export function generateMetadata({ params }: { params: { venue: string } }): Metadata {
-  return { title: `${NAMES[params.venue] ?? "Bar"} · Pre-Mix Bottles` };
+  return { title: `${drinksAppName(params.venue)} · Pre-Mix Bottles` };
 }
 
 export default async function BarPremixRoute({ params }: { params: { venue: string } }) {

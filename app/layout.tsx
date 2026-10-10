@@ -3,11 +3,11 @@ import "./globals.css";
 import { fontVars } from "./fonts";
 
 export const metadata: Metadata = {
-  title: "Precinct Costing",
+  title: "CFP App",
   description: "Caloundra Food Precinct recipe costing and menu pricing for Drift Bar, Chiobu, Greedy Gringo's and Gelato Rumba",
-  applicationName: "Precinct Costing",
+  applicationName: "CFP App",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Costing", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "CFP App", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
   icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
   other: { "mobile-web-app-capable": "yes" },

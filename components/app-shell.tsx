@@ -11,7 +11,7 @@ import { UnsavedGuardProvider } from "./unsaved-guard";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
 import { ScrollMemory } from "./scroll-memory";
-import { inAllergens } from "@/lib/allergen-tabs";
+import { hidesTabBar, isActive, PHONE_TABS, phoneTab, type PhoneTabId } from "@/lib/nav";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
 
 const MAIN = [
@@ -30,17 +30,6 @@ const MORE = [
   { href: "/trash", label: "Trash", icon: Trash2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
-
-function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/" || pathname === "/alerts"; // the full alert list is part of Home
-  // Allergens is one entry: the matrix, its To Do, review mode, print, and Menu Labels (lib/allergen-tabs.ts)
-  if (href === "/matrix") return inAllergens(pathname);
-  // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
-  if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
-  // ingredient allergen review is about ingredients, so it lives under Ingredients (Menu Labels shares the /allergens prefix)
-  if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps") || pathname.startsWith("/allergens/review");
-  return pathname === href || pathname.startsWith(href + "/");
-}
 
 function Sidebar() {
   const pathname = usePathname();
@@ -86,29 +75,18 @@ function Sidebar() {
   );
 }
 
-const TABS = [
-  { href: "/", label: "Home", icon: House },
-  { href: "/menu", label: "Menu", icon: BookOpen },
-  { href: "/ingredients", label: "Ingredients", icon: Carrot },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/more", label: "More", icon: Ellipsis },
-];
-
-export function hidesTabBar(pathname: string) {
-  // record pages hold their own save bar, and the two review modes (dishes, ingredients) hold their own Confirm bar: none shares the bottom with the tab bar
-  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review" || pathname === "/allergens/review";
-}
+const TAB_ICONS: Record<PhoneTabId, LucideIcon> = { home: House, menu: BookOpen, ingredients: Carrot, ordering: ClipboardList, more: Ellipsis };
 
 function TabBar() {
   const pathname = usePathname();
   if (hidesTabBar(pathname)) return null;
-  const moreActive = MORE.some((m) => isActive(pathname, m.href)) || pathname === "/more" || pathname.startsWith("/specials") || inAllergens(pathname) || pathname.startsWith("/allergens") || pathname.startsWith("/ordering");
+  const current = phoneTab(pathname);
   return (
     <nav className="bar-blur fixed inset-x-0 bottom-0 z-40 pb-safe hairline-t lg:hidden" aria-label="Main">
       <div className="mx-auto flex h-[50px] max-w-lg items-stretch">
-        {TABS.map((t) => {
-          const on = t.href === "/more" ? moreActive : isActive(pathname, t.href);
-          const Icon = t.icon;
+        {PHONE_TABS.map((t) => {
+          const on = t.id === current;
+          const Icon = TAB_ICONS[t.id];
           return (
             <Link key={t.href} href={t.href} aria-current={on ? "page" : undefined} className={cx("flex flex-1 flex-col items-center justify-center gap-0.5 pt-1", on ? "text-accent" : "text-label-2")}>
               <Icon className="h-[24px] w-[24px]" strokeWidth={on ? 2.25 : 1.75} />

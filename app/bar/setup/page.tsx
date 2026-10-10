@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PrecinctMark } from "@/components/brand";
 
-export const metadata: Metadata = { title: "iPad Setup · Drinks Station" };
+export const metadata: Metadata = { title: "iPad Setup · Drinks" };
 
 const STEPS: { title: string; body: string[] }[] = [
   {
-    title: "Open The Station",
-    body: ["In Safari, open the Drinks Station link and choose your bar."],
+    title: "Open The App",
+    body: ["In Safari, open the Drinks link and choose your bar."],
   },
   {
     title: "Add It To The Home Screen",
     body: [
       "Tap the Share button, tap View More if you see it, tap Add to Home Screen, then tap Add. Leave Open as Web App on if it appears.",
-      "Open the station from the new Drinks icon from now on. It opens with no address bar and no sign-in.",
+      "Open the app from the new Drinks icon from now on. It opens with no address bar and no sign-in.",
     ],
   },
   {
@@ -21,10 +21,10 @@ const STEPS: { title: string; body: string[] }[] = [
     body: ["Open Settings, tap Display & Brightness, tap Auto-Lock, and choose Never."],
   },
   {
-    title: "Lock The iPad To The Station",
+    title: "Lock The iPad To The App",
     body: [
       "Open Settings, tap Accessibility, tap Guided Access, and turn it on. Tap Passcode Settings and set a passcode. Set Display Auto-Lock to its longest option as well.",
-      "Open the Drinks icon, triple-click the top button (the Home button on iPads that have one) and tap Start. Staff can't leave the station until someone triple-clicks and enters the passcode.",
+      "Open the Drinks icon, triple-click the top button (the Home button on iPads that have one) and tap Start. Staff can't leave the app until someone triple-clicks and enters the passcode.",
       "To end the session, triple-click, enter the passcode and tap End.",
     ],
   },
@@ -49,7 +49,7 @@ export default function BarSetupPage() {
           <PrecinctMark size="sm" />
         </div>
         <h1 className="mt-4 font-display text-[48px] uppercase leading-none tracking-[1px]">iPad Setup</h1>
-        <p className="mt-3 text-[19px] leading-snug text-[#9B9890]">Set up each drinks station iPad once. It then runs all shift with no sign-in.</p>
+        <p className="mt-3 text-[19px] leading-snug text-[#9B9890]">Set up each drinks iPad once. It then runs all shift with no sign-in.</p>
 
         <ol className="mt-8 grid gap-[14px]">
           {STEPS.map((s, i) => (
@@ -73,7 +73,7 @@ export default function BarSetupPage() {
           <h2 className="text-[24px] font-medium leading-tight text-[#F2C46D]">If You See The Amber Warning</h2>
           <div className="mt-3 space-y-3 text-[19px] leading-snug text-[#F2C46D]">
             <p>&ldquo;Recipes May Be Out Of Date&rdquo; means the iPad lost its connection. Check the Wi-Fi. The station keeps trying and clears the warning itself.</p>
-            <p>After its first load, the station keeps working from the last recipes it saved. Changes made in the pricing app reach the iPad within about five minutes.</p>
+            <p>After its first load, the app keeps working from the last recipes it saved. Changes made in the pricing app reach the iPad within about five minutes.</p>
           </div>
         </section>
       </div>

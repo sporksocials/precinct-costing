@@ -11,6 +11,7 @@ import { gpSummary, isOffMenu } from "./insights";
 import type { Offer } from "./types";
 import { offerKindLabel, type OfferCost } from "./offers";
 import { dealSummary } from "./deals";
+import { approvalSub, approvalTitle, reprintSub, reprintTitle, type SafetyAlert, type SafetyKind } from "./matrix-todo";
 import { daysAgo, dateShort, gp, money, movePct } from "./format";
 import {
   belowTargetEntry,
@@ -43,6 +44,10 @@ export interface OpenAlerts {
   deals: DealFeedRow[];
   offersBelow: OfferRow[];
   offersCheck: OfferRow[];
+  /** "Dishes need allergen approval": one row per venue with any (a safety item: cannot be ignored, never in the GP average) */
+  allergenApproval: SafetyAlert[];
+  /** "Matrix needs reprinting": one row per venue with a sheet changed since it was printed (cannot be ignored) */
+  reprint: SafetyAlert[];
 }
 
 export interface AlertTotals {
@@ -60,6 +65,8 @@ export interface AlertTotals {
   deals: number;
   offersBelow: number;
   offersCheck: number;
+  allergenApproval: number;
+  reprint: number;
 }
 
 export function alertTotals(a: OpenAlerts): AlertTotals {
@@ -75,8 +82,10 @@ export function alertTotals(a: OpenAlerts): AlertTotals {
     deals: a.deals.length,
     offersBelow: a.offersBelow.length,
     offersCheck: a.offersCheck.length,
+    allergenApproval: a.allergenApproval.length,
+    reprint: a.reprint.length,
   };
-  return { ...t, total: t.under + t.missing + t.rises + t.check + t.stale + t.gaps + t.happy + t.deals + t.offersBelow + t.offersCheck };
+  return { ...t, total: t.under + t.missing + t.rises + t.check + t.stale + t.gaps + t.happy + t.deals + t.offersBelow + t.offersCheck + t.allergenApproval + t.reprint };
 }
 
 /* ---------------------------------------------------------------- GP against target */
@@ -175,6 +184,7 @@ export function summarySentence(t: AlertTotals, opts: { gelato?: boolean; hasDat
   if (!opts.hasData && t.total === 0) return { text: "Add a recipe to start tracking GP.", tone: "neutral" };
   const noun = opts.gelato ? { one: "serve", many: "serves", belowOne: "1 serve is", belowMany: "serves are" } : { one: "item", many: "items", belowOne: "1 dish or drink is", belowMany: "dishes and drinks are" };
   const parts: string[] = [];
+  if (t.allergenApproval) parts.push(t.allergenApproval === 1 ? "1 venue has dishes waiting for allergen approval" : `${t.allergenApproval} venues have dishes waiting for allergen approval`);
   if (t.under) parts.push(t.under === 1 ? `${noun.belowOne} below target` : `${t.under} ${noun.belowMany} below target`);
   if (t.offersBelow) parts.push(t.offersBelow === 1 ? "1 special is below target" : `${t.offersBelow} specials are below target`);
   if (t.missing) parts.push(t.missing === 1 ? `1 ${noun.one} has no sell price` : `${t.missing} ${noun.many} have no sell price`);
@@ -200,15 +210,16 @@ export function priceAlertsAnchor(t: Pick<AlertTotals, "rises" | "missing">): st
 
 /* ---------------------------------------------------------------- Needs Attention: ranking */
 
-export type AttentionIcon = "below" | "price" | "rise" | "check" | "clock" | "store" | "tag" | "deal-ending" | "deal-expired";
+export type AttentionIcon = "below" | "price" | "rise" | "check" | "clock" | "store" | "tag" | "deal-ending" | "deal-expired" | "allergen" | "print";
 export type AttentionTone = "danger" | "warn" | "neutral" | "accent";
 
 export interface AttentionItem {
   key: string;
-  kind: AlertKind;
+  kind: AlertKind | SafetyKind;
   /** lower is more important */
   tier: number;
-  entry: AlertEntry;
+  /** what Ignore saves; null for the two safety alerts (allergen approval, matrix reprint), which can never be ignored */
+  entry: AlertEntry | null;
   href: string;
   icon: AttentionIcon;
   tone: AttentionTone;
@@ -222,8 +233,10 @@ export interface AttentionItem {
  *   1 below target (dishes and live specials), largest gap first   2 missing sell price   3 happy hour below cost (a loss)
  *   4 price rise that leaves dishes below target   5 other price rises, biggest percent first   6 check cost
  *   7 price not checked, oldest first   8 catalogue difference   9 happy hour under target   10 deal expired   11 deal ending   12 offer to check
+ * Two safety alerts sit outside the price tiers: dishes waiting for allergen approval come FIRST (0, above every price alert, because
+ * it is a safety item) and a matrix that needs reprinting comes LAST (13). Neither can be ignored.
  */
-export const TIER = { below: 1, missing: 2, loss: 3, riseUnder: 4, rise: 5, check: 6, stale: 7, gap: 8, happy: 9, dealExpired: 10, dealEnding: 11, offerCheck: 12 } as const;
+export const TIER = { allergen: 0, below: 1, missing: 2, loss: 3, riseUnder: 4, rise: 5, check: 6, stale: 7, gap: 8, happy: 9, dealExpired: 10, dealEnding: 11, offerCheck: 12, reprint: 13 } as const;
 
 /** How many rows the card shows: 3 on a phone, 5 from tablet width up (Tailwind md). */
 export const ATTENTION_CAP_PHONE = 3;
@@ -264,6 +277,25 @@ export function rankAttention(a: OpenAlerts, ctx: AttentionCtx): AttentionItem[]
   const out: Ranked[] = [];
   const v = (id: number) => (ctx.showVenue ? `${ctx.venueName(id)} · ` : "");
   const push = (item: AttentionItem, ...order: number[]) => out.push({ item, order });
+
+  // safety first: dishes waiting for allergen approval (one row per venue, most dishes first)
+  for (const al of a.allergenApproval) {
+    push(
+      {
+        key: al.key,
+        kind: "allergen_approval",
+        tier: TIER.allergen,
+        entry: null,
+        href: al.href,
+        icon: "allergen",
+        tone: "danger",
+        title: approvalTitle(al.count),
+        sub: [ctx.venueName(al.venueId), approvalSub(al)].filter(Boolean).join(" · "),
+        trailing: { text: "Review", tone: "neutral" },
+      },
+      -al.count,
+    );
+  }
 
   for (const r of a.under) {
     const c = r.cost;
@@ -434,6 +466,22 @@ export function rankAttention(a: OpenAlerts, ctx: AttentionCtx): AttentionItem[]
       title: offer.name,
       sub: [ctx.showVenue ? ctx.venueName(offer.venue_id) : null, offerKindLabel(offer.kind), "Check components"].filter(Boolean).join(" · "),
       trailing: null,
+    });
+  }
+
+  // matrices that changed since they were printed (the lowest tier)
+  for (const al of a.reprint) {
+    push({
+      key: al.key,
+      kind: "matrix_reprint",
+      tier: TIER.reprint,
+      entry: null,
+      href: al.href,
+      icon: "print",
+      tone: "warn",
+      title: reprintTitle(ctx.venueName(al.venueId)),
+      sub: reprintSub(al.count),
+      trailing: { text: "Reprint", tone: "neutral" },
     });
   }
 

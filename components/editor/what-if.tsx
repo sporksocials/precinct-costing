@@ -4,7 +4,7 @@ import { useGuardedRouter } from "@/components/unsaved-guard";
 import { useMemo, useState } from "react";
 import { newId, useStore } from "@/lib/store";
 import { copyDietOptions } from "@/lib/diet-options";
-import { unconfirmedCopy } from "@/lib/dish-allergens";
+import { newDishPatch } from "@/lib/dish-allergens";
 import type { ItemCost } from "@/lib/costing";
 import { gp, money } from "@/lib/format";
 import { gpForPrice, parsePriceInput, priceForGp } from "@/lib/solver";
@@ -60,7 +60,7 @@ export function WhatIfSheet({
       const idMap = new Map(own.map((l) => [l.id, newId()] as const));
       const id = await store.insertItem(
         // a variation of an existing drink is not a new build: it is never offered Research This Drink, and it does not join the original's menu group
-        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if", research_status: null, ...("menu_group" in item ? { menu_group: null } : {}), ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap, k) } : {}), ...(rest.dish_allergens ? { dish_allergens: unconfirmedCopy(rest.dish_allergens) } : {}) },
+        { ...rest, name: `${item.name} (New)`, section: null, sell_price_inc: price, source: "what-if", research_status: null, ...("menu_group" in item ? { menu_group: null } : {}), ...(rest.diet_options ? { diet_options: copyDietOptions(rest.diet_options, idMap, k) } : {}), ...newDishPatch(rest.category, rest.dish_allergens, "dish_allergens" in item) },
         own.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: Math.round(Number(l.qty) * k * 1000) / 1000, unit: l.unit, note: l.note, sort: i + 1 })),
       );
       onClose();

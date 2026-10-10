@@ -4,10 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Check, ChevronLeft, CircleHelp, Printer, TriangleAlert, X, type LucideIcon } from "lucide-react";
-import { buildRows, matrixSections, type MatrixState } from "@/lib/allergy-matrix";
-import { ANSWER_COL_MM, DISH_COL_MM, MATRIX_PRINT_CSS, PAGE_W_MM, buildMatrixSheets, pickSections, type PrintCellModel, type PrintPageModel, type PrintSheetModel } from "@/lib/allergy-matrix-print";
+import { buildRows, crossContactFromSettings, matrixSections, type MatrixState } from "@/lib/allergy-matrix";
+import { ANSWER_COL_MM, DISH_COL_MM, MATRIX_PRINT_CSS, PAGE_W_MM, buildMatrixSheets, liveMatrixUrl, pickSections, type PrintCellModel, type PrintPageModel, type PrintSheetModel } from "@/lib/allergy-matrix-print";
 import { matrixDishesForVenue } from "@/lib/allergy-matrix-store";
+import { isKitchenVenue } from "@/lib/kitchen";
+import { nextVersion, printKey, printRow } from "@/lib/matrix-prints";
+import { qrModules, qrPath, qrSize } from "@/lib/qr";
 import { useStore } from "@/lib/store";
+import { useToast } from "../ui";
 import { useAllergenIndex } from "../allergen-picker";
 import { VENUE_SHORT } from "../venue";
 
@@ -29,7 +33,12 @@ export function MatrixPrintView({ venueSlug, section }: { venueSlug: string; sec
   const store = useStore();
   const idx = useAllergenIndex();
   const router = useRouter();
+  const toast = useToast();
   const [root, setRoot] = useState<HTMLElement | null>(null);
+  const { loadMatrixPrints } = store;
+  useEffect(() => {
+    loadMatrixPrints();
+  }, [loadMatrixPrints]);
 
   useEffect(() => {
     const el = document.createElement("div");
@@ -48,10 +57,32 @@ export function MatrixPrintView({ venueSlug, section }: { venueSlug: string; sec
 
   const venue = store.venues.find((v) => v.slug === venueSlug) ?? null;
   const venueName = venue ? VENUE_SHORT[venue.slug] ?? venue.name : "";
-  const sections = useMemo(() => (venue ? matrixSections(buildRows(matrixDishesForVenue(store.items, idx, venue.id))) : []), [venue, store.items, idx]);
+  const allRows = useMemo(() => (venue ? buildRows(matrixDishesForVenue(store.items, idx, venue.id)) : []), [venue, store.items, idx]);
+  const sections = useMemo(() => matrixSections(allRows), [allRows]);
   const picked = useMemo(() => pickSections(sections, section), [sections, section]);
   const [now] = useState(() => new Date());
-  const sheets = useMemo(() => buildMatrixSheets({ venueName, sections: picked, now }), [venueName, picked, now]);
+
+  // The version this print will carry: the previous highest for this venue and section (or All Sections), plus one. Taken ONCE when the
+  // print log has loaded and then held, so logging the print never changes the number on the sheet that is being printed. If the log
+  // cannot be read within a few seconds the sheet prints without a version (and says so) rather than blocking the print.
+  const key = printKey(section);
+  const [version, setVersion] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (version !== undefined || !venue) return;
+    if (store.matrixPrints) setVersion(nextVersion(store.matrixPrints, venue.id, key));
+  }, [version, venue, store.matrixPrints, key]);
+  useEffect(() => {
+    if (version !== undefined) return;
+    const t = window.setTimeout(() => setVersion((v) => (v === undefined ? null : v)), 4000);
+    return () => window.clearTimeout(t);
+  }, [version]);
+
+  const crossContact = crossContactFromSettings(store.rawSettings, venueSlug);
+  // the QR code opens the LIVE iPad matrix for this venue (only venues that have the kitchen iPad screen)
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+  const qrUrl = venue && origin && isKitchenVenue(venue.slug) ? liveMatrixUrl(origin, venue.slug) : null;
+  const sheets = useMemo(() => buildMatrixSheets({ venueName, sections: picked, now, version: version ?? null, crossContact, qrUrl }), [venueName, picked, now, version, crossContact, qrUrl]);
   const notChecked = sheets.reduce((n, s) => n + s.notCheckedCount, 0);
   const pageCount = sheets.reduce((n, s) => n + s.pages.length, 0);
 
@@ -69,8 +100,24 @@ export function MatrixPrintView({ venueSlug, section }: { venueSlug: string; sec
     return () => ro.disconnect();
   }, [root]);
 
+  // the print is logged ONCE per preview (pressing Print again prints the same sheet without making a second version)
+  const logged = useRef(false);
+  const [logNote, setLogNote] = useState<string | null>(null);
   const onPrint = async () => {
     if (document.fonts && document.fonts.status !== "loaded") await document.fonts.ready;
+    if (venue && version != null && !logged.current) {
+      logged.current = true;
+      try {
+        await store.logMatrixPrint(printRow({ venueId: venue.id, key, version, by: store.userEmail, rows: allRows }));
+      } catch (e) {
+        // quietly: the sheet still prints, we only say the log did not take it
+        logged.current = false;
+        const msg = "The print log could not be saved. The sheet still prints.";
+        setLogNote(msg);
+        toast.show({ message: msg });
+        void e;
+      }
+    }
     window.print();
   };
   const onBack = () => {
@@ -106,6 +153,17 @@ export function MatrixPrintView({ venueSlug, section }: { venueSlug: string; sec
             Print
           </button>
         </div>
+        {logNote ? (
+          <p className="mx-auto mt-1 flex max-w-[960px] items-start gap-2 text-[14px] font-semibold leading-snug text-warn" role="status">
+            <TriangleAlert className="mt-[2px] h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
+            <span>{logNote}</span>
+          </p>
+        ) : null}
+        {version === null && ready ? (
+          <p className="mx-auto mt-1 text-[13px] leading-snug text-label-2" role="status">
+            The print log could not be read, so this sheet has no version number.
+          </p>
+        ) : null}
         {notChecked ? (
           <p className="mx-auto mt-1 flex max-w-[960px] items-start gap-2 text-[14px] font-semibold leading-snug text-warn" role="status">
             <TriangleAlert className="mt-[2px] h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
@@ -208,11 +266,45 @@ function SheetPage({ sheet, page }: { sheet: PrintSheetModel; page: PrintPageMod
         </tbody>
       </table>
       <footer className="am-foot">
-        <span>
-          {sheet.printedLine}. {sheet.footerNote}.
-        </span>
-        <span className="am-pageno">{page.of > 1 ? `${sheet.sectionLabel}, page ${page.number} of ${page.of}` : sheet.sectionLabel}</span>
+        <div className="am-foot-text">
+          <p>
+            {sheet.versionLine ? `${sheet.versionLine}. ` : ""}
+            {sheet.printedLine}. {sheet.footerNote}.
+          </p>
+          <p className="am-cross">{sheet.crossContact}</p>
+        </div>
+        <div className="am-foot-right">
+          <span className="am-pageno">{page.of > 1 ? `${sheet.sectionLabel}, page ${page.number} of ${page.of}` : sheet.sectionLabel}</span>
+          {sheet.qrUrl ? (
+            <div className="am-qr">
+              <QrCode text={sheet.qrUrl} />
+              <span>Live matrix</span>
+            </div>
+          ) : null}
+        </div>
       </footer>
     </div>
+  );
+}
+
+/** The footer QR code: drawn as one SVG path, black on white with a quiet zone, from `lib/qr.ts` (the encoder is loaded on this page only). */
+function QrCode({ text }: { text: string }) {
+  const [code, setCode] = useState<{ path: string; size: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    qrModules(text).then(
+      (m) => alive && setCode({ path: qrPath(m), size: qrSize(m) }),
+      () => alive && setCode(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [text]);
+  if (!code) return <span style={{ display: "block", width: "19mm", height: "19mm" }} aria-hidden />;
+  return (
+    <svg viewBox={`0 0 ${code.size} ${code.size}`} shapeRendering="crispEdges" role="img" aria-label="QR code that opens the live allergy matrix" xmlns="http://www.w3.org/2000/svg">
+      <rect width={code.size} height={code.size} fill="#fff" />
+      <path d={code.path} fill="#000" />
+    </svg>
   );
 }

@@ -30,6 +30,8 @@ export interface Venue {
 export interface Setting {
   key: string;
   value: number;
+  /** text settings only (migration 20261010160000): the key is cross_contact_<venue slug> and value is 0 */
+  text_value?: string | null;
 }
 
 export interface Target {
@@ -152,6 +154,10 @@ export interface DishAllergensEntry {
   without?: Record<string, string>;
   confirmed_at?: string | null;
   confirmed_by?: string | null;
+  /** the components the dish was made from when it was signed off ("ingredient:<id>", "prep:<id>"), sorted and unique; the sign-off is only valid while these still match (lib/dish-allergens.ts) */
+  components?: string[];
+  /** a NEW food dish starts off the menu and its Active switch stays locked until it is signed off; the sign-off clears this */
+  needs_signoff?: boolean;
 }
 
 export interface MenuItem {

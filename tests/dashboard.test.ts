@@ -23,6 +23,7 @@ import {
 import { belowTargetKey, offerBelowTargetKey, offerCheckKey, openRows, ignoredKeySet } from "@/lib/ignored-alerts";
 import type { OfferCost } from "@/lib/offers";
 import { DEFAULT_SETTINGS, type Ingredient, type MenuItem, type Offer, type RecipeLine, type Venue } from "@/lib/types";
+import { ALLERGEN_APPROVAL, MATRIX_REPRINT, type SafetyAlert } from "@/lib/matrix-todo";
 
 /* ---------- builders ---------- */
 const ing = (id: string, over: Partial<Ingredient> = {}): Ingredient =>
@@ -45,7 +46,8 @@ const VENUES = [venue(1, "drift", "Drift Bar"), venue(2, "chiobu", "Chiobu")];
 /** Beef costs $10/kg. At 0.3 kg a portion costs $3 (ex GST). */
 const ings = [ing("beef", { pack_price: 10 })];
 
-const empty: OpenAlerts = { under: [], missing: [], rises: [], check: [], stale: [], gaps: [], happy: [], deals: [], offersBelow: [], offersCheck: [] };
+const empty: OpenAlerts = { under: [], missing: [], rises: [], check: [], stale: [], gaps: [], happy: [], deals: [], offersBelow: [], offersCheck: [], allergenApproval: [], reprint: [] };
+const safety = (kind: SafetyAlert["kind"], venueId: number, slug: string, count: number, over: Partial<SafetyAlert> = {}): SafetyAlert => ({ kind, key: `${kind}:${slug}`, venueId, venueSlug: slug, venueName: slug, count, never: kind === ALLERGEN_APPROVAL ? count : 0, changed: 0, href: `/matrix/todo?venue=${slug}`, ...over });
 const ctx = { venueName: (id: number) => (id === 1 ? "Drift" : "Chiobu"), showVenue: false };
 
 /* ---------- synthetic alert rows (the shapes lib/insights.ts returns) ---------- */
@@ -87,6 +89,8 @@ describe("rankAttention", () => {
     deals: [deal("d-end", "deal_ending", 3), deal("d-exp", "deal_expired", 2)],
     offersBelow: [{ offer: offer("combo-low"), cost: offerCost(0.6) }],
     offersCheck: [{ offer: offer("combo-check"), cost: offerCost(null, { needsCheck: true }) }],
+    allergenApproval: [],
+    reprint: [],
   };
   const ranked = rankAttention(all, ctx);
   const titles = ranked.map((r) => r.title);
@@ -115,10 +119,10 @@ describe("rankAttention", () => {
   it("opens the right place and carries an ignore entry for every row", () => {
     const worst = ranked[0];
     expect(worst.href).toBe("/items/worst");
-    expect(worst.entry.kind).toBe("below_target");
-    expect(worst.entry.key).toBe(belowTargetKey({ item: item("worst"), sellInc: 14 }));
+    expect(worst.entry?.kind).toBe("below_target");
+    expect(worst.entry?.key).toBe(belowTargetKey({ item: item("worst"), sellInc: 14 }));
     expect(ranked.find((r) => r.title === "combo-low")?.href).toBe("/specials/combo-low");
-    expect(ranked.find((r) => r.title === "d-exp")?.entry.kind).toBe("deal_expired");
+    expect(ranked.find((r) => r.title === "d-exp")?.entry?.kind).toBe("deal_expired");
     expect(ranked.find((r) => r.title === "noprice")?.trailing?.text).toBe("Add Price");
   });
   it("says how far under target a row is, in points", () => {
@@ -302,5 +306,63 @@ describe("specialsSummary", () => {
   });
   it("gives every status a word", () => {
     expect(["on", "below", "check", "ignored", "unpriced"].map((s) => specialStatusWord(s as never))).toEqual(["On Target", "Below Target", "Check Items", "Alert Ignored", "No Price"]);
+  });
+});
+
+/* ---------- the two safety alerts (Troy, 10 Oct 2026): dishes need allergen approval, matrix needs reprinting ---------- */
+
+describe("allergen approval and matrix reprint alerts", () => {
+  const withSafety: OpenAlerts = {
+    ...empty,
+    under: [under("worst", 0.5)],
+    missing: [missing("noprice")],
+    allergenApproval: [safety(ALLERGEN_APPROVAL, 1, "drift", 3, { never: 2, changed: 1 }), safety(ALLERGEN_APPROVAL, 2, "chiobu", 5, { never: 5 })],
+    reprint: [safety(MATRIX_REPRINT, 1, "drift", 2)],
+  };
+  const ranked = rankAttention(withSafety, ctx);
+
+  it("counts one row per venue in the Home total, so the number equals the list behind it", () => {
+    const t = alertTotals(withSafety);
+    expect(t.allergenApproval).toBe(2);
+    expect(t.reprint).toBe(1);
+    expect(t.total).toBe(1 + 1 + 2 + 1);
+    expect(ranked).toHaveLength(t.total);
+  });
+  it("puts dishes needing approval ABOVE every price alert (a safety item), most dishes first, and reprinting LAST", () => {
+    expect(ranked.map((r) => r.kind)).toEqual(["allergen_approval", "allergen_approval", "below_target", "missing_price", "matrix_reprint"]);
+    expect(ranked[0].title).toBe("5 dishes need allergen approval");
+    expect(ranked[1].title).toBe("3 dishes need allergen approval");
+    expect(ranked[0].tier).toBeLessThan(Math.min(...ranked.filter((r) => r.kind === "below_target").map((r) => r.tier)));
+    expect(ranked[ranked.length - 1].tier).toBeGreaterThan(Math.max(...ranked.slice(0, -1).map((r) => r.tier)));
+  });
+  it("opens the To Do hub for that venue and names the venue and what is waiting", () => {
+    const first = ranked[0];
+    expect(first.href).toBe("/matrix/todo?venue=chiobu");
+    expect(first.sub).toBe("Chiobu · 5 new");
+    expect(ranked[1].sub).toBe("Drift · 2 new, 1 to re-check");
+    expect(ranked[ranked.length - 1].title).toBe("Drift matrix needs reprinting");
+    expect(ranked[ranked.length - 1].sub).toBe("2 sheets have changed since printed");
+  });
+  it("can never be ignored: no ignore entry, no key that could be saved", () => {
+    for (const r of ranked.filter((x) => x.kind === "allergen_approval" || x.kind === "matrix_reprint")) {
+      expect(r.entry).toBeNull();
+      expect(r.key).toMatch(/^(allergen_approval|matrix_reprint):/);
+    }
+  });
+  it("reads singular wording", () => {
+    expect(rankAttention({ ...empty, allergenApproval: [safety(ALLERGEN_APPROVAL, 1, "drift", 1)] }, ctx)[0].title).toBe("1 dish needs allergen approval");
+    expect(rankAttention({ ...empty, reprint: [safety(MATRIX_REPRINT, 1, "drift", 1)] }, ctx)[0].sub).toBe("1 sheet has changed since printed");
+  });
+  it("never touches the GP summary: the average and status come from item costs only", () => {
+    const costs = costAll([item("a", { sell_price_inc: 22 })], ings, [line("a", "beef", 0.3)]);
+    const before = gpStatus(0.8, 0.72);
+    expect(before.level).toBe("good");
+    expect(venueGpRows(costs.values(), VENUES, []).map((r) => r.under)).toEqual([0, 0]);
+    // alert counts have no input into gpTarget / gpSummary: nothing in lib/dashboard's GP functions takes OpenAlerts
+    expect(gpTarget(costs.values(), null)).toBeCloseTo(0.72, 5);
+  });
+  it("the summary sentence leads with allergen approval", () => {
+    const t = alertTotals(withSafety);
+    expect(summarySentence(t, { hasData: true }).text.startsWith("2 venues have dishes waiting for allergen approval.")).toBe(true);
   });
 });

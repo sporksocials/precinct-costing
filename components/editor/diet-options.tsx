@@ -9,6 +9,25 @@ import { Group, Toggle, useToast } from "../ui";
 import { BadgeLegend, SeafoodChip } from "../allergen-badges";
 import { useBadgeModel } from "../allergen-picker";
 import { OptionSwapPanel } from "./diet-option-swap";
+import { SafetyBlock } from "./safety-card";
+
+/**
+ * One block of this panel. On a food dish (`card`) it is a sibling block inside the shared Allergens And Dietary card (same heading,
+ * explanation and spacing as Dish Allergens); anywhere else it is the plain grouped list it always was.
+ */
+function Section({ card, title, explain, trailing, footer, children }: { card?: boolean; title: string; explain: string; trailing?: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) {
+  if (card)
+    return (
+      <SafetyBlock title={title} explain={explain} trailing={trailing} footer={footer}>
+        {children}
+      </SafetyBlock>
+    );
+  return (
+    <Group title={title} className="mt-6" trailing={trailing} footer={footer}>
+      {children}
+    </Group>
+  );
+}
 
 type Options = NonNullable<MenuItem["diet_options"]>;
 
@@ -25,7 +44,7 @@ type Options = NonNullable<MenuItem["diet_options"]>;
  * saved with a note. Turning one on shows the note field; until it has text the option stays out of the draft and the row
  * says so. The options say what the kitchen can change on request: there is no safety check on what is left.
  */
-export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void }) {
+export function DietOptionsGroup({ item, lines, onPatch, card }: { item: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void; card?: boolean }) {
   const ready = "diet_options" in item || "seafood_label" in item;
   const saved: Options = item.diet_options && typeof item.diet_options === "object" && !Array.isArray(item.diet_options) ? item.diet_options : {};
   const [pending, setPending] = useState<Set<DietOptionId>>(new Set());
@@ -115,11 +134,7 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
 
   return (
     <>
-    <Group
-      title="Dietary Marks"
-      className="mt-6"
-      footer="Ticked by hand. The app never works these out. A dish marked Vegan prints VG only."
-    >
+    <Section card={card} title="Dietary Marks" explain="GF, V and VG as served." footer="Ticked by hand. The app never works these out. A dish marked Vegan prints VG only.">
       {DIET_MARKS.map((m) => {
         const on = marksOn.includes(m.id);
         // vegan includes vegetarian: say so on the Vegetarian row rather than leaving it looking untouched
@@ -138,12 +153,13 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
           />
         );
       })}
-    </Group>
+    </Section>
 
-    <Group
+    <Section
+      card={card}
       title="Dietary Options"
-      className="mt-6"
-      trailing={needNote.length ? <span className="pb-0.5 text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
+      explain="GFO, VO, VGO and DFO swaps, with their own costing."
+      trailing={needNote.length ? <span className="text-[13px] font-medium text-warn">{needNote.length} {needNote.length === 1 ? "option needs" : "options need"} a note</span> : null}
       footer="These say what the kitchen can change on request, and what that costs. The app does not check what is left."
     >
       {!ready ? <p className="px-4 py-3 text-[13px] text-label-2">Dietary options can’t be saved until the database has its dietary options update.</p> : null}
@@ -216,7 +232,7 @@ export function DietOptionsGroup({ item, lines, onPatch }: { item: MenuItem; lin
         <summary className="cursor-pointer text-[15px] text-accent sm:text-[13px]">Menu Legend</summary>
         <BadgeLegend className="mt-2" />
       </details>
-    </Group>
+    </Section>
     </>
   );
 }

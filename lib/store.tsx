@@ -6,6 +6,10 @@ import { fetchFreshRecord, guardedUpdate, type RecordKind } from "@/lib/fresh-re
 import { cleanName } from "@/lib/people";
 import type { PlannedChild, RestorePlan } from "@/lib/trash";
 import { latestPortalRows } from "@/lib/insights";
+import { latestPrints, readPrint, type MatrixPrint } from "@/lib/matrix-prints";
+import { freshVerdict, type FreshVerdict } from "@/lib/matrix-review";
+import { groupLines, withLines } from "@/lib/allergy-recheck";
+import { currentComponents } from "@/lib/dish-allergens";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseBrowser } from "./supabase/client";
@@ -234,6 +238,23 @@ export interface StoreValue extends StoreData {
   portalPrices: PortalPrice[] | null;
   portalError: string | null;
   loadPortalPrices: () => void;
+  /** the highest-version Allergy Matrix print per venue and section (cost_matrix_prints); null until loaded, [] when the table does not exist yet */
+  matrixPrints: MatrixPrint[] | null;
+  /** reads the print log once (Home, the Matrix page and the To Do hub call this); later calls do nothing */
+  loadMatrixPrints: () => void;
+  /** reads the print log again, so a print made on another device shows up. Never throws. */
+  refreshMatrixPrints: () => Promise<void>;
+  /**
+   * Writes one print to the log (through insertRow) and keeps it in `matrixPrints`. Throws a plain message when the log could not be
+   * saved (the table is missing, or the same version was logged a moment ago); a print never depends on it.
+   */
+  logMatrixPrint: (row: Omit<MatrixPrint, "id" | "printed_at">) => Promise<MatrixPrint>;
+  /**
+   * Review mode's confirm (Troy, 10 Oct 2026): re-reads the dish and its lines fresh from the database, refuses (writes nothing) when it
+   * is gone or changed since the review showed it (`shown`), otherwise writes `make(components, freshRow)` guarded by the fresh
+   * updated_at, so history, edit stamps and the local copy stay right. Throws when the database cannot be reached: never a blind write.
+   */
+  confirmDish: (itemId: string, shown: { updatedAt: string | null | undefined; ownComponents: readonly string[] }, make: (components: string[], fresh: MenuItem) => Partial<MenuItem>) => Promise<FreshVerdict>;
   userEmail: string | null;
   accessDenied: boolean;
   reload: () => Promise<void>;
@@ -293,6 +314,8 @@ export interface StoreValue extends StoreData {
   undoConfirmIngredientPrice: (id: string, receipt: ConfirmReceipt) => Promise<void>;
   insertIngredient: (ing: Omit<Ingredient, "id" | "updated_at">) => Promise<string>;
   updateSetting: (key: keyof CostingSettings, value: number) => Promise<void>;
+  /** saves a text setting (cost_settings.text_value; value is 0), for example the cross-contact line of a venue. Blank text removes the line. */
+  updateTextSetting: (key: string, text: string) => Promise<void>;
   upsertTarget: (venueId: number, category: string, targetGp: number) => Promise<void>;
   addAllowedUser: (email: string) => Promise<void>;
   removeAllowedUser: (email: string) => Promise<void>;
@@ -792,6 +815,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [portalPrices, setPortalPrices] = useState<PortalPrice[] | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [matrixPrints, setMatrixPrints] = useState<MatrixPrint[] | null>(null);
+  const printsLoading = useRef(false);
   const [assumptionsUnsaved, setAssumptionsUnsaved] = useState(false);
   const [today, setTodayState] = useState<string>(() => brisbaneToday());
   const todayRef = useRef(today);
@@ -1011,6 +1036,61 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, [sb]);
+
+  // ---- Allergy Matrix print log (cost_matrix_prints): read on demand, never part of the startup load ----
+  const readPrints = useCallback(async (): Promise<MatrixPrint[]> => {
+    try {
+      const all = await fetchAll<unknown>(sb, "cost_matrix_prints", "printed_at");
+      return latestPrints(all.map(readPrint).filter((p): p is MatrixPrint => p !== null));
+    } catch (e) {
+      if (isSchemaMissingError(e)) return []; // the print log update is not applied yet: nothing has been printed as far as the app can tell
+      throw e;
+    }
+  }, [sb]);
+  const loadMatrixPrints = useCallback(() => {
+    if (printsLoading.current) return;
+    printsLoading.current = true;
+    readPrints().then(setMatrixPrints, () => {
+      printsLoading.current = false; // try again next time a screen asks
+    });
+  }, [readPrints]);
+  const refreshMatrixPrints = useCallback(async () => {
+    try {
+      setMatrixPrints(await readPrints());
+    } catch {
+      /* keep what is already shown */
+    }
+  }, [readPrints]);
+  const logMatrixPrint = useCallback(
+    async (row: Omit<MatrixPrint, "id" | "printed_at">): Promise<MatrixPrint> => {
+      const { data: saved, error } = await insertRow(sb, "cost_matrix_prints", row).select("*");
+      if (error) {
+        if (isSchemaMissingError(error)) throw new Error("The print log is not set up in the database yet.");
+        throw new Error(error.code === "23505" ? "This version was just logged on another device." : error.message);
+      }
+      const stored = readPrint(saved?.[0]) ?? { ...row, id: "", printed_at: new Date().toISOString() };
+      setMatrixPrints((prev) => latestPrints([...(prev ?? []), stored]));
+      return stored;
+    },
+    [sb],
+  );
+
+  const confirmDish = useCallback(
+    async (itemId: string, shown: { updatedAt: string | null | undefined; ownComponents: readonly string[] }, make: (components: string[], fresh: MenuItem) => Partial<MenuItem>): Promise<FreshVerdict> => {
+      const fresh = await fetchFreshRecord<MenuItem>(sb, "item", itemId);
+      const verdict = freshVerdict(fresh, shown);
+      if (!verdict.ok) return verdict;
+      const row = fresh.row as MenuItem;
+      // the components are worked out from the fresh lines of the dish and the stored lines of every prep under it
+      const components = currentComponents("item", itemId, withLines(groupLines(dataRef.current.lines), "item", itemId, fresh.lines));
+      const r = await guardedUpdate<MenuItem>(sb, "item", itemId, make(components, row), row.updated_at ?? null);
+      if (!r.row) return { ok: false, reason: "changed" };
+      const saved = r.row;
+      setData((d) => ({ ...d, items: d.items.map((i) => (i.id === itemId ? { ...i, ...saved } : i)) }));
+      return { ok: true };
+    },
+    [sb, setData],
+  );
 
   // Deals follow the date: move `today` at Brisbane midnight (timer), on tab focus / visibility, and by a 60s safety tick.
   // Everything costed from the index depends on `today`, so a change recomputes costs in place (no remount, editors keep state).
@@ -1421,6 +1501,25 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  const updateTextSetting = useCallback(
+    async (key: string, text: string) => {
+      const clean = text.trim().replace(/\s+/g, " ");
+      try {
+        await upsertAll(sb, "cost_settings", [{ key, value: 0, text_value: clean || null }], "key", "key");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(/text_value/i.test(msg) ? "This setting can’t be saved until the database has its cross-contact update." : msg);
+      }
+      setData((d) => {
+        const rawSettings = d.rawSettings.some((s) => s.key === key)
+          ? d.rawSettings.map((s) => (s.key === key ? { ...s, text_value: clean || null } : s))
+          : [...d.rawSettings, { key, value: 0, text_value: clean || null }];
+        return { ...d, rawSettings };
+      });
+    },
+    [sb, setData],
+  );
+
   const upsertTarget = useCallback(
     async (venueId: number, category: string, targetGp: number) => {
       await upsertAll(sb, "cost_targets", [{ venue_id: venueId, category, target_gp: targetGp }], "venue_id,category", "category");
@@ -1821,6 +1920,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     portalError,
     assumptionsUnsaved,
     loadPortalPrices,
+    matrixPrints,
+    loadMatrixPrints,
+    refreshMatrixPrints,
+    logMatrixPrint,
+    confirmDish,
     userEmail,
     accessDenied,
     reload,
@@ -1856,6 +1960,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     undoConfirmIngredientPrice,
     insertIngredient,
     updateSetting,
+    updateTextSetting,
     upsertTarget,
     addAllowedUser,
     removeAllowedUser,

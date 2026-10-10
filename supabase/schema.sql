@@ -2113,17 +2113,65 @@ end $$;
 
 comment on column public.cost_menu_items.dish_allergens is 'The dish''s own hand-listed allergens: contains (allergen ids), without (id to a "made without" note), confirmed_at and confirmed_by (the sign-off). Null = no section yet. Read only by the Allergy Matrix; never derived from ingredients.';
 
--- ---- Kitchen Allergy Matrix feed; see supabase/migrations/20261010140000_kitchen_matrix.sql ----
--- Kitchen Allergy Matrix feed (Troy, 10 Oct 2026). The public, no-login kitchen iPad shows the Allergy Matrix at
--- /kitchen/<venue>/matrix. Like cost_kitchen_data it reads through ONE narrow SECURITY DEFINER function and nothing else:
---   * only the venue's ACTIVE FOOD dishes (not gated by kitchen_ready: the matrix lists every active dish);
---   * per dish, an allow-list of display fields: id, name, section, the dish's own allergens (contains, can-be-made-without notes and
---     the sign-off TIME, never who signed it off), the hand-set marks (gf, v, vg) and each dietary option (gfo, vo, vgo, dfo);
---   * each option's swap is resolved to NAMES here ("left_out": ingredient and prep names; "added": name, qty, unit), so the iPad can say
---     "Leave out Brioche Bun. Add Tamari 15 ml." without reading any other table;
---   * NEVER a price: surcharge_inc is not selected, and no cost, GP, target or supplier appears anywhere.
--- Apply AFTER 20261010130000_dish_allergens.sql (the function reads cost_menu_items.dish_allergens). Malformed jsonb is skipped,
--- never an error: a bad value in one dish must not break the public feed. Idempotent.
+-- ---- Allergy Matrix print log; see supabase/migrations/20261010150000_matrix_prints.sql ----
+-- Allergy Matrix print log (Troy, 10 Oct 2026). Every time a matrix is printed from /matrix/print the app writes one row here, so each
+-- printed sheet has a version number and the costing app can say "Last printed 10 Oct 2026, version 3" and "Changed since printed:
+-- 2 added, 1 removed, 3 changed".
+--   venue_id  the venue the sheet belongs to (a sheet is always one venue)
+--   section   the menu section on the sheet, or '*' for the All Sections print
+--   version   1, 2, 3 ... per (venue, section): the previous highest + 1 (the app reads the highest, the unique key stops a double write)
+--   snapshot  { "<dish id>": "<short stable hash of that dish's printed row>" }: name, section, every cell state and note, and whether the
+--             sign-off was valid. Comparing it with the matrix as it is now says which dishes were added, removed or changed since.
+-- Read and insert only, for people on the allowed list (cost_is_allowed()). No update or delete policy: a print happened, it is never
+-- edited. NOT tracked by the change history trigger (it is a log, not a record anyone edits). Idempotent.
+create table if not exists public.cost_matrix_prints (
+  id uuid primary key default gen_random_uuid(),
+  venue_id integer not null references public.cost_venues (id),
+  section text not null,
+  version integer not null check (version >= 1),
+  printed_at timestamptz not null default now(),
+  printed_by text,
+  snapshot jsonb not null default '{}'::jsonb check (jsonb_typeof(snapshot) = 'object'),
+  unique (venue_id, section, version)
+);
+
+create index if not exists cost_matrix_prints_venue_idx on public.cost_matrix_prints (venue_id, section, version desc);
+
+alter table public.cost_matrix_prints enable row level security;
+drop policy if exists cost_matrix_prints_select on public.cost_matrix_prints;
+create policy cost_matrix_prints_select on public.cost_matrix_prints for select to authenticated using (public.cost_is_allowed());
+drop policy if exists cost_matrix_prints_insert on public.cost_matrix_prints;
+create policy cost_matrix_prints_insert on public.cost_matrix_prints for insert to authenticated with check (public.cost_is_allowed());
+
+comment on table public.cost_matrix_prints is 'Allergy Matrix print log: one row per print of a venue section (or * for all sections) with a version number and a hash snapshot of each dish row, so the app can say what changed since the last print. Insert and select only.';
+
+-- ---- Venue cross-contact line; see supabase/migrations/20261010160000_cross_contact_setting.sql ----
+-- Venue cross-contact line (Troy, 10 Oct 2026): a short standing line per venue, printed in the footer of every Allergy Matrix sheet
+-- and shown on the kitchen iPad matrix ("Shared fryer and grill: cross-contact is possible. Ask the head chef if unsure.").
+-- cost_settings.value is numeric, so it cannot hold text. The smallest change is one nullable text column beside it:
+--   key = 'cross_contact_<venue slug>' (for example cross_contact_drift), value = 0, text_value = the line.
+-- Everything else reads only the keys it knows (gst_rate, round_to, alert_pct, gelato_wastage), so these rows are invisible to costing.
+-- cost_settings already has the audit and change history triggers, so an edit lands in the Change Log with no further change.
+-- A venue with no row (or a blank text_value) uses the default line in the app and in cost_kitchen_matrix. Idempotent.
+alter table public.cost_settings add column if not exists text_value text;
+
+comment on column public.cost_settings.text_value is 'Text settings: key cross_contact_<venue slug> holds that venue''s standing cross-contact line (value is 0 for these rows).';
+
+-- ---- Kitchen Allergy Matrix feed (re-check rule, cross-contact line); supersedes 20261010140000_kitchen_matrix.sql, see supabase/migrations/20261010170000_kitchen_matrix_recheck.sql ----
+-- Kitchen Allergy Matrix feed, round two (Troy, 10 Oct 2026). Replaces cost_kitchen_matrix (20261010140000) with two additions:
+--
+-- 1. THE RE-CHECK RULE, server side, so the public iPad can never show green for a dish whose ingredients changed after it was signed off.
+--    A sign-off is only valid while the set of components the dish is made from is exactly the set stored when it was signed off
+--    (dish_allergens.components: "ingredient:<id>" / "prep:<id>"). The set is the dish's own recipe lines plus the lines of every prep
+--    they use, recursively (cycle safe, capped at 8 levels like COMPONENT_DEPTH in lib/dish-allergens.ts). The two sets are compared
+--    as SETS (order and repeats do not matter, and no collation can reorder them). If they differ, or the stored list is missing
+--    (a sign-off made before this rule), the dish is sent with NO confirmed_at, so the iPad reads grey Not checked. Amounts never
+--    matter: only which ingredients and preps.
+-- 2. cross_contact: the venue's standing cross-contact line from cost_settings (key cross_contact_<slug>, text_value; migration
+--    20261010160000), or null when unset (the app then uses its default line).
+--
+-- Still an allow-list of display fields: never a price, surcharge, cost, target, supplier, who signed off, or the components list.
+-- Apply AFTER 20261010160000_cross_contact_setting.sql (it reads cost_settings.text_value). Idempotent.
 create or replace function public.cost_kitchen_matrix(p_venue text)
 returns json
 language sql
@@ -2131,13 +2179,49 @@ stable
 security definer
 set search_path = public
 as $$
-  with
+  with recursive
   v as (select id, slug, name from cost_venues where slug = p_venue),
   dishes as (
     select mi.id, mi.name, mi.section, mi.dish_allergens, mi.diet_options
     from cost_menu_items mi
     join v on mi.venue_id = v.id
     where mi.active and mi.category = 'Food'
+  ),
+  -- every ingredient and prep each dish is made from: its own lines (depth 0), then the lines of each prep found (depth + 1)
+  walk(dish_id, component_type, component_id, depth) as (
+    select d.id, rl.component_type, rl.component_id, 0
+    from dishes d
+    join cost_recipe_lines rl on rl.parent_type = 'item' and rl.parent_id = d.id
+    union
+    select w.dish_id, rl.component_type, rl.component_id, w.depth + 1
+    from walk w
+    join cost_recipe_lines rl on rl.parent_type = 'prep' and rl.parent_id = w.component_id
+    where w.component_type = 'prep' and w.depth < 8
+  ),
+  closure as (
+    select dish_id, array_agg(distinct (component_type || ':' || component_id::text)) as keys
+    from walk
+    group by dish_id
+  ),
+  -- the components stored at sign-off (null when missing or not a list)
+  stored as (
+    select d.id as dish_id,
+           case when jsonb_typeof(d.dish_allergens -> 'components') = 'array'
+                then array(select distinct e from jsonb_array_elements_text(d.dish_allergens -> 'components') e)
+           end as keys
+    from dishes d
+    where jsonb_typeof(d.dish_allergens) = 'object'
+  ),
+  -- a sign-off counts only when it has a time and its stored components equal the dish's components now
+  sign as (
+    select d.id as dish_id,
+           coalesce(nullif(d.dish_allergens ->> 'confirmed_at', '') is not null
+                    and s.keys is not null
+                    and s.keys @> coalesce(c.keys, '{}'::text[])
+                    and coalesce(c.keys, '{}'::text[]) @> s.keys, false) as valid
+    from dishes d
+    left join stored s on s.dish_id = d.id
+    left join closure c on c.dish_id = d.id
   ),
   -- one row per dietary option a dish offers
   opts as (
@@ -2177,6 +2261,7 @@ as $$
   )
   select json_build_object(
     'venue', (select json_build_object('slug', slug, 'name', name) from v),
+    'cross_contact', (select nullif(btrim(text_value), '') from cost_settings where key = 'cross_contact_' || p_venue),
     'dishes', coalesce((
       select json_agg(
         json_build_object(
@@ -2184,7 +2269,11 @@ as $$
           'name', d.name,
           'section', d.section,
           'dish_allergens', case when jsonb_typeof(d.dish_allergens) = 'object'
-            then jsonb_build_object('contains', d.dish_allergens -> 'contains', 'without', d.dish_allergens -> 'without', 'confirmed_at', d.dish_allergens -> 'confirmed_at')
+            then jsonb_build_object(
+              'contains', d.dish_allergens -> 'contains',
+              'without', d.dish_allergens -> 'without',
+              -- the sign-off time only while it is still valid; otherwise absent, so the iPad reads Not checked
+              'confirmed_at', case when sg.valid then d.dish_allergens -> 'confirmed_at' end)
             end,
           'marks', coalesce((
             select jsonb_agg(m.key order by m.key)
@@ -2201,7 +2290,8 @@ as $$
             where op.dish_id = d.id), '{}'::jsonb)
         )
         order by d.section nulls last, d.name)
-      from dishes d), '[]'::json)
+      from dishes d
+      left join sign sg on sg.dish_id = d.id), '[]'::json)
   )
   where exists (select 1 from v);
 $$;
@@ -2209,4 +2299,4 @@ $$;
 revoke all on function public.cost_kitchen_matrix(text) from public;
 grant execute on function public.cost_kitchen_matrix(text) to anon, authenticated;
 
-comment on function public.cost_kitchen_matrix(text) is 'Kitchen display (public iPad Allergy Matrix): one venue''s active Food dishes with their own allergens (contains, can-be-made-without notes, sign-off time), hand-set marks and dietary options with the swap resolved to names. Display fields only: never a price, surcharge, cost or who signed off. Null when the venue slug does not exist.';
+comment on function public.cost_kitchen_matrix(text) is 'Kitchen display (public iPad Allergy Matrix): one venue''s active Food dishes with their own allergens (contains, can-be-made-without notes, sign-off time ONLY while the sign-off is still valid: the dish''s components, through nested preps, must equal those stored at sign-off), hand-set marks and dietary options with the swap resolved to names, and the venue''s cross-contact line. Display fields only: never a price, surcharge, cost, who signed off or the components list. Null when the venue slug does not exist.';

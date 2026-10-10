@@ -1,4 +1,4 @@
-import { MATRIX_COLUMNS, MATRIX_FOOTER_NOTE, MATRIX_LEGEND, STATE_WORD, type MatrixSection, type MatrixState } from "./allergy-matrix";
+import { DEFAULT_CROSS_CONTACT, MATRIX_COLUMNS, MATRIX_FOOTER_NOTE, MATRIX_LEGEND, STATE_WORD, crossContactLine, type MatrixSection, type MatrixState } from "./allergy-matrix";
 
 /**
  * The printed Allergy Matrix model (Troy, 10 Oct 2026): A4 LANDSCAPE, one matrix per (venue, section). Pure: it turns the
@@ -61,7 +61,13 @@ export interface PrintSheetModel {
   pages: PrintPageModel[];
   /** "Printed 10 Oct 2026, Brisbane time" */
   printedLine: string;
+  /** "Sheet version 3", or null when the print log could not be read (the sheet then has no version) */
+  versionLine: string | null;
   footerNote: string;
+  /** the venue's standing cross-contact line, printed on every page (its own or the default) */
+  crossContact: string;
+  /** the address the footer QR code opens (the live kitchen iPad matrix), or null when the venue has no iPad matrix */
+  qrUrl: string | null;
   /** dishes on the sheet that are not signed off (they print grey, Not checked) */
   notCheckedCount: number;
 }
@@ -69,7 +75,7 @@ export interface PrintSheetModel {
 /* ------------------------------------------------------------------ paging */
 
 /** Printable height of a page's body, after the title block, the heading row and the footer (mm). Deliberately a little short. */
-export const PAGE_ROW_BUDGET_MM = 140;
+export const PAGE_ROW_BUDGET_MM = 126;
 export const MIN_ROW_MM = 11;
 const LINE_MM = 4.9; // 11pt at 1.25 leading is 4.85mm
 const ROW_PAD_MM = 3.6;
@@ -154,9 +160,19 @@ function rowModel(r: MatrixSection["rows"][number]): PrintRowModel {
   };
 }
 
+export function versionLine(version: number | null | undefined): string | null {
+  return version == null ? null : `Sheet version ${version}`;
+}
+
+/** The live iPad matrix a printed sheet's QR code opens. */
+export function liveMatrixUrl(origin: string, venueSlug: string): string {
+  return `${origin.replace(/\/+$/, "")}/kitchen/${venueSlug}/matrix`;
+}
+
 /** One sheet per section that has at least one dish. */
-export function buildMatrixSheets(input: { venueName: string; sections: readonly MatrixSection[]; now: Date }): PrintSheetModel[] {
+export function buildMatrixSheets(input: { venueName: string; sections: readonly MatrixSection[]; now: Date; version?: number | null; crossContact?: string | null; qrUrl?: string | null }): PrintSheetModel[] {
   const line = printedLine(input.now);
+  const crossContact = crossContactLine(input.crossContact);
   return input.sections
     .filter((s) => s.rows.length > 0)
     .map((s) => {
@@ -171,7 +187,10 @@ export function buildMatrixSheets(input: { venueName: string; sections: readonly
         columns: MATRIX_COLUMNS.map((c) => ({ id: c.id, label: c.label })),
         pages: chunks.map((rs, i) => ({ number: i + 1, of: chunks.length, rows: rs })),
         printedLine: line,
+        versionLine: versionLine(input.version),
         footerNote: MATRIX_FOOTER_NOTE,
+        crossContact,
+        qrUrl: input.qrUrl ?? null,
         notCheckedCount: s.rows.filter((r) => !r.confirmed).length,
       };
     });
@@ -226,8 +245,14 @@ export const MATRIX_PRINT_CSS = `
 .am-green { background: #a9e3b8 !important; color: #000; }
 .am-grey { background: #d6d6d6 !important; color: #000; background-image: repeating-linear-gradient(135deg, #bdbdbd 0 1.2mm, #d6d6d6 1.2mm 2.4mm) !important; }
 .am-icon { display: inline-block; width: 3.2mm; height: 3.2mm; vertical-align: -0.5mm; margin-right: 0.8mm; }
-.am-foot { margin-top: auto; padding-top: 1.6mm; display: flex; justify-content: space-between; gap: 6mm; font-size: ${FOOTER_PT}pt; line-height: 1.25; }
+.am-foot { margin-top: auto; padding-top: 1.6mm; display: flex; align-items: flex-end; justify-content: space-between; gap: 6mm; font-size: ${FOOTER_PT}pt; line-height: 1.25; }
+.am-foot-text { min-width: 0; flex: 1; }
+.am-foot-text p { margin: 0; }
+.am-cross { margin-top: 1mm !important; font-size: ${BODY_PT}pt; font-weight: 700; line-height: 1.25; }
+.am-foot-right { display: flex; align-items: flex-end; gap: 4mm; flex: none; }
 .am-pageno { white-space: nowrap; }
+.am-qr { display: flex; flex-direction: column; align-items: center; gap: 0.6mm; font-size: 8pt; font-weight: 700; line-height: 1.1; text-align: center; }
+.am-qr svg { display: block; width: 19mm; height: 19mm; }
 .am-nc { margin: 0 0 1.5mm; font-size: ${BODY_PT}pt; font-weight: 700; }
 
 @media print {

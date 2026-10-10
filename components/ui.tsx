@@ -287,7 +287,7 @@ export function SearchField({
   );
 }
 
-export function Toggle({ checked, onChange, label, sub }: { checked: boolean; onChange: (v: boolean) => void; label?: React.ReactNode; sub?: React.ReactNode }) {
+export function Toggle({ checked, onChange, label, sub, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: React.ReactNode; sub?: React.ReactNode; disabled?: boolean }) {
   const id = useId();
   const sw = (
     <button
@@ -295,8 +295,9 @@ export function Toggle({ checked, onChange, label, sub }: { checked: boolean; on
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cx("relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200", checked ? "bg-accent-fill" : "bg-fill-2")}
+      className={cx("relative inline-flex h-[31px] w-[51px] shrink-0 items-center rounded-full transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40", checked ? "bg-accent-fill" : "bg-fill-2")}
     >
       <span className={cx("inline-block h-[27px] w-[27px] rounded-full bg-white shadow-[0_3px_8px_rgba(0,0,0,0.15),0_1px_1px_rgba(0,0,0,0.16)] transition-transform duration-200 ease-ios", checked ? "translate-x-[22px]" : "translate-x-[2px]")} />
     </button>

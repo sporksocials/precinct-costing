@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { Suspense, useEffect, useRef } from "react";
-import { BookOpen, Carrot, ClipboardList, Ellipsis, HeartPulse, History, House, Lightbulb, LogOut, Search, Settings, ShieldCheck, Store, Tag, Trash2, Wheat } from "lucide-react";
+import { BookOpen, Carrot, ClipboardList, Ellipsis, HeartPulse, History, House, Lightbulb, ListChecks, LogOut, Search, Settings, ShieldCheck, Store, Tag, Trash2, Wheat, type LucideIcon } from "lucide-react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { CommandPalette, openSearch } from "./search";
 import { NewRecipeProvider } from "./new-recipe";
@@ -17,6 +17,7 @@ const MAIN = [
   { href: "/menu", label: "Menu", icon: BookOpen },
   { href: "/allergens", label: "Menu Labels", icon: Wheat },
   { href: "/matrix", label: "Allergy Matrix", icon: ShieldCheck },
+  { href: "/matrix/todo", label: "Matrix To Do", icon: ListChecks, child: true },
   { href: "/ingredients", label: "Ingredients", icon: Carrot },
   { href: "/specials", label: "Specials", icon: Tag },
   { href: "/ordering", label: "Ordering", icon: ClipboardList },
@@ -32,6 +33,9 @@ const MORE = [
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/" || pathname === "/alerts"; // the full alert list is part of Home
+  // the matrix To Do list (and review mode, which it starts) is its own entry under Allergy Matrix
+  if (href === "/matrix") return pathname === "/matrix" || pathname.startsWith("/matrix/print");
+  if (href === "/matrix/todo") return pathname.startsWith("/matrix/todo") || pathname.startsWith("/matrix/review");
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
   if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
   if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps");
@@ -41,7 +45,7 @@ function isActive(pathname: string, href: string) {
 function Sidebar() {
   const pathname = usePathname();
   const { userEmail, signOut } = useStore();
-  const link = (n: (typeof MAIN)[number]) => {
+  const link = (n: { href: string; label: string; icon: LucideIcon; child?: boolean }) => {
     const on = isActive(pathname, n.href);
     const Icon = n.icon;
     return (
@@ -49,7 +53,7 @@ function Sidebar() {
         key={n.href}
         href={n.href}
         aria-current={on ? "page" : undefined}
-        className={cx("flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[15px] transition-colors", on ? "bg-fill-2 font-semibold text-label" : "text-label hover:bg-fill")}
+        className={cx("flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[15px] transition-colors", n.child && "ml-5", on ? "bg-fill-2 font-semibold text-label" : "text-label hover:bg-fill")}
       >
         <Icon className={cx("h-[18px] w-[18px]", on ? "text-accent" : "text-label-2")} strokeWidth={2} />
         {n.label}
@@ -91,7 +95,8 @@ const TABS = [
 ];
 
 export function hidesTabBar(pathname: string) {
-  return /^\/(items|preps)\/[^/]+$/.test(pathname);
+  // record pages hold their own save bar, and Allergy Matrix review holds its own Confirm bar: neither shares the bottom with the tab bar
+  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review";
 }
 
 function TabBar() {

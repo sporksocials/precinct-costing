@@ -156,7 +156,7 @@ export function buttonName(item: string, max: number = BUTTON_MAX): { name: stri
 /* ------------------------------------------------------------------ groups */
 
 /** Where each menu group sits. "Smalls" and "Mains" are Chiobu's words for Small chow and Big chow. */
-const GROUP_ORDER: string[][] = [["small chow", "smalls"], ["salads"], ["sides"], ["big chow", "mains"], ["food"], ["cocktails"], ["mocktails"], ["wine"], ["tap beer"], ["soft drinks"]];
+const GROUP_ORDER: string[][] = [["small chow", "smalls"], ["salads"], ["sides"], ["big chow", "mains"], ["food"], ["cocktails"], ["mocktails"], ["wine"], ["tap beer"], ["sake"], ["soju"], ["boba"], ["soft drinks"]];
 
 export function groupRank(group: string): number {
   const g = group.trim().toLowerCase();

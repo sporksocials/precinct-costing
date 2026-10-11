@@ -14,8 +14,12 @@ export const MENU_CATEGORIES = [
   "Wine",
   "Spirits",
   "RTD",
+  "Soju, Sake & Boba",
 ] as const;
 export type MenuCategory = (typeof MENU_CATEGORIES)[number];
+
+/** Chiobu's own menu section for sake, soju and boba (Troy, 11 Oct 2026). A drink like any other; each item keeps its own section (Sake, Soju, Boba). */
+export const SOJU_SAKE_BOBA = "Soju, Sake & Boba";
 
 export const PACK_UNITS: PackUnit[] = ["kg", "L", "each"];
 export const LINE_UNITS: LineUnit[] = ["g", "kg", "ml", "L", "each"];

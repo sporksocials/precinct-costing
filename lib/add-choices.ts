@@ -34,6 +34,7 @@ export const ADD_CHOICES: readonly AddChoice[] = [
   { id: "spirits", label: "Spirits", destination: { kind: "item", category: "Spirits" } },
   { id: "packaged", label: "Packaged Beer & Cider", destination: { kind: "item", category: "Packaged Beer & Cider" } },
   { id: "rtd", label: "RTD", destination: { kind: "item", category: "RTD" } },
+  { id: "soju-sake-boba", label: "Soju, Sake & Boba", destination: { kind: "item", category: "Soju, Sake & Boba" } },
   { id: "tap-beer", label: "Tap Beer", destination: { kind: "beer" } },
   { id: "gelato", label: "Gelato Flavour", destination: { kind: "flavour" } },
   { id: "prep", label: "Prep", destination: { kind: "prep" } },
@@ -56,6 +57,7 @@ export function beerDefaultVenueId(venue: { id: number; slug: string } | null | 
 }
 
 const KEYWORDS: [RegExp, string][] = [
+  [/\b(sake|soju|boba)\b/i, "Soju, Sake & Boba"],
   [/\b(nip|30 ?ml|shot)\b/i, "Spirits"],
   [/\b(stubby|can|bottle of beer|cider|seltzer)\b/i, "Packaged Beer & Cider"],
   [/\b(rtd|premix|cruiser|smirnoff)\b/i, "RTD"],

@@ -414,3 +414,12 @@ describe("tap beer sizes and strays (Troy, 11 Oct 2026)", () => {
     expect(rows.map((r) => r.item)).toEqual(["Burger"]);
   });
 });
+
+describe("Sake, Soju and Boba menu groups", () => {
+  it("sit after Tap Beer and before Soft Drinks, each as its own group", () => {
+    expect(groupRank("Sake")).toBeGreaterThan(groupRank("Tap Beer"));
+    expect(groupRank("Soju")).toBeGreaterThan(groupRank("Sake"));
+    expect(groupRank("Boba")).toBeGreaterThan(groupRank("Soju"));
+    expect(groupRank("Soft Drinks")).toBeGreaterThan(groupRank("Boba"));
+  });
+});

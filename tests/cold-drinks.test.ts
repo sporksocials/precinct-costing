@@ -222,3 +222,13 @@ describe("migration 20261005200000_bar_menu_cold_drinks", () => {
     expect(fn(sql, "cost_bar_premix")).toBe(fn(premixPrev, "cost_bar_premix"));
   });
 });
+
+describe("Soju, Sake & Boba category", () => {
+  it("is a drink for the GP split and the labels", () => {
+    expect(DRINK_CATEGORIES.has("Soju, Sake & Boba")).toBe(true);
+    expect(isDrinkItem({ category: "Soju, Sake & Boba" })).toBe(true);
+  });
+  it("is not carried by the drinks station (only cocktails, mocktails and cold drinks are)", () => {
+    expect(isBarCategory("Soju, Sake & Boba")).toBe(false);
+  });
+});

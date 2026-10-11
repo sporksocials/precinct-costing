@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Ellipsis, FlaskConical, GripVertical, Printer } from "lucide-react";
+import { ChevronLeft, Ellipsis, FlaskConical, GripVertical, Pencil, Printer } from "lucide-react";
 import { useBackHref } from "@/components/use-back-href";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
@@ -11,7 +11,8 @@ import { gp, money, parseDecimal, unitShort } from "@/lib/format";
 import { formatQty } from "@/lib/parse-qty";
 import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
-import { batchWeightKg, flavourName, isGelatoFlavour } from "@/lib/gelato";
+import { batchWeightKg, flavourName, isGelatoFlavour, parseVirtualItemId } from "@/lib/gelato";
+import { clashMessage, findClash } from "@/lib/rename";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
 import { VenueAccent, VENUE_SHORT } from "../venue";
 import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
@@ -98,6 +99,18 @@ function friendlyWarning(lc: LineCost | undefined, adjusted: boolean): string | 
   if (adjusted) return `Set to ${unitShort(lc.line.unit)} — ${lc.componentName} is bought ${base}. Check the quantity.`;
   if (!lc.unitCost) return `No price for ${lc.componentName} yet.`;
   return null;
+}
+
+/** The other dish, drink or prep at this venue that already has this name, in words, or null (the database refuses a second one). */
+function renameClash(kind: "item" | "prep", d: { id?: string; name: string; venue_id?: number | null; category?: string }, s: { items: readonly MenuItem[]; preps: readonly Prep[]; venueById: ReadonlyMap<number, { name: string }> }, id: string): string | null {
+  if (d.venue_id == null) return null; // a shared prep has no venue, and the database allows the same name
+  const where = s.venueById.get(d.venue_id)?.name ?? null;
+  if (kind === "item") {
+    const c = findClash(d.name, s.items.filter((i) => i.venue_id === d.venue_id && !parseVirtualItemId(i.id)), id);
+    return c ? clashMessage(d.category && isDrinkItem(d as MenuItem) ? "drink" : "dish", c, where) : null;
+  }
+  const c = findClash(d.name, s.preps.filter((p) => p.venue_id === d.venue_id), id);
+  return c ? clashMessage("prep", c, where) : null;
 }
 
 export function RecipeEditorPage({ kind, id }: { kind: Kind; id: string }) {
@@ -189,6 +202,11 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
         const startLines = linesRef.current;
         let d = startDraft;
         if (!d.name.trim()) d = { ...d, name: b.draft.name || "Untitled" };
+        // a name another record at this venue already has would be refused by the database: say so in plain words instead
+        if (d.name.trim() !== (b.draft.name ?? "").trim()) {
+          const clash = renameClash(kind, d as never, storeRef.current, id);
+          if (clash) throw new Error(clash);
+        }
         const ls = startLines.filter((l) => l.component_id);
         const c = describeChanges(b.draft, d, b.lines, ls);
         if (!c.dirty) {
@@ -467,6 +485,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const prep = kind === "prep" ? (draft as Prep) : null;
   const item = kind === "item" ? (draft as MenuItem) : null;
   // spelling and capitals on the name: a change of the draft like typing is, never a write to the database
+  const nameClashText = useMemo(
+    () => (draft.name.trim() && draft.name.trim() !== saved.name.trim() ? renameClash(kind, draft as never, store, id) : null),
+    [draft, saved.name, kind, store, id],
+  );
   const nameTidy = useNameTidy({ kind: item ? (isDrinkItem(item) ? "drink" : "menu_item") : "prep", value: draft.name, setValue: (v) => setDraft((d) => ({ ...d, name: v })), own: saved.name });
   // Menu Group (Drinks Station display grouping): offered only when the database has the column, so a save can never send it before the migration
   const groupColumn = useMemo(() => hasGroupColumn(store.items), [store.items]);
@@ -647,6 +669,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-8">
         <div className="min-w-0">
           {/* title + meta */}
+          <div className="mt-2 flex items-start gap-1">
           <textarea
             ref={titleRef}
             rows={1}
@@ -659,8 +682,26 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
               nameTidy.onBlur();
               if (!draftRef.current.name.trim()) setDraft((d) => ({ ...d, name: saved.name || "Untitled" }));
             }}
-            className="mt-2 block w-full resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-tight tracking-tight outline-none placeholder:text-label-3 lg:text-[32px]"
+            className="block min-w-0 flex-1 resize-none overflow-hidden bg-transparent text-[28px] font-bold leading-tight tracking-tight outline-none placeholder:text-label-3 lg:text-[32px]"
           />
+          <button
+            type="button"
+            onClick={() => {
+              titleRef.current?.focus();
+              titleRef.current?.select();
+            }}
+            aria-label={`Rename ${saved.name || "this record"}`}
+            className="-mr-2 inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-accent active:opacity-70"
+          >
+            <Pencil aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.25} />
+            <span>Rename</span>
+          </button>
+          </div>
+          {nameClashText ? (
+            <p role="alert" className="mt-1 text-[15px] font-medium text-danger sm:text-[13px]">
+              {nameClashText}
+            </p>
+          ) : null}
           <NameSuggestRow nt={nameTidy} className="mt-2" />
           {!draft.active ? (
             <p className="mt-1 text-[13px] font-medium text-label-2">

@@ -17,7 +17,8 @@ import { RecordHistory } from "@/components/editor/record-history";
 import { SetPriceButton } from "@/components/price-actions";
 import { ActiveToggle, DeleteRecordSheet, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { TAP_ACTIVE_LABEL, TAP_ACTIVE_SUB } from "@/lib/active";
-import { NameFieldRow } from "@/components/name-suggest";
+import { RenameTitle } from "@/components/rename-title";
+import { clashMessage, findClash } from "@/lib/rename";
 import { Banner, cx, Empty, FieldRow, Group, InlineInput, Row, useToast } from "@/components/ui";
 
 export default function BeerPage() {
@@ -60,7 +61,17 @@ export default function BeerPage() {
         <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
         Menu
       </BackLink>
-      <h1 className="mt-2 text-[28px] font-bold leading-tight tracking-tight lg:text-[32px]">{beer.name}</h1>
+      <RenameTitle
+        name={beer.name}
+        kind="beer"
+        onSave={async (name) => {
+          await store.updateBeer(beer.id, { name });
+        }}
+        taken={(n) => {
+          const c = findClash(n, store.beer.beers.filter((b) => b.venue_id === beer.venue_id), beer.id);
+          return c ? clashMessage("tap beer", c, venue?.name) : null;
+        }}
+      />
       <p className="mt-1 text-[15px] text-label-2">
         {venue?.name} · Tap Beer
         {!beer.active ? <InactiveTag /> : null}
@@ -68,7 +79,6 @@ export default function BeerPage() {
       {error ? <Banner>{error}</Banner> : null}
 
       <div className="group-list mt-5">
-        <NameFieldRow kind="beer" value={beer.name} onSave={(name) => run(store.updateBeer(beer.id, { name }))} />
         <Row onClick={() => setPicking(true)} title="Keg" sub={keg ? `${money(Number(keg.pack_price))} per ${Number(keg.pack_size)} L · ${money(perL)}/L incl. yield` : undefined} trailing={<span className="max-w-[12rem] truncate text-label-2">{keg ? keg.name : "Choose"}</span>} chevron />
         {keg ? <Row href={`/ingredients/${keg.id}`} title="Update Keg Price" sub="Changes every serve at once" chevron /> : null}
         <FieldRow label="Target GP" sub={`Blank uses ${VENUE_SHORT[venue?.slug ?? ""] ?? "venue"} Tap Beer: ${gp(defaultTarget, 0)}`}>

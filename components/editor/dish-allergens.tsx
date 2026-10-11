@@ -64,33 +64,21 @@ export function useDishSignOff(item: MenuItem | null, lines: RecipeLine[]) {
  * confirmation away in the draft, with a toast saying so. The Allergy Matrix (/matrix, the print and the kitchen iPad) reads only what
  * is confirmed. Below the card, "What The Ingredients Say" keeps the full worked-out roll-up as a collapsed read-only reference.
  */
-function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; saved: MenuItem; onPatch: (p: Partial<MenuItem>) => void; sign: Sign }) {
+function DishAllergensBlock({ item, saved, onPatch, sign, onCleared }: { item: MenuItem; saved: MenuItem; onPatch: (p: Partial<MenuItem>) => void; sign: Sign; onCleared: () => void }) {
   const store = useStore();
   const toast = useToast();
   const ready = "dish_allergens" in item || "dish_allergens" in saved;
-  const { da, check, state } = sign;
-  const confirmed = state === "valid";
-  // the sign-off was taken away by an edit in this visit (so the panel can say why it reads Not confirmed)
-  const [cleared, setCleared] = useState(false);
-  const dirty = !sameValue(item.dish_allergens ?? null, saved.dish_allergens ?? null);
+  const { check } = sign;
   if (!check) return null;
 
   const write = (res: EditResult) => {
     onPatch({ dish_allergens: res.next });
     if (res.clearedConfirmation) {
-      setCleared(true);
+      onCleared();
       toast.show({ message: "Allergens changed, so the confirmation was cleared. Confirm Allergens again when you are done." });
     }
   };
 
-  const confirm = () => {
-    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString(), { derived: check.derived, components: check.live.components, ticks: check.live.ticks }) });
-    setCleared(false);
-    toast.show({ message: "Confirmed. Save to put it on the matrix." });
-  };
-
-  const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
-  const stale = staleSignOffText(state, signedOn);
   const sources = sourceLines(check.r, check.derived, check.added);
 
   return (
@@ -101,20 +89,6 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
       <div className="space-y-5 px-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">Dish allergens can’t be saved until the database has its dish allergens update.</p> : null}
 
-        {stale ? (
-          <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn" role="status">
-            <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
-            <span>{stale}</span>
-          </p>
-        ) : cleared && !confirmed ? (
-          <p className="text-[13px] font-medium text-warn">Changed. Confirm again when you are done.</p>
-        ) : null}
-        <p className="text-[13px] text-label-2">
-          {confirmed ? (dirty ? "Save to keep this on the matrix." : "On the matrix.") : "Shows Not Checked on the matrix until confirmed."}
-        </p>
-
-        <BlockerNotice check={check} dishId={item.id} />
-
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Contains</p>
           <ContainsChips contains={check.contains} added={check.added} blocked={check.blocked} disabled={!ready} onRemoveExtra={(id) => write(removeExtra(item.dish_allergens, id, check.derived))} />
@@ -122,21 +96,55 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
         </div>
 
         <AddAllergen contained={check.contains} disabled={!ready} onAdd={(id) => write(addExtra(item.dish_allergens, id, check.derived))} />
-
-
-        {!confirmed && !check.blocked && !check.contains.length && ready ? (
-          <p className="text-[13px] text-label-2">Confirming says this dish contains none of them.</p>
-        ) : null}
-
-        {!confirmed ? (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-primary !min-h-[44px] !px-4 !text-[15px]" disabled={!ready || check.blocked} onClick={confirm}>
-              {stale ? "Confirm Again" : "Confirm Allergens"}
-            </button>
-          </div>
-        ) : null}
       </div>
     </SafetyBlock>
+  );
+}
+
+/**
+ * The ONE confirmation for the whole Allergens And Dietary card (Troy, 10 Oct 2026: "do the confirmation thing under the entire
+ * allergens and dietary section"): it sits at the bottom, after Menu Labels, so the person reads the allergens and the labels and
+ * then confirms once. What it says and why it may be disabled (an ingredient nobody has reviewed) sit right above the button. The
+ * confirmation stamps the allergens (see confirmAllergens); it does not stamp the Menu Labels.
+ */
+function ConfirmFooter({ item, saved, onPatch, sign, cleared, onConfirmed }: { item: MenuItem; saved: MenuItem; onPatch: (p: Partial<MenuItem>) => void; sign: Sign; cleared: boolean; onConfirmed: () => void }) {
+  const store = useStore();
+  const toast = useToast();
+  const ready = "dish_allergens" in item || "dish_allergens" in saved;
+  const { da, check, state } = sign;
+  if (!check) return null;
+  const confirmed = state === "valid";
+  const dirty = !sameValue(item.dish_allergens ?? null, saved.dish_allergens ?? null);
+  const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
+  const stale = staleSignOffText(state, signedOn);
+  const confirm = () => {
+    onPatch({ dish_allergens: confirmAllergens(item.dish_allergens, store.userEmail, new Date().toISOString(), { derived: check.derived, components: check.live.components, ticks: check.live.ticks }) });
+    onConfirmed();
+    toast.show({ message: "Confirmed. Save to put it on the matrix." });
+  };
+  return (
+    <div className="space-y-3 border-t border-[color:var(--separator)] px-4 py-4" data-testid="confirm-footer">
+      {stale ? (
+        <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[13px] font-medium text-warn" role="status">
+          <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
+          <span>{stale}</span>
+        </p>
+      ) : cleared && !confirmed ? (
+        <p className="text-[13px] font-medium text-warn">Changed. Confirm again when you are done.</p>
+      ) : null}
+      <BlockerNotice check={check} dishId={item.id} />
+      {!confirmed && !check.blocked && !check.contains.length && ready ? <p className="text-[13px] text-label-2">Confirming says this dish contains none of the 15 allergens.</p> : null}
+      {confirmed ? (
+        <p className="text-[13px] text-label-2">{dirty ? "Save to keep this on the matrix." : "Confirmed. This dish is on the matrix."}</p>
+      ) : (
+        <>
+          <p className="text-[13px] text-label-2">Shows Not Checked on the matrix until confirmed.</p>
+          <button type="button" className="btn-primary !min-h-[44px] !px-4 !text-[15px]" disabled={!ready || check.blocked} onClick={confirm}>
+            {stale ? "Confirm Again" : "Confirm Allergens"}
+          </button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -149,6 +157,8 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
 export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: MenuItem; saved: MenuItem; lines: RecipeLine[]; onPatch: (p: Partial<MenuItem>) => void }) {
   const nameOf = usePersonName();
   const sign = useDishSignOff(item, lines);
+  // the sign-off was taken away by an edit in this visit (so the footer can say why it reads Not confirmed)
+  const [cleared, setCleared] = useState(false);
   const { da, state } = sign;
   const signedOn = da?.confirmedAt ? dateWithYear(da.confirmedAt) : "";
   const who = da?.confirmedBy ? nameOf(da.confirmedBy) ?? da.confirmedBy : null;
@@ -157,8 +167,9 @@ export function AllergensDietaryCard({ item, saved, lines, onPatch }: { item: Me
   return (
     <>
       <SafetyCard className="mt-7" status={<SafetyStatus state={state} detail={detail} />}>
-        <DishAllergensBlock item={item} saved={saved} onPatch={onPatch} sign={sign} />
+        <DishAllergensBlock item={item} saved={saved} onPatch={onPatch} sign={sign} onCleared={() => setCleared(true)} />
         <DietOptionsGroup item={item} lines={lines} onPatch={onPatch} card />
+        <ConfirmFooter item={item} saved={saved} onPatch={onPatch} sign={sign} cleared={cleared} onConfirmed={() => setCleared(false)} />
       </SafetyCard>
       <Disclosure title="What The Ingredients Say" hint="Everything the ingredients point at, including name guesses nobody has checked. A reference only.">
         <RecipeAllergens kind="item" rec={item} lines={lines} readOnly embedded />

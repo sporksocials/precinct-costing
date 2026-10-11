@@ -25,6 +25,7 @@ import { IngredientHistory } from "@/components/ingredient-history";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
 import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { RenameTitle } from "@/components/rename-title";
+import { AddSupplier } from "@/components/add-supplier";
 import { clashMessage, findClash } from "@/lib/rename";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
@@ -293,6 +294,9 @@ function Detail({ ing }: { ing: Ingredient }) {
                   ))}
                 </select>
               </FieldRow>
+              <div className="px-4">
+                <AddSupplier onAdded={(s) => patch({ supplier_id: s.id })} />
+              </div>
               <FieldRow label="Supplier Code">
                 <InlineInput value={ing.supplier_code ?? ""} placeholder="None" inputMode="text" width="w-36" onCommit={(t) => patch({ supplier_code: t.trim() || null })} />
               </FieldRow>

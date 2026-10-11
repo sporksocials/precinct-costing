@@ -58,6 +58,7 @@ import { buildGelato, type GelatoModel } from "./gelato";
 import { buildBeer, type BeerModel } from "./beer";
 import { brisbaneToday, groupDeals } from "./deals";
 import { cleanOptionName, findOption, nextSort } from "./glass-rim";
+import { cleanSupplierName, findSupplier } from "./suppliers";
 import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
 import { DEMO } from "./supabase/client";
 import { prepareNotes, type ResearchedNote } from "./research-drink";
@@ -320,6 +321,11 @@ export interface StoreValue extends StoreData {
   confirmIngredientPrice: (id: string) => Promise<ConfirmReceipt>;
   undoConfirmIngredientPrice: (id: string, receipt: ConfirmReceipt) => Promise<void>;
   insertIngredient: (ing: Omit<Ingredient, "id" | "updated_at">) => Promise<string>;
+  /**
+   * Adds a supplier to the costing list (cost_suppliers) from "Add New Supplier" on an ingredient. A name the list already has
+   * (ignoring capitals, spaces and "Pty Ltd") is returned as it is, with nothing written: `created` says which happened.
+   */
+  insertSupplier: (name: string) => Promise<{ supplier: Supplier; created: boolean }>;
   updateSetting: (key: keyof CostingSettings, value: number) => Promise<void>;
   /** saves a text setting (cost_settings.text_value; value is 0), for example the cross-contact line of a venue. Blank text removes the line. */
   updateTextSetting: (key: string, text: string) => Promise<void>;
@@ -1520,6 +1526,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  const insertSupplier = useCallback(
+    async (rawName: string) => {
+      const name = cleanSupplierName(rawName);
+      if (!name) throw new Error("Type the supplier name first.");
+      const dupe = findSupplier(dataRef.current.suppliers, name);
+      if (dupe) return { supplier: dupe, created: false };
+      const { data: rows, error } = await insertRow(sb, "cost_suppliers", { name }).select("*");
+      if (error) throw new Error(error.message);
+      const fresh = rows?.[0] as Supplier | undefined;
+      if (!fresh) throw new Error(NOT_SAVED);
+      setData((d) => (d.suppliers.some((x) => x.id === fresh.id) ? d : { ...d, suppliers: [...d.suppliers, fresh].sort((a, b) => a.name.localeCompare(b.name)) }));
+      return { supplier: fresh, created: true };
+    },
+    [sb, setData],
+  );
+
   const updateSetting = useCallback(
     async (key: keyof CostingSettings, value: number) => {
       await upsertAll(sb, "cost_settings", [{ key, value }], "key", "key");
@@ -1991,6 +2013,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     confirmIngredientPrice,
     undoConfirmIngredientPrice,
     insertIngredient,
+    insertSupplier,
     updateSetting,
     updateTextSetting,
     upsertTarget,

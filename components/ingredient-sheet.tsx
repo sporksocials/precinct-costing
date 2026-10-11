@@ -11,6 +11,7 @@ import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/
 import { Banner, Segmented, Sheet, Toggle } from "./ui";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { CategoryChips } from "./ingredient-category-picker";
+import { AddSupplier } from "./add-supplier";
 
 export type IngredientDraft = Omit<Ingredient, "id" | "updated_at">;
 
@@ -166,6 +167,7 @@ export function IngredientSheet({
               </option>
             ))}
           </select>
+          <AddSupplier className="mt-1" onAdded={(s) => set("supplier_id", s.id)} />
         </div>
         <div>
           <p className="section-label !px-1">Pack</p>

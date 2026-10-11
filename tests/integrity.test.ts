@@ -539,3 +539,19 @@ describe("performance", () => {
     expect(ms).toBeLessThan(200);
   });
 });
+
+describe("a tap beer or gelato flavour entered as a plain menu item (Troy, 11 Oct 2026)", () => {
+  it("flags an active stored item filed under Tap Beer or Gelato, and not a hidden old one, an inactive one or a real dish", async () => {
+    const { checkOwnFormItems } = await import("@/lib/integrity");
+    const data = clean({
+      items: [item("i1"), item("keg", { name: "Tiger", category: "Tap Beer", sell_price_inc: 313 }), item("old", { category: "Tap Beer" }), item("off", { category: "Gelato", active: false })],
+      lines: [line("i1", "a", { qty: 500 })],
+      replacedItemIds: ["old"],
+    });
+    const issues = validate(data, { today: TODAY }).filter((i) => i.code === "own_form_item");
+    expect(issues.map((i) => i.id)).toEqual(["keg"]);
+    expect(issues[0].severity).toBe("error");
+    expect(issues[0].detail).toMatch(/New Tap Beer/);
+    expect(typeof checkOwnFormItems).toBe("function");
+  });
+});

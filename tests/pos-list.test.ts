@@ -397,3 +397,20 @@ describe("buildPosSheets", () => {
     expect(buildPosSheets(input(items), VENUES, "nope")).toEqual([]);
   });
 });
+
+describe("tap beer sizes and strays (Troy, 11 Oct 2026)", () => {
+  it("a serve whose name already carries its size is not given the size twice", async () => {
+    const { serveSizeLabel } = await import("@/lib/pos-list");
+    expect(serveSizeLabel("500ml Glass", 500)).toBe("500ml Glass");
+    expect(serveSizeLabel("Schooner", 425)).toBe("Schooner 425ml");
+    expect(serveSizeLabel("pint", 570)).toBe("Pint 570ml");
+    expect(serveSizeLabel("Jug", 1140)).toBe("Jug 1140ml");
+    expect(serveSizeLabel("1140ml Jug", 1140)).toBe("1140ml Jug");
+    // a different number in the name is not the size
+    expect(serveSizeLabel("500ml Glass", 570)).toBe("500ml Glass 570ml");
+  });
+  it("a stored menu item filed under Tap Beer or Gelato (a keg typed in as a dish) never reaches the list", () => {
+    const rows = buildPosRows(input([item({ name: "Tiger", category: "Tap Beer", sell_price_inc: 313 }), item({ name: "Vanilla", category: "Gelato" }), item({ name: "Burger" })]), 2);
+    expect(rows.map((r) => r.item)).toEqual(["Burger"]);
+  });
+});

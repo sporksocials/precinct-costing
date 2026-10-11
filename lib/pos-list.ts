@@ -2,6 +2,7 @@ import { isBeerItemId, parseBeerItemId } from "./beer";
 import { isVirtualItemId } from "./gelato";
 import { isActive } from "./active";
 import { titleCase } from "./name-tidy";
+import { OWN_FORM_CATEGORIES } from "./add-choices";
 import type { Beer, BeerServe, GelatoServe, MenuItem } from "./types";
 
 /**
@@ -246,6 +247,17 @@ function makeRow(parts: { group: string; item: string; size: string; sizeOrder: 
   };
 }
 
+/**
+ * The Size / Option text of a tap beer serve: the serve's name and its size, once. "Schooner" and 425 read "Schooner 425ml", but a serve
+ * whose name already carries its size ("500ml Glass", 500) is left as "500ml Glass" and not "500ml Glass 500ml" (Troy, 11 Oct 2026).
+ */
+export function serveSizeLabel(name: string, ml: number): string {
+  const n = titleCase(name.trim());
+  const size = Math.round(Number(ml) * 100) / 100;
+  const already = new RegExp(`(^|[^0-9.])${String(size).replace(".", "\\.")}\\s*(ml|millilitres?|milliliters?)(?![a-z])`, "i").test(n);
+  return already ? n : `${n} ${size}ml`;
+}
+
 const byText = (a: string, b: string) => a.localeCompare(b, "en", { sensitivity: "base" });
 
 /** The rows for one venue, in menu order. Active items only. */
@@ -261,11 +273,13 @@ export function buildPosRows(input: PosInput, venueId: number): PosRow[] {
       const beer = ids ? beerById.get(ids.beerId) : undefined;
       const serve = ids ? serveById.get(ids.serveId) : undefined;
       if (!beer || !serve) continue;
-      const size = `${titleCase(serve.name)} ${Number(serve.ml)}ml`;
+      const size = serveSizeLabel(serve.name, Number(serve.ml));
       out.push(makeRow({ group: "Tap Beer", item: titleCase(beer.name), size, sizeOrder: sizeRank(size), priceInc: it.sell_price_inc, hhInc: it.hh_price_inc, note: "" }));
       continue;
     }
     if (isVirtualItemId(it.id)) continue; // gelato flavour x serve: gelato is listed by serve below
+    // a plain menu item filed under Tap Beer or Gelato is a mistake (a keg or a flavour typed in as a menu item): those two are listed from the beer and serve tables only
+    if (OWN_FORM_CATEGORIES.includes(it.category)) continue;
     const { item, size } = splitSize(it.name, it.category);
     const sz = size ? titleCase(size) : "";
     out.push(

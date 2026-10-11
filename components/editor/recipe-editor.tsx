@@ -13,6 +13,7 @@ import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { batchWeightKg, flavourName, isGelatoFlavour, parseVirtualItemId } from "@/lib/gelato";
 import { clashMessage, findClash } from "@/lib/rename";
+import { OWN_FORM_CATEGORIES } from "@/lib/add-choices";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
 import { VenueAccent, VENUE_SHORT } from "../venue";
 import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
@@ -1040,7 +1041,8 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
       </Sheet>
       <Sheet open={sheet === "category"} onClose={() => setSheet(null)} title="Category" cancelLabel={null} action={{ label: "Done", onClick: () => setSheet(null) }}>
         <div className="group-list mt-3">
-          {MENU_CATEGORIES.map((c) => (
+          {/* Tap Beer and Gelato have their own forms (keg and serves, mix and serves): a dish cannot be moved into them, but one already there keeps its tick */}
+          {MENU_CATEGORIES.filter((c) => !OWN_FORM_CATEGORIES.includes(c) || item?.category === c).map((c) => (
             <Row
               key={c}
               title={c}

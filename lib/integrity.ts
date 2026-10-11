@@ -10,6 +10,7 @@ import {
 import { brisbaneToday, dealPackPrice, dealStatus } from "./deals";
 import { isBeerItemId, parseBeerItemId, beerItemId } from "./beer";
 import { isVirtualItemId, parseVirtualItemId } from "./gelato";
+import { OWN_FORM_CATEGORIES } from "./add-choices";
 import { DEFAULT_SETTINGS } from "./types";
 import type {
   Beer,
@@ -96,6 +97,7 @@ export const CHECKS: Record<string, CheckInfo> = {
   deal_expired_active: { title: "Deal has ended but is still switched on", severity: "warning", why: "The app ignores it, but it clutters the deals list and may confuse people." },
   deal_bad_price: { title: "Deal does not give a usable price", severity: "warning", why: "The app ignores it, so the saving you expect is not in the costs." },
   deal_orphan: { title: "Deal for an ingredient that is gone", severity: "warning", why: "The deal can never apply, so the saving you expect is not in the costs." },
+  own_form_item: { title: "Tap beer or gelato entered as a menu item", severity: "error", why: "It shows on the menu and the POS list as its own item, with a price that is usually the keg's, and counts in the GP averages with no recipe." },
   beer_no_keg: { title: "Tap beer with no keg", severity: "error", why: "With no keg linked, every serve of this beer costs $0." },
   line_count_drop: { title: "Recipe has fewer lines than before", severity: "error", why: "Lines may have failed to load, which makes the cost and GP too good to be true." },
   load_cap: { title: "Table size looks capped", severity: "info", why: "A whole number of thousands can mean the load stopped at a page limit." },
@@ -332,6 +334,21 @@ export function checkDuplicateLines(ctx: Ctx): Issue[] {
 }
 
 /** (d) active menu items and preps with no lines (virtual/legacy tap beer and gelato items are exempt). */
+/**
+ * A stored menu item filed under Tap Beer or Gelato. Those two have their own forms (a tap beer is a keg ingredient plus serves, a
+ * gelato flavour is a prep plus serves) and are shown as computed items, so a plain stored one is a keg or a flavour typed in as a
+ * dish (Troy, 11 Oct 2026: a Tiger keg at $313 reached the POS list). Old stored ones that the computed items replace are hidden.
+ */
+export function checkOwnFormItems(ctx: Ctx): Issue[] {
+  const out: Issue[] = [];
+  for (const item of ctx.data.items) {
+    if (!isActive(item) || isVirtualItem(item) || ctx.hidden.has(item.id) || !OWN_FORM_CATEGORIES.includes(item.category)) continue;
+    const thing = item.category === "Tap Beer" ? "tap beer" : "gelato flavour";
+    out.push(itemIssue(ctx, "own_form_item", item, `This is a plain menu item filed under ${item.category}, so it appears on the menu and the POS list on its own. A ${thing} is added with ${item.category === "Tap Beer" ? "New Tap Beer (the keg and its serves)" : "New Flavour"}. Make this one not active.`));
+  }
+  return out;
+}
+
 export function checkEmptyRecipes(ctx: Ctx): Issue[] {
   const out: Issue[] = [];
   for (const item of ctx.data.items) {
@@ -694,6 +711,7 @@ export function validate(data: IntegrityData, opts: ValidateOptions = {}): Issue
     ...checkOrphanLines(ctx),
     ...checkDuplicateLines(ctx),
     ...checkEmptyRecipes(ctx),
+    ...checkOwnFormItems(ctx),
     ...checkPrepGraph(ctx),
     ...checkUnitMismatch(ctx),
     ...checkIngredients(ctx),

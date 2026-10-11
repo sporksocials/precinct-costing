@@ -1,9 +1,10 @@
 "use client";
 
 import { memo, useState } from "react";
-import { Check, Circle, Pencil } from "lucide-react";
+import Link from "next/link";
+import { Check, Circle, Pencil, TriangleAlert } from "lucide-react";
 import { cx } from "@/components/ui";
-import { STORE_LABEL, rowAnchor, rowStatus, unitPlural } from "@/lib/ordering-count-ui";
+import { STORE_LABEL, needsDetails, rowAnchor, rowStatus, unitPlural } from "@/lib/ordering-count-ui";
 import type { OrderingProduct } from "@/lib/ordering-types";
 import { ParEditor } from "./par-editor";
 import { PlaceControl } from "./place-control";
@@ -21,6 +22,8 @@ export interface CountRowProps {
   onSet: (product: OrderingProduct, place: "store" | "second", value: number | null) => void;
   /** save a new Build To; resolves with a message when it could not */
   onSetPar: (product: OrderingProduct, par: number) => Promise<string | null>;
+  /** this product's setup page: the quick link for a product that still needs its details */
+  detailsHref: string;
 }
 
 const dash = (n: number | null) => (n == null ? "-" : String(n));
@@ -29,7 +32,7 @@ const dash = (n: number | null) => (n == null ? "-" : String(n));
  * One product on the count screen. Takes plain numbers (not objects) so a tap re-renders only its own row, even with 300 products.
  * An uncounted row says "Not counted" in words with a hollow dot, a counted row says "Counted" with a tick: never colour alone.
  */
-export const CountRow = memo(function CountRow({ product, secondLabel, store, second, readOnly, flash, onSet, onSetPar }: CountRowProps) {
+export const CountRow = memo(function CountRow({ product, secondLabel, store, second, readOnly, flash, onSet, onSetPar, detailsHref }: CountRowProps) {
   const [editingPar, setEditingPar] = useState(false);
   const status = rowStatus({ store, second }, secondLabel);
   const counted = status.state === "counted";
@@ -87,6 +90,12 @@ export const CountRow = memo(function CountRow({ product, secondLabel, store, se
       </div>
       {editingPar ? <ParEditor product={product} onSave={onSetPar} onClose={() => setEditingPar(false)} /> : null}
       {/* notes sit BELOW the controls so a tap never moves the buttons the finger is on */}
+      {needsDetails(product) ? (
+        <Link href={detailsHref} data-testid="needs-details-link" className="mt-2 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-fill-2 px-3 text-[15px] font-semibold text-warn active:opacity-80">
+          <TriangleAlert className="h-4 w-4 shrink-0" strokeWidth={2.5} aria-hidden />
+          Needs more details. Add them
+        </Link>
+      ) : null}
       {over > 0 || status.blank ? (
         <p className="mt-2 flex flex-wrap gap-x-3 text-[13px] font-medium text-warn">
           {over > 0 ? <span>Over by {over}</span> : null}

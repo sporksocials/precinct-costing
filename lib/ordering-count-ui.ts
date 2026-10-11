@@ -68,6 +68,15 @@ export function productSubline(p: Pick<OrderingProduct, "unit_name" | "par">): s
 /** The name of the first place: always "Store". */
 export const STORE_LABEL = "Store";
 
+/**
+ * A product whose note starts "Needs more details" was added with only a placeholder (a bottle used in a recipe with no brand, supplier or size
+ * recorded). The count row shows a quick link to its setup page so whoever is counting can fill it in on the spot. Clearing the note takes the link away.
+ */
+export const NEEDS_DETAILS_MARK = "Needs more details";
+export function needsDetails(product: Pick<OrderingProduct, "notes">): boolean {
+  return (product.notes ?? "").trim().toLowerCase().startsWith(NEEDS_DETAILS_MARK.toLowerCase());
+}
+
 /* ------------------------------------------------------------------ rows */
 
 export interface RowQty {

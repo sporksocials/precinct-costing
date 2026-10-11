@@ -15,7 +15,6 @@ import {
   dishCheck,
   readDishAllergens,
   removeExtra,
-  setWithoutNote,
   signOffState,
   sourceLines,
   staleSignOffText,
@@ -58,7 +57,7 @@ export function useDishSignOff(item: MenuItem | null, lines: RecipeLine[]) {
  * prep) and shown here read only. Nobody ticks them on the dish: to change one, fix the ingredient. A person CONFIRMS the result, which
  * stamps the sign-off with a snapshot of the ingredients' ticks, so any later change to a component or a tick turns the dish back to Not
  * Checked ("Ingredients changed since <date>. Re-check and confirm again."). The only edits here are an extra allergen the ingredients do
- * not show (cross-contact, the menu says it contains it) and the Can Be Made Without notes. A dish with an ingredient nobody has reviewed
+ * not show (cross-contact, the menu says it contains it). A dish with an ingredient nobody has reviewed
  * cannot be confirmed: the panel names them and links to the ingredient review.
  *
  * Edits go through the recipe editor's draft (manual Save, leave guard, conflict check) like every other field, and take any earlier
@@ -124,19 +123,6 @@ function DishAllergensBlock({ item, saved, onPatch, sign }: { item: MenuItem; sa
 
         <AddAllergen contained={check.contains} disabled={!ready} onAdd={(id) => write(addExtra(item.dish_allergens, id, check.derived))} />
 
-        {check.contains.length ? (
-          <div>
-            <p className="text-[13px] font-medium text-label-2">Can Be Made Without</p>
-            <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how.</p>
-            <ul className="divide-y divide-[color:var(--separator)]">
-              {check.contains.map((id) => (
-                <li key={id} className="py-2.5">
-                  <WithoutField id={id} value={da?.without[id] ?? ""} disabled={!ready} onCommit={(t) => write(setWithoutNote(item.dish_allergens, id, t, check.derived))} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
 
         {!confirmed && !check.blocked && !check.contains.length && ready ? (
           <p className="text-[13px] text-label-2">Confirming says this dish contains none of them.</p>
@@ -310,37 +296,3 @@ export function AddAllergen({ contained, disabled, onAdd }: { contained: readonl
   );
 }
 
-/** "Can be made without" for one allergen: commits on blur or Enter, like the other inline fields. */
-export function WithoutField({ id, value, disabled, onCommit }: { id: AllergenId; value: string; disabled?: boolean; onCommit: (t: string) => void }) {
-  const [text, setText] = useState(value);
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(value);
-  }
-  const label = allergenLabel(id);
-  return (
-    <label className="block">
-      <span className="block pb-1 text-[15px] font-medium sm:text-[13px]">{label}</span>
-      <input
-        className="field !min-h-[44px]"
-        placeholder="For example: no aioli"
-        aria-label={`${label}: can be made without`}
-        maxLength={NOTE_MAX}
-        value={text}
-        disabled={disabled}
-        enterKeyHint="done"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          if (text.trim() !== value.trim()) onCommit(text);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-      />
-    </label>
-  );
-}

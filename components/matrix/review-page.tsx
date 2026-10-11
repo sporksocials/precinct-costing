@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronLeft, CircleCheck, ExternalLink, TriangleAlert } from "lucide-react";
-import { AddAllergen, BlockerNotice, ContainsChips, SourceList, WithoutField } from "@/components/editor/dish-allergens";
+import { AddAllergen, BlockerNotice, ContainsChips, SourceList } from "@/components/editor/dish-allergens";
 import { DIET_MARKS, dietMarkDef, type DietMarkId } from "@/lib/diet-legend";
 import { CHECK_ALL_INGREDIENTS_HREF, dishCheck, readDishAllergens, signOffState, sourceLines, staleSignOffText } from "@/lib/dish-allergens";
 import { dateWithYear } from "@/lib/record-created";
@@ -19,7 +19,6 @@ import {
   progressText,
   reviewContains,
   reviewQueue,
-  setReviewNote,
   toggleReviewExtra,
   toggleReviewMark,
   venueBreak,
@@ -288,19 +287,6 @@ export function MatrixReviewPage() {
               <AddAllergen contained={contains} onAdd={(id) => patchDraft((d) => toggleReviewExtra(d, id, check.derived))} />
             </div>
 
-            {contains.length ? (
-              <div className="mt-4">
-                <h3 className="text-[13px] font-medium text-label-2">Can Be Made Without</h3>
-                <p className="pb-1 text-[13px] text-label-2">If the kitchen can leave one out, say how. Leave it blank if it cannot.</p>
-                <ul className="divide-y divide-[color:var(--separator)]">
-                  {contains.map((id) => (
-                    <li key={id} className="py-2.5">
-                      <WithoutField key={`${item.id}-${id}`} id={id} value={draft.without[id] ?? ""} onCommit={(t) => patchDraft((d) => setReviewNote(d, id, t, check.derived))} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
           </section>
 
           <section className="mt-5 overflow-hidden rounded-2xl border border-[color:var(--separator)] bg-accent-soft" aria-label="Menu labels">

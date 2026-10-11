@@ -207,16 +207,19 @@ export default function MenuPage() {
                 <p className="text-[13px] text-label-2">
                   {flavourRows.length} {flavourRows.length === 1 ? "flavour" : "flavours"} · each sold in {store.gelato.serves.length} serves
                 </p>
-                {showGelatoTools ? (
-                  <div className="flex items-center gap-2">
-                    <Link href="/gelato/serves" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
-                      <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serves &amp; Sizes
-                    </Link>
-                    <Link href="/gelato" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
-                      <Grid3x3 className="h-3.5 w-3.5" strokeWidth={2.25} /> Price Grid
-                    </Link>
-                  </div>
-                ) : null}
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {showGelatoTools ? (
+                    <>
+                      <Link href="/gelato/serves" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
+                        <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serves &amp; Sizes
+                      </Link>
+                      <Link href="/gelato" className="btn-plain !min-h-[34px] !px-3 !text-[13px]">
+                        <Grid3x3 className="h-3.5 w-3.5" strokeWidth={2.25} /> Price Grid
+                      </Link>
+                    </>
+                  ) : null}
+                  <PosListButton />
+                </div>
               </div>
               <div className="group-list">
                 {flavourRows.map((r) => (
@@ -231,11 +234,14 @@ export default function MenuPage() {
                 <p className="text-[13px] text-label-2">
                   {beerRows.length} tap {beerRows.length === 1 ? "beer" : "beers"} · {store.beer.serves.filter((s) => beerRows.some((r) => serveOffered(s, r.b))).map((s) => s.name).join(", ")}
                 </p>
-                {showBeerTools ? (
-                  <button type="button" className="btn-plain !min-h-[34px] !px-3 !text-[13px]" onClick={() => setSheet("beerServes")}>
-                    <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serve Sizes
-                  </button>
-                ) : null}
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {showBeerTools ? (
+                    <button type="button" className="btn-plain !min-h-[34px] !px-3 !text-[13px]" onClick={() => setSheet("beerServes")}>
+                      <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={2.25} /> Serve Sizes
+                    </button>
+                  ) : null}
+                  <PosListButton />
+                </div>
               </div>
               <div className="group-list">
                 {beerRows.map(({ b, cs, worst }) => (

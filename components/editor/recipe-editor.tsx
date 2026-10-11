@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Ellipsis, FlaskConical, GripVertical, Pencil, Printer } from "lucide-react";
+import { ChevronLeft, Copy, Ellipsis, FlaskConical, GripVertical, Pencil, Printer } from "lucide-react";
 import { useBackHref } from "@/components/use-back-href";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
@@ -13,6 +13,7 @@ import { gpForPrice, parseGpInput, parsePriceInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { batchWeightKg, flavourName, isGelatoFlavour, parseVirtualItemId } from "@/lib/gelato";
 import { clashMessage, findClash } from "@/lib/rename";
+import { suggestCopyName } from "@/lib/duplicate-name";
 import { OWN_FORM_CATEGORIES } from "@/lib/add-choices";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
 import { VenueAccent, VENUE_SHORT } from "../venue";
@@ -633,7 +634,6 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
   const fix = itemCost ? trimFix(itemCost, recipe.lines, store.settings.gst_rate) : null;
   const menuItems = [
     ...(kind === "item" ? [{ label: "What If…", onClick: () => setSheet("whatif") }] : []),
-    { label: "Duplicate to Venue…", onClick: () => setSheet("duplicate") },
     ...(kind === "prep" ? [{ label: `Used In (${usedIn.items.length + usedIn.preps.length})`, onClick: () => setSheet("usedin") }] : []),
   ];
 
@@ -651,6 +651,10 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             <Printer className="h-5 w-5" strokeWidth={2.25} aria-hidden />
             Print
           </Link>
+          <button type="button" onClick={() => setSheet("duplicate")} aria-label={`Duplicate ${saved.name || "this record"}`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl px-3 text-[17px] font-semibold text-accent transition active:opacity-70">
+            <Copy className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+            Duplicate
+          </button>
           <Menu label="More Actions" trigger={<Ellipsis className="h-6 w-6" strokeWidth={2} />} items={menuItems} />
         </div>
       </div>
@@ -1195,11 +1199,32 @@ function identityMap(raw: MenuItem["diet_options"]): Map<string, string> {
   return m;
 }
 
+/**
+ * Duplicate (Troy, 11 Oct 2026: a small change should be a copy, a new name and an ingredient swap): a visible button on every dish, drink and
+ * prep page opens this sheet. The name starts as "<Name> Copy" (or "Copy 2" when that is taken) and is selected, so typing replaces it; the
+ * venue starts as the same venue and can be changed to copy across. A name already taken at the chosen venue is said in words and stops the
+ * copy. The copy opens as the new dish, drink or prep, with a toast, ready for its ingredients to be changed in the normal editor.
+ */
 function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Rec; lines: RecipeLine[]; onClose: () => void }) {
   const store = useStore();
+  const toast = useToast();
   const router = useGuardedRouter();
   const [venueId, setVenueId] = useState<number | null>((draft as MenuItem).venue_id ?? null);
-  const [name, setName] = useState(draft.name);
+  const [name, setName] = useState(() => {
+    const vid = (draft as MenuItem).venue_id ?? null;
+    const taken = kind === "item" ? store.items.filter((i) => i.venue_id === vid).map((i) => i.name) : store.preps.filter((p) => p.venue_id === vid).map((p) => p.name);
+    return suggestCopyName(draft.name, taken);
+  });
+  const clash = name.trim() ? renameClash(kind, { name: name.trim(), venue_id: venueId, category: (draft as MenuItem).category }, store, "") : null;
+  // the suggested name is selected as the sheet opens, so typing replaces it
+  const nameBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      nameBox.current?.focus();
+      nameBox.current?.select();
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const clean = lines.filter((l) => l.component_id);
@@ -1207,7 +1232,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
   const hasDishAllergens = "dish_allergens" in draft;
 
   async function go() {
-    if (!name.trim() || (kind === "item" && venueId == null)) return;
+    if (!name.trim() || clash || (kind === "item" && venueId == null)) return;
     setBusy(true);
     setError(null);
     try {
@@ -1223,6 +1248,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
           clean.map((l, i) => ({ id: idMap.get(l.id), component_type: l.component_type, component_id: l.component_id, qty: l.qty, unit: l.unit, note: l.note, sort: i + 1 })),
         );
         onClose();
+        toast.show({ message: `Copied as ${name.trim()}. Change anything you need.` });
         router.push(`/items/${nid}`);
       } else {
         const { id: _i, ...rest } = draft as Prep;
@@ -1231,6 +1257,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
         const nid = await store.insertPrep({ ...rest, name: finalName, venue_id: venueId, source: "duplicate" });
         if (clean.length) await store.saveLines("prep", nid, clean.map((l, i) => ({ ...l, id: newId(), parent_type: "prep", parent_id: nid, sort: i + 1 })));
         onClose();
+        toast.show({ message: `Copied as ${finalName}. Change anything you need.` });
         router.push(`/preps/${nid}`);
       }
     } catch (e) {
@@ -1240,10 +1267,21 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
   }
 
   return (
-    <Sheet open onClose={onClose} title="Duplicate" action={{ label: busy ? "Copying…" : "Copy", onClick: () => void go(), disabled: busy || !name.trim() }}>
-      <div className="space-y-5 pb-2 pt-3">
+    <Sheet open onClose={onClose} title="Duplicate" action={{ label: busy ? "Copying…" : "Copy", onClick: () => void go(), disabled: busy || !name.trim() || !!clash }}>
+      <form
+        className="space-y-5 pb-2 pt-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void go();
+        }}
+      >
         {error ? <Banner>{error}</Banner> : null}
-        <input className="field !text-[20px] font-semibold" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+        <input ref={nameBox} className="field !text-[20px] font-semibold" value={name} onChange={(e) => setName(e.target.value)} aria-label="New name" />
+        {clash ? (
+          <p role="alert" className="-mt-3 px-1 text-[15px] font-medium text-danger sm:text-[13px]">
+            {clash}
+          </p>
+        ) : null}
         <div>
           <p className="section-label !px-1">Copy to</p>
           <Chips
@@ -1254,11 +1292,11 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
             className="[&>button:not([aria-checked=true])]:bg-fill"
           />
         </div>
-        <p className="px-1 text-[13px] text-label-2">Copies the recipe and its {clean.length} ingredient lines.</p>
-        <button className="btn-primary w-full" disabled={busy || !name.trim()} onClick={() => void go()}>
+        <p className="px-1 text-[13px] text-label-2">Copies the recipe and its {clean.length} ingredient lines. You can change the ingredients on the copy.</p>
+        <button type="submit" className="btn-primary w-full" disabled={busy || !name.trim() || !!clash}>
           {busy ? "Copying…" : "Duplicate"}
         </button>
-      </div>
+      </form>
     </Sheet>
   );
 }

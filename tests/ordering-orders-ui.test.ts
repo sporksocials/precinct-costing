@@ -5,7 +5,7 @@ import {
   NO_EMAIL_REASON,
   NO_LINES_REASON,
   NO_LOGIN_REASON,
-  TOO_LONG_MAILTO,
+  LONG_ORDER_NOTE,
   addCandidates,
   addLine,
   brisbaneDay,
@@ -337,12 +337,25 @@ describe("which send buttons exist and work", () => {
     expect(a[2].enabled).toBe(true);
     expect(sendReasons(a)).toEqual([NO_EMAIL_REASON]);
   });
-  it("a long order turns Open Email off and points to Copy", () => {
+  it("a long order keeps both email buttons working: they copy the order, then open an empty draft", () => {
     const star = sup("Star");
     const many = Array.from({ length: 40 }, (_, i) => line({ key: `k${i}`, name: `A long product name number ${i}`, qty: 12 }));
-    const a = sendActions(star, buildSupplierSend({ venueName: "Drift", supplier: star, lines: many, showPrices: true, senderName: "Troy" }));
-    expect(a[0]).toMatchObject({ id: "email", enabled: false, reason: TOO_LONG_MAILTO, href: null });
+    const long = buildSupplierSend({ venueName: "Drift", supplier: star, lines: many, showPrices: true, senderName: "Troy" });
+    const a = sendActions(star, long);
+    expect(a[0]).toMatchObject({ id: "email", label: "Copy And Open Email", enabled: true, reason: null, copiesOrder: true });
+    expect(a[0].href).toBe("mailto:orders@star.example.com?subject=Drift%20Order");
+    expect(a[1]).toMatchObject({ id: "outlook", label: "Copy And Open In Outlook", enabled: true, copiesOrder: true });
+    expect(a[1].href).toBe("https://outlook.office.com/mail/deeplink/compose?to=orders%40star.example.com&subject=Drift%20Order");
     expect(a[2]).toMatchObject({ id: "copy", enabled: true });
+    expect(sendReasons(a)).toEqual([LONG_ORDER_NOTE]);
+    expect(long.mailto.url.length).toBeGreaterThan(1900);
+  });
+  it("a short order opens the full draft and says nothing about length", () => {
+    const star = sup("Star");
+    const a = sendActions(star, send(star));
+    expect(a[0].copiesOrder).toBe(false);
+    expect(a[0].label).toBe("Open Email");
+    expect(sendReasons(a)).toEqual([]);
   });
   it("with nothing on the order every sending button is disabled", () => {
     const star = sup("Star");

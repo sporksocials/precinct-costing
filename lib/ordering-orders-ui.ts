@@ -383,13 +383,15 @@ export interface SendAction {
   href: string | null;
   /** opens in a new tab */
   newTab: boolean;
+  /** the order is too long for an email link: pressing this copies the order first, then opens an empty draft to paste it into */
+  copiesOrder?: boolean;
 }
 
 export const NO_EMAIL_REASON = "No email address is saved for this supplier.";
 export const NO_LOGIN_REASON = "No login link is saved for this supplier.";
 export const NO_LINES_REASON = "Add a quantity to at least one product first.";
-export const TOO_LONG_MAILTO = "This order is too long for an email link, so Open Email is off. Use Copy Order, or Open In Outlook if that is on.";
-export const TOO_LONG_OUTLOOK = "This order is too long for an Outlook link. Use Copy Order and paste it in.";
+/** Shown under the buttons when the order is too long for an email link (Open Email and Open In Outlook then copy it first). */
+export const LONG_ORDER_NOTE = "This order is too long to fit in an email link. Open Email copies it for you, then opens an empty email: paste the order in.";
 
 /**
  * Every way of sending, in the order they are drawn, each with its own button. The supplier's method decides which button is
@@ -406,12 +408,14 @@ export function sendActions(supplier: Pick<OrderingSupplier, "method" | "email_t
   const method: OrderingMethod = supplier.method;
 
   const emailAction: SendAction = (() => {
-    const reason = !hasLines ? NO_LINES_REASON : !email ? NO_EMAIL_REASON : send.mailto.tooLong ? TOO_LONG_MAILTO : null;
-    return { id: "email", label: "Open Email", primary: method === "email", enabled: reason == null, reason, href: reason == null ? send.mailto.url : null, newTab: false };
+    const reason = !hasLines ? NO_LINES_REASON : !email ? NO_EMAIL_REASON : null;
+    const long = send.mailto.tooLong;
+    return { id: "email", label: long ? "Copy And Open Email" : "Open Email", primary: method === "email", enabled: reason == null, reason, href: reason == null ? (long ? send.mailto.shortUrl : send.mailto.url) : null, newTab: false, copiesOrder: long };
   })();
   const outlookAction: SendAction = (() => {
-    const reason = !hasLines ? NO_LINES_REASON : !email ? NO_EMAIL_REASON : send.outlook.tooLong ? TOO_LONG_OUTLOOK : null;
-    return { id: "outlook", label: "Open In Outlook", primary: false, enabled: reason == null, reason, href: reason == null ? send.outlook.url : null, newTab: true };
+    const reason = !hasLines ? NO_LINES_REASON : !email ? NO_EMAIL_REASON : null;
+    const long = send.outlook.tooLong;
+    return { id: "outlook", label: long ? "Copy And Open In Outlook" : "Open In Outlook", primary: false, enabled: reason == null, reason, href: reason == null ? (long ? send.outlook.shortUrl : send.outlook.url) : null, newTab: true, copiesOrder: long };
   })();
   const copyAction: SendAction = { id: "copy", label: "Copy Order", primary: method === "app", enabled: hasLines, reason: hasLines ? null : NO_LINES_REASON, href: null, newTab: false };
   const loginAction: SendAction = { id: "login", label: "Open Login", primary: method === "website", enabled: login, reason: login ? null : NO_LOGIN_REASON, href: login ? (supplier.login_url ?? "").trim() : null, newTab: true };
@@ -425,6 +429,7 @@ export function sendActions(supplier: Pick<OrderingSupplier, "method" | "email_t
 export function sendReasons(actions: readonly SendAction[]): string[] {
   const out: string[] = [];
   for (const a of actions) if (a.reason && !out.includes(a.reason)) out.push(a.reason);
+  if (actions.some((a) => a.enabled && a.copiesOrder)) out.push(LONG_ORDER_NOTE);
   return out;
 }
 

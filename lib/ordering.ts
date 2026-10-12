@@ -407,6 +407,11 @@ export interface ComposeLink {
   url: string;
   /** the link is longer than MAX_LINK_LENGTH: the screen should offer Copy instead of (or beside) opening the draft */
   tooLong: boolean;
+  /**
+   * The same draft with the address and subject only (no body), always short enough to open. For a long order the screen copies
+   * the order first and opens this, so the person pastes the text into the empty email.
+   */
+  shortUrl: string;
 }
 
 /** Splits "a@x.com; b@y.com" into clean addresses. */
@@ -419,7 +424,7 @@ const enc = (s: string) => encodeURIComponent(toCrlf(s));
 export function mailtoUrl(p: { to: string | null | undefined; subject: string; body: string }): ComposeLink {
   const to = addressList(p.to).map((a) => a.replace(/[^A-Za-z0-9@.+_'-]/g, encodeURIComponent)).join(",");
   const url = `mailto:${to}?subject=${enc(p.subject)}&body=${enc(p.body)}`;
-  return { url, tooLong: url.length > MAX_LINK_LENGTH };
+  return { url, tooLong: url.length > MAX_LINK_LENGTH, shortUrl: `mailto:${to}?subject=${enc(p.subject)}` };
 }
 
 /**
@@ -433,7 +438,7 @@ export function mailtoUrl(p: { to: string | null | undefined; subject: string; b
 export function outlookWebUrl(p: { to: string | null | undefined; subject: string; body: string }): ComposeLink {
   const to = encodeURIComponent(addressList(p.to).join(","));
   const url = `https://outlook.office.com/mail/deeplink/compose?to=${to}&subject=${enc(p.subject)}&body=${enc(p.body)}`;
-  return { url, tooLong: url.length > MAX_LINK_LENGTH };
+  return { url, tooLong: url.length > MAX_LINK_LENGTH, shortUrl: `https://outlook.office.com/mail/deeplink/compose?to=${to}&subject=${enc(p.subject)}` };
 }
 
 /* ------------------------------------------------------------------ supplier contact values (import and editing) */

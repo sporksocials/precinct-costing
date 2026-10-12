@@ -42,8 +42,7 @@ export function SendPanel({
     setCopied(false);
   }, [send.body]);
 
-  const doCopy = () => {
-    onUsed("copy");
+  const copyOrder = () => {
     // the text already exists (built while rendering); the click is still being handled when copyText starts
     void copyText(send.body).then((ok) => {
       window.clearTimeout(timer.current);
@@ -60,6 +59,10 @@ export function SendPanel({
         });
       }
     });
+  };
+  const doCopy = () => {
+    onUsed("copy");
+    copyOrder();
   };
 
   const reasons = sendReasons(actions);
@@ -83,7 +86,11 @@ export function SendPanel({
           }
           if (a.href) {
             return (
-              <a key={a.id} href={a.href} {...(a.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})} onClick={() => onUsed(a.id)} className={cls}>
+              <a key={a.id} href={a.href} {...(a.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})} onClick={() => {
+                  onUsed(a.id);
+                  // a long order cannot ride in the link: copy it now (still inside the click), the empty draft opens as the link is followed
+                  if (a.copiesOrder) copyOrder();
+                }} className={cls}>
                 <Icon aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.25} />
                 {a.label}
               </a>

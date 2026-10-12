@@ -123,6 +123,10 @@ describe("delivery links", () => {
     expect(outlookWebUrl({ to: "a@b.com", subject: big.subject, body: big.body }).tooLong).toBe(true);
     expect(mailtoUrl({ to: "a@b.com", subject: "S", body: "x".repeat(MAX_LINK_LENGTH) }).tooLong).toBe(true);
     expect(mailtoUrl({ to: "a@b.com", subject: "S", body: "short" }).tooLong).toBe(false);
+    // the short draft never carries the body, so it opens however long the order is
+    const long = mailtoUrl({ to: "a@b.com", subject: "S", body: "x".repeat(20000) });
+    expect(long.shortUrl).toBe("mailto:a@b.com?subject=S");
+    expect(outlookWebUrl({ to: "a@b.com", subject: "S", body: "x".repeat(20000) }).shortUrl).toBe("https://outlook.office.com/mail/deeplink/compose?to=a%40b.com&subject=S");
   });
   it("Outlook on the web deep link", () => {
     const o = outlookWebUrl({ to: "orders@star.example.com", subject: t.subject, body: t.body });

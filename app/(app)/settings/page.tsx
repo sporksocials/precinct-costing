@@ -6,7 +6,8 @@ import { gp, parseDecimal } from "@/lib/format";
 import { parsePercentInput } from "@/lib/solver";
 import { DEFAULT_TARGET_GP, MENU_CATEGORIES } from "@/lib/types";
 import { VENUE_SHORT } from "@/components/venue";
-import { Banner, Dot, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
+import { VenueMark } from "@/components/brand";
+import { Banner, FieldRow, Group, InlineInput, PageHeader, Row, Sheet, cx } from "@/components/ui";
 import { targetGrid } from "@/lib/targets";
 import { formatVerifiedTime } from "@/lib/health";
 import { useDataHealthSummary } from "@/lib/use-data-health";
@@ -61,7 +62,7 @@ export default function SettingsPage() {
             <span />
             {store.venues.map((v) => (
               <span key={v.id} className={cx("v-" + v.slug, "flex items-center justify-center gap-1 text-[12px] font-semibold text-label-2")}>
-                <Dot className="bg-accent-fill" />
+                <VenueMark slug={v.slug} size={18} />
                 {VENUE_SHORT[v.slug] ?? v.name}
               </span>
             ))}

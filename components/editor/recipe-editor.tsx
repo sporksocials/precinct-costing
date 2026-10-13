@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Copy, Ellipsis, FlaskConical, GripVertical, Pencil, Printer } from "lucide-react";
 import { useBackHref } from "@/components/use-back-href";
+import { VenueMark, VenueTag } from "@/components/brand";
 import { newId, useStore } from "@/lib/store";
 import { costItem, costLines, costPerShot, parentKey, type LineCost, type PrepCost } from "@/lib/costing";
 import { gp, money, parseDecimal, unitShort } from "@/lib/format";
@@ -17,7 +18,7 @@ import { suggestCopyName } from "@/lib/duplicate-name";
 import { OWN_FORM_CATEGORIES } from "@/lib/add-choices";
 import { MENU_CATEGORIES, PACK_UNITS, type MenuItem, type PackUnit, type Prep, type RecipeLine } from "@/lib/types";
 import { VenueAccent, VENUE_SHORT } from "../venue";
-import { Banner, Chips, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
+import { Banner, Chips, cx, Disclosure, Empty, FieldRow, Group, InlineInput, Menu, Row, Segmented, Sheet, Stepper, useToast } from "../ui";
 import { LineEditor, type LinePatch } from "./line-editor";
 import { PrepBadge, SmartAdd, type AddSpec } from "./smart-add";
 import { PricePicker } from "./price-picker";
@@ -721,7 +722,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
           {setup ? <FinishSetup model={setup} /> : null}
 
           <div className="group-list mt-5">
-            <Row onClick={() => setSheet("venue")} title="Venue" trailing={<span className="text-label-2">{venue ? VENUE_SHORT[venue.slug] ?? venue.name : "Shared"}</span>} chevron />
+            <Row onClick={() => setSheet("venue")} title="Venue" trailing={venue ? <span className="text-label-2"><VenueTag slug={venue.slug} name={VENUE_SHORT[venue.slug] ?? venue.name} size={18} /></span> : <span className="text-label-2">Shared</span>} chevron />
             {item ? <Row onClick={() => setSheet("category")} title="Category" trailing={<span className="text-label-2">{item.category}</span>} chevron /> : null}
             {!(item && isBarCategory(item.category)) ? (
               <ActiveToggle checked={draft.active} record={kind} name={draft.name || (kind === "item" ? "this menu item" : "this prep")} impact={impact} lockedReason={activeLock} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
@@ -1033,7 +1034,7 @@ function RecipeEditor({ kind, saved }: { kind: Kind; saved: Rec }) {
             <Row
               key={v.id}
               title={v.name}
-              leading={<Dot className={cx(`v-${v.slug}`, "bg-accent-fill")} />}
+              leading={<VenueMark slug={v.slug} size={24} />}
               onClick={() => {
                 setDraft((d) => ({ ...d, venue_id: v.id }) as Rec);
                 setSheet(null);
@@ -1288,7 +1289,7 @@ function DuplicateSheet({ kind, draft, lines, onClose }: { kind: Kind; draft: Re
             ariaLabel="Venue"
             value={venueId == null ? "" : String(venueId)}
             onChange={(v) => setVenueId(Number(v))}
-            options={store.venues.map((v) => ({ value: String(v.id), label: VENUE_SHORT[v.slug] ?? v.name, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
+            options={store.venues.map((v) => ({ value: String(v.id), label: <VenueTag slug={v.slug} name={VENUE_SHORT[v.slug] ?? v.name} size={16} tone="ink" />, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
             className="[&>button:not([aria-checked=true])]:bg-fill"
           />
         </div>

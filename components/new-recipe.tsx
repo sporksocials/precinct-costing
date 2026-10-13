@@ -12,6 +12,7 @@ import { NEW_ITEM_CATEGORIES, beerDefaultVenueId, guessCategory, type AddChoice,
 import { Banner, Chips, FieldRow, Sheet } from "./ui";
 import { ServesSegmented } from "./serves-choice";
 import { VENUE_SHORT } from "./venue";
+import { VenueTag } from "./brand";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { AddChooserSheet, SheetBack } from "./add-chooser";
 import { NewBeerSheet } from "./beer-parts";
@@ -182,7 +183,7 @@ function NewRecipeSheet({ args, onClose, onBack }: { args: OpenArgs; onClose: ()
             ariaLabel="Venue"
             value={venueId == null ? "" : String(venueId)}
             onChange={(v) => setVenueId(Number(v))}
-            options={store.venues.map((v) => ({ value: String(v.id), label: VENUE_SHORT[v.slug] ?? v.name, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
+            options={store.venues.map((v) => ({ value: String(v.id), label: <VenueTag slug={v.slug} name={VENUE_SHORT[v.slug] ?? v.name} size={16} tone="ink" />, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
             className="[&>button:not([aria-checked=true])]:bg-fill"
           />
         </div>

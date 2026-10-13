@@ -9,6 +9,7 @@ import { gp } from "@/lib/format";
 import { gpSummary, underTargetRows } from "@/lib/insights";
 import { belowTargetKey, ignoredKeySet, openRows } from "@/lib/ignored-alerts";
 import { cx } from "./ui";
+import { VenueMark } from "./brand";
 
 export const VENUE_SHORT: Record<string, string> = { drift: "Drift", chiobu: "Chiobu", greedy: "Greedy", gelato: "Gelato" };
 
@@ -122,6 +123,7 @@ export function VenueFilter({ className, stats = true, compact = false }: { clas
           >
             <span aria-hidden className={cx("absolute inset-x-0 top-0 h-[3px]", o.slug === "all" ? "precinct-strip" : on ? "bg-[color:var(--venue-2)]" : "bg-accent-fill")} />
             <span className="flex items-center gap-1.5 text-[15px] font-semibold leading-tight">
+              <VenueMark slug={o.slug} size={20} tone={on ? "ink" : "colour"} />
               <span className="truncate">{o.name}</span>
               {on ? <Check aria-hidden className="h-4 w-4 shrink-0" strokeWidth={3} /> : null}
             </span>

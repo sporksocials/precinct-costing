@@ -7,8 +7,9 @@ import { useStore } from "@/lib/store";
 import { countByStatus, groupNotes, type NoteRecord } from "@/lib/research-notes";
 import type { ResearchNote, ResearchStatus } from "@/lib/types";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
+import { VenueMark } from "@/components/brand";
 import { ResearchNoteCard, useNoteEffects } from "@/components/editor/research-notes";
-import { Chips, cx, Dot, Empty, Group, PageHeader } from "@/components/ui";
+import { Chips, cx, Empty, Group, PageHeader } from "@/components/ui";
 import { useUrlState } from "@/components/use-url-state";
 
 type Filter = ResearchStatus | "all";
@@ -73,7 +74,7 @@ export default function ResearchNotesPage() {
               return (
                 <section key={vg.venueId ?? "none"} className="mt-8">
                   <h2 className="flex items-center gap-2 px-1 text-[17px] font-semibold">
-                    {v ? <Dot className={cx(`v-${v.slug}`, "bg-accent-fill")} /> : null}
+                    {v ? <VenueMark slug={v.slug} size={22} /> : null}
                     {v ? VENUE_SHORT[v.slug] ?? v.name : "Shared"}
                     <span className="text-[15px] font-normal text-label-2 tnum">
                       {vg.count} {vg.count === 1 ? "Note" : "Notes"}

@@ -10,6 +10,7 @@ import { gp, money, parseDecimal } from "@/lib/format";
 import { indexDoc, search } from "@/lib/search";
 import { parsePriceInput } from "@/lib/solver";
 import { VENUE_SHORT } from "./venue";
+import { VenueTag } from "./brand";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { IngredientSheet, blankIngredient } from "./ingredient-sheet";
 import { SheetBack } from "./add-chooser";
@@ -126,7 +127,7 @@ export function NewBeerSheet({ defaultVenueId, onClose, onBack }: { defaultVenue
             ariaLabel="Venue"
             value={venueId != null ? String(venueId) : ""}
             onChange={(v) => setVenueId(Number(v))}
-            options={store.venues.filter((v) => v.slug !== "gelato").map((v) => ({ value: String(v.id), label: VENUE_SHORT[v.slug] ?? v.name, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
+            options={store.venues.filter((v) => v.slug !== "gelato").map((v) => ({ value: String(v.id), label: <VenueTag slug={v.slug} name={VENUE_SHORT[v.slug] ?? v.name} size={16} tone="ink" />, className: venueId === v.id ? `v-${v.slug}` : undefined }))}
             className="[&>button:not([aria-checked=true])]:bg-fill"
           />
         </div>

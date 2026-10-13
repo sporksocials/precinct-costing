@@ -10,6 +10,7 @@ import { ignoredCheckItemIds } from "@/lib/ignored-alerts";
 import { alertTotals, attentionVisibility, gpStatus, gpTarget, rankAttention, sliderPos, specialsSummary, venueGpRows, viewAllState, type GpLevel } from "@/lib/dashboard";
 import { useNewRecipe } from "@/components/new-recipe";
 import { VENUE_SHORT } from "@/components/venue";
+import { VenueMark } from "@/components/brand";
 import { cx, Group, Row } from "@/components/ui";
 import { useRefreshIgnored } from "@/components/alert-parts";
 import { formatToday, useOpenAlerts } from "@/components/today-feed";
@@ -219,9 +220,12 @@ export function Dashboard() {
                   className="block min-h-[64px] px-4 py-3 transition-colors hover:bg-fill active:bg-fill focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--label)]"
                 >
                   <span className="flex items-center justify-between gap-3">
-                    <span className="min-w-0">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <VenueMark slug={r.venue.slug} size={30} />
+                      <span className="min-w-0">
                       <span className="block truncate text-[17px] font-semibold leading-snug sm:text-[15px]">{name}</span>
                       <span className="block text-[15px] leading-snug text-label-2 sm:text-[13px]">{r.avg == null ? "No GP yet" : r.under ? `${r.under} below target` : "All on target"}</span>
+                      </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
                       <LevelIcon level={lv} className={cx("h-4 w-4", VL.text)} />

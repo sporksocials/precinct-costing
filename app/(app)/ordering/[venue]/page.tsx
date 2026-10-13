@@ -8,6 +8,7 @@ import { OrderingError } from "@/lib/ordering-data";
 import { loadVenueSummary, type VenueSummary } from "@/lib/ordering-screens-data";
 import { lastCountLine } from "@/lib/ordering-history-view";
 import { Banner, cx, Empty, PageHeader, Skeleton } from "@/components/ui";
+import { VenueMark } from "@/components/brand";
 import { usePersonName } from "@/components/use-person-name";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
 import { CopyVenueSheet } from "@/components/ordering/copy-venue-sheet";
@@ -65,7 +66,7 @@ export default function OrderingVenueHome() {
       <TouchBack path="/ordering" fallback="/ordering">
         Ordering
       </TouchBack>
-      <PageHeader title={name} subtitle={summary ? (empty ? "No products yet" : lastCountLine(summary.lastCount, nameOf)) : "Ordering"} className="lg:!pt-2" />
+      <PageHeader title={<span className="inline-flex items-center gap-3"><VenueMark slug={venue.slug} size={36} />{name}</span>} subtitle={summary ? (empty ? "No products yet" : lastCountLine(summary.lastCount, nameOf)) : "Ordering"} className="lg:!pt-2" />
       {error ? <Banner>{error.message}</Banner> : null}
 
       {!summary && !error ? (

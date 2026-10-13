@@ -10,6 +10,7 @@ import { loadVenueSummaries, type VenueSummary } from "@/lib/ordering-screens-da
 import { lastCountLine } from "@/lib/ordering-history-view";
 import { orderingVenueName } from "@/lib/ordering";
 import { VENUE_SHORT } from "@/components/venue";
+import { VenueMark } from "@/components/brand";
 import { Banner, cx, PageHeader, Skeleton } from "@/components/ui";
 import { usePersonName } from "@/components/use-person-name";
 import { Tag } from "@/components/ordering/touch";
@@ -58,7 +59,10 @@ export default function OrderingLanding() {
                 <span aria-hidden className="absolute inset-x-0 top-0 h-[4px] bg-accent-fill" />
                 <span className="flex items-start justify-between gap-3">
                   <span className="min-w-0">
-                    <span className="block text-[24px] font-semibold leading-tight">{name}</span>
+                    <span className="flex items-center gap-2.5 text-[24px] font-semibold leading-tight">
+                      <VenueMark slug={v.slug} size={30} />
+                      {name}
+                    </span>
                     <span className="mt-1 block text-[15px] text-label-2">
                       {!summaries ? <Skeleton className="mt-1 h-4 w-44" /> : s instanceof OrderingError ? "Not available yet" : ok && ok.products === 0 ? "No products yet. Set them up to start." : lastCountLine(ok?.lastCount ?? null, nameOf)}
                     </span>

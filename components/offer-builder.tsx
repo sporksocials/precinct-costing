@@ -12,6 +12,7 @@ import { parseGpInput, parsePriceInput } from "@/lib/solver";
 import type { Offer, OfferAssumptions, OfferKind, OfferLine, OfferStatus } from "@/lib/types";
 import { useGuardedRouter, useUnsavedGuard } from "./unsaved-guard";
 import { VenueAccent, VENUE_SHORT } from "./venue";
+import { VenueTag } from "./brand";
 import { OfferSimulator, priceBreakEvenLabel, simInputFrom } from "./offer-simulator";
 import { ComponentPicker, StatusPill, type NewOfferLine } from "./offers-parts";
 import { ActiveToggle, DeleteRecordSheet } from "./active-parts";
@@ -205,7 +206,7 @@ export function OfferBuilder({ offerId, initial }: { offerId: string | null; ini
               ariaLabel="Venue"
               value={d.venueId != null ? String(d.venueId) : ""}
               onChange={(v) => set({ venueId: Number(v) })}
-              options={store.venues.map((v) => ({ value: String(v.id), label: VENUE_SHORT[v.slug] ?? v.name, className: d.venueId === v.id ? `v-${v.slug}` : undefined }))}
+              options={store.venues.map((v) => ({ value: String(v.id), label: <VenueTag slug={v.slug} name={VENUE_SHORT[v.slug] ?? v.name} size={16} tone="ink" />, className: d.venueId === v.id ? `v-${v.slug}` : undefined }))}
             />
           </div>
           <p className="px-1 pt-1.5 text-[13px] text-label-2">{d.lines.length ? "The venue is fixed once there are components. Remove them to change it." : "Every component comes from this venue."}</p>

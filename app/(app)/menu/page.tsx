@@ -14,6 +14,7 @@ import type { ItemCost } from "@/lib/costing";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useUrlFlag, useUrlState } from "@/components/use-url-state";
 import { useVenue, VenueFilter, VENUE_SHORT } from "@/components/venue";
+import { VenueMark } from "@/components/brand";
 import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
 import { beerDefaultVenueId, destinationForCategory } from "@/lib/add-choices";
@@ -249,6 +250,7 @@ export default function MenuPage() {
                     key={b.id}
                     href={`/beers/${b.id}`}
                     title={<TitleWithTag name={b.name} active={b.active} />}
+                    leading={!venue ? <VenueMark slug={store.venueById.get(b.venue_id)?.slug} size={24} /> : undefined}
                     sub={[!venue ? VENUE_SHORT[store.venueById.get(b.venue_id)?.slug ?? ""] : null, cs.map((c) => (c.sellInc != null ? money(c.sellInc) : "—")).join(" · ")].filter(Boolean).join(" · ")}
                     trailing={
                       worst?.gpPct != null ? (
@@ -341,6 +343,7 @@ function ItemRow({ c, showVenue, sel }: { c: ItemCost; showVenue: boolean; sel: 
     <Row
       href={`/items/${c.item.id}`}
       title={<TitleWithTag name={c.item.name} active={c.item.active} />}
+      leading={showVenue ? <VenueMark slug={v?.slug} size={24} /> : undefined}
       sub={itemSub(c, showVenue, VENUE_SHORT[v?.slug ?? ""] ?? v?.name)}
       trailing={<GpCell c={c} />}
       select={sel.row(c.item.id, c.item.name)}
@@ -357,7 +360,7 @@ function ItemTable({ rows, showVenue, sorted, sel }: { rows: ItemCost[]; showVen
   const columns: Column<ItemCost>[] = [
     { key: "name", label: "Menu Item", render: (c) => <span className="font-medium"><TitleWithTag name={c.item.name} active={c.item.active} /></span>, sort: (c) => c.item.name },
     ...(showVenue
-      ? [{ key: "venue", label: "Venue", render: (c: ItemCost) => <span className={cx(`v-${store.venueById.get(c.item.venue_id)?.slug}`, "inline-flex items-center gap-1.5 text-label-2")}><Dot className="bg-accent-fill" />{vName(c)}</span>, sort: vName }]
+      ? [{ key: "venue", label: "Venue", render: (c: ItemCost) => <span className={cx(`v-${store.venueById.get(c.item.venue_id)?.slug}`, "inline-flex items-center gap-1.5 text-label-2")}><VenueMark slug={store.venueById.get(c.item.venue_id)?.slug} size={18} />{vName(c)}</span>, sort: vName }]
       : []),
     { key: "cat", label: "Category", render: (c) => <span className="text-label-2">{c.item.category}</span>, sort: (c) => c.item.category },
     { key: "cost", label: "Cost", align: "right", render: (c) => money(c.costPerPortion), sort: (c) => c.costPerPortion },

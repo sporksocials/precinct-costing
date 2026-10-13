@@ -39,3 +39,64 @@ export function PrecinctMark({ size = "md", sub, className }: { size?: "sm" | "m
     </div>
   );
 }
+
+/**
+ * The small venue emblem for beside a venue's name (Troy, 13 Oct 2026: "little logos next to these names throughout the app").
+ * Each is cropped from the venue's own logo (public/brand/mark-<slug>.svg, the same artwork with a tighter viewBox): Drift's
+ * anchor, Chiobu's C, Greedy Gringo's sombrero skull, Gelato Rumba's pink scoop. Decorative (the name always sits beside it), so
+ * it is hidden from screen readers. Two looks:
+ *  - "colour" (default): the venue's own colours, for the dark surface.
+ *  - "ink": a one colour silhouette in the surrounding text colour, for places that change colour with state (the selected venue
+ *    tile fills with the venue accent, a selected segment) where a cream or red emblem would vanish.
+ * An unknown slug, or "all", draws nothing, so callers never need to check.
+ */
+const MARKS: Record<string, { src: string; optical: number }> = {
+  drift: { src: "/brand/mark-drift.svg", optical: 1 },
+  chiobu: { src: "/brand/mark-chiobu.svg", optical: 1.12 },
+  greedy: { src: "/brand/mark-greedy.svg", optical: 1.08 },
+  gelato: { src: "/brand/mark-gelato.svg", optical: 0.95 },
+};
+
+export function hasMark(slug?: string | null): boolean {
+  return !!slug && slug in MARKS;
+}
+
+export function VenueMark({ slug, size = 20, tone = "colour", className }: { slug?: string | null; size?: number; tone?: "colour" | "ink"; className?: string }) {
+  const m = slug ? MARKS[slug] : undefined;
+  if (!m) return null;
+  const inner = Math.round(size * m.optical);
+  return (
+    <span aria-hidden className={cx("inline-flex shrink-0 items-center justify-center", className)} style={{ width: size, height: size }}>
+      {tone === "ink" ? (
+        <span
+          className="block bg-current"
+          style={{
+            width: inner,
+            height: inner,
+            WebkitMaskImage: `url(${m.src})`,
+            maskImage: `url(${m.src})`,
+            WebkitMaskRepeat: "no-repeat",
+            maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+            maskPosition: "center",
+            WebkitMaskSize: "contain",
+            maskSize: "contain",
+          }}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={m.src} alt="" width={inner} height={inner} className="block object-contain" style={{ width: inner, height: inner }} draggable={false} />
+      )}
+    </span>
+  );
+}
+
+/** The emblem and the venue's name side by side, for a line of text that names a venue. */
+export function VenueTag({ slug, name, size = 16, tone = "colour", className }: { slug?: string | null; name: string; size?: number; tone?: "colour" | "ink"; className?: string }) {
+  return (
+    <span className={cx("inline-flex items-center gap-1.5 align-middle", className)}>
+      <VenueMark slug={slug} size={size} tone={tone} />
+      <span>{name}</span>
+    </span>
+  );
+}

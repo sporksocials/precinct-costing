@@ -13,7 +13,21 @@ import { cx, useToast } from "./ui";
  * the quiet "Did you mean" row), a name another record already has is refused in plain words BEFORE saving (`taken`), a failed save
  * says so and keeps what was typed, and a rename can be undone from the toast. It replaces the name row that used to hide under Advanced.
  */
-export function RenameTitle({ name, kind, onSave, taken }: { name: string; kind: NameKind; onSave: (name: string) => Promise<void> | void; taken?: (name: string) => string | null }) {
+export function RenameTitle({
+  name,
+  kind,
+  onSave,
+  onUndo,
+  taken,
+}: {
+  name: string;
+  kind: NameKind;
+  /** returns false to cancel quietly (the person backed out of a question), or a message to show instead of "Renamed to X" */
+  onSave: (name: string) => Promise<void | false | string> | void | false | string;
+  /** what Undo runs, with the old name; without it Undo just saves the old name again */
+  onUndo?: (oldName: string) => Promise<void> | void;
+  taken?: (name: string) => string | null;
+}) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(name);
@@ -48,9 +62,11 @@ export function RenameTitle({ name, kind, onSave, taken }: { name: string; kind:
     setBusy(true);
     setError(null);
     try {
-      await onSave(next);
+      const result = await onSave(next);
+      if (result === false) return;
       setEditing(false);
-      toast.show({ message: `Renamed to ${next}`, action: { label: "Undo", onClick: () => void Promise.resolve(onSave(name)).catch(() => undefined) } });
+      const undo = onUndo ?? ((old: string) => onSave(old));
+      toast.show({ message: typeof result === "string" ? result : `Renamed to ${next}`, action: { label: "Undo", onClick: () => void Promise.resolve(undo(name)).catch(() => undefined) } });
     } catch (e) {
       setError(e instanceof Error && e.message ? `Couldn’t rename: ${e.message}` : "Couldn’t rename. Try again.");
     } finally {

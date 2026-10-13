@@ -25,6 +25,7 @@ import { IngredientHistory } from "@/components/ingredient-history";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
 import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { RenameTitle } from "@/components/rename-title";
+import { useLinkedRename } from "@/components/linked-rename";
 import { AddSupplier } from "@/components/add-supplier";
 import { clashMessage, findClash } from "@/lib/rename";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
@@ -52,6 +53,7 @@ export default function IngredientDetailPage() {
 
 function Detail({ ing }: { ing: Ingredient }) {
   const store = useStore();
+  const linked = useLinkedRename(ing);
   const [logs, setLogs] = useState<PriceLog[] | null>(null);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,14 +174,14 @@ function Detail({ ing }: { ing: Ingredient }) {
       <RenameTitle
         name={ing.name}
         kind="ingredient"
-        onSave={async (name) => {
-          await store.updateIngredient(ing.id, { name });
-        }}
+        onSave={linked.onSave}
+        onUndo={linked.onUndo}
         taken={(n) => {
           const c = findClash(n, store.ingredients, ing.id);
           return c ? clashMessage("ingredient", c) : null;
         }}
       />
+      {linked.sheet}
       <p className="mt-1 text-[15px] text-label-2">
         {[category, supplier?.name, `${packLabel(ing.pack_size, ing.pack_unit)} pack`].filter(Boolean).join(" · ")}
         {!ing.active ? <InactiveTag /> : null}

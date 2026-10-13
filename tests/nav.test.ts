@@ -120,3 +120,23 @@ describe("the CFP App name", () => {
     for (const f of ["app/layout.tsx", "app/manifest.webmanifest/route.ts", "components/bar/station.tsx", "components/bar/premix.tsx"]) expect(read(f), f).not.toContain("Precinct Costing");
   });
 });
+
+describe("Additional Apps", () => {
+  it("lists the Kitchen App and the Drinks Station App, each to its own public start screen", async () => {
+    const { OTHER_APPS, OTHER_APPS_TITLE } = await import("@/lib/other-apps");
+    expect(OTHER_APPS_TITLE).toBe("Additional Apps");
+    expect(OTHER_APPS.map((a) => [a.label, a.href])).toEqual([["Kitchen App", "/kitchen"], ["Drinks Station App", "/bar"]]);
+  });
+  it("shows in the desktop sidebar below More and on the phone More page, from the one list, opening in a new tab", () => {
+    const shell = read("components/app-shell.tsx");
+    expect(shell).toContain("SidebarOtherApps");
+    expect(shell.indexOf("MORE.map(link)")).toBeLessThan(shell.indexOf("<SidebarOtherApps"));
+    expect(read("components/other-apps.tsx")).toContain('target="_blank"');
+    const more = read("app/(app)/more/page.tsx");
+    expect(more).toContain("OTHER_APPS.map");
+    expect(more).toContain("newTab");
+  });
+  it("is not a phone tab and adds no page of its own", () => {
+    expect(PHONE_TABS.some((t) => /app/i.test(t.label))).toBe(false);
+  });
+});

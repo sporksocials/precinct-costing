@@ -11,6 +11,8 @@ import { UnsavedGuardProvider } from "./unsaved-guard";
 import { PrecinctMark } from "./brand";
 import { DataHealthBanner } from "./data-health-banner";
 import { ScrollMemory } from "./scroll-memory";
+import { SidebarOtherApps } from "./other-apps";
+import { OTHER_APPS_TITLE } from "@/lib/other-apps";
 import { hidesTabBar, isActive, PHONE_TABS, phoneTab, type PhoneTabId } from "@/lib/nav";
 import { Banner, cx, ListSkeleton, Skeleton, ToastProvider, useToast } from "./ui";
 
@@ -50,7 +52,7 @@ function Sidebar() {
     );
   };
   return (
-    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col px-3 pb-4 pt-6 hairline lg:flex" style={{ boxShadow: "inset -0.5px 0 0 var(--separator)" }}>
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col overflow-y-auto px-3 pb-4 pt-6 hairline lg:flex" style={{ boxShadow: "inset -0.5px 0 0 var(--separator)" }}>
       <Link href="/" className="mb-5 block px-2.5" aria-label="Caloundra Food Precinct Costing: Home">
         <PrecinctMark size="sm" sub="Costing" />
       </Link>
@@ -63,7 +65,8 @@ function Sidebar() {
       <nav className="space-y-0.5">{MAIN.map(link)}</nav>
       <p className="mt-6 px-2.5 pb-1 text-[12px] font-medium text-label-3">More</p>
       <nav className="space-y-0.5">{MORE.map(link)}</nav>
-      <div className="mt-auto px-2.5">
+      <SidebarOtherApps title={OTHER_APPS_TITLE} />
+      <div className="mt-auto px-2.5 pt-3">
         <p className="truncate text-[13px] text-label-2" title={userEmail ?? ""}>
           {userEmail}
         </p>

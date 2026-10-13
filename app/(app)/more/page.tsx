@@ -4,6 +4,8 @@ import { HeartPulse, History, Lightbulb, Search, Settings, ShieldCheck, Store, T
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
+import { otherAppIcon } from "@/components/other-apps";
+import { OTHER_APPS, OTHER_APPS_TITLE } from "@/lib/other-apps";
 
 function Icon({ children, className }: { children: React.ReactNode; className: string }) {
   return <span className={`flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-white ${className}`}>{children}</span>;
@@ -39,6 +41,12 @@ export default function MorePage() {
         <Row href="/change-log" title="Change Log" leading={<Icon className="bg-[#5a4a8a]"><History className={ic} /></Icon>} chevron />
         <Row href="/trash" title="Trash" leading={<Icon className="bg-[#8a3a3a]"><Trash2 className={ic} /></Icon>} chevron />
         <Row href="/settings" title="Settings" leading={<Icon className="bg-[#3a3a3f]"><Settings className={ic} /></Icon>} chevron />
+      </Group>
+      <Group title={OTHER_APPS_TITLE}>
+        {OTHER_APPS.map((app) => {
+          const AppIcon = otherAppIcon(app);
+          return <Row key={app.id} href={app.href} newTab title={app.label} sub={app.sub} leading={<Icon className="bg-[#3a3a3f]"><AppIcon className={ic} /></Icon>} chevron />;
+        })}
       </Group>
       <Group title="Signed In As">
         <Row title={userEmail ?? "—"} />

@@ -98,6 +98,7 @@ export function Row({
   active,
   wrapSub,
   select,
+  newTab,
 }: {
   href?: string;
   onClick?: () => void;
@@ -113,6 +114,8 @@ export function Row({
   wrapSub?: boolean;
   /** picking mode (print selection): the whole row is a checkbox with a 44px target, and it neither links nor opens anything */
   select?: { checked: boolean; onChange: () => void; label: string };
+  /** open the link in a new tab (another app, not a page of this one) */
+  newTab?: boolean;
 }) {
   if (select)
     return (
@@ -146,7 +149,7 @@ export function Row({
   );
   if (href)
     return (
-      <Link href={href} className={cls} onClick={onClick}>
+      <Link href={href} className={cls} onClick={onClick} {...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
         {inner}
       </Link>
     );

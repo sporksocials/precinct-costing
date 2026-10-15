@@ -8,6 +8,7 @@
  * why not, the state of a card (open to edit or already sent), and the wording of the Past Orders list.
  */
 import { money } from "./format";
+import { switchNote } from "./supplier-compare";
 import {
   GST_RATE,
   buildOrderText,
@@ -116,6 +117,8 @@ export interface DraftLine {
   packMultiple: number | null;
   /** price of one unit, inc GST */
   price: number | null;
+  /** note when another supplier is 10% or more cheaper (lib/supplier-compare.ts); null when there is nothing to say */
+  switchNote?: string | null;
   /** buy X get Y free (null when the product has none) */
   dealBuy?: number | null;
   dealGet?: number | null;
@@ -124,6 +127,11 @@ export interface DraftLine {
   /** the suggestion rounded up to the pack multiple; null for a line that was added by hand */
   suggested: number | null;
   qty: number;
+}
+
+/** The advisory note for a product that has another supplier's price saved (null when the other supplier is not 10% cheaper). */
+export function productSwitchNote(p: Pick<OrderingProduct, "price_inc_gst" | "alt_supplier_name" | "alt_price_inc_gst" | "unit_name">): string | null {
+  return switchNote({ price: p.price_inc_gst, otherName: p.alt_supplier_name, otherPrice: p.alt_price_inc_gst, unit: p.unit_name });
 }
 
 export const MAX_QTY = 9999;
@@ -155,6 +163,7 @@ export function draftLineFromSuggested(l: SuggestedLine, qty: number): DraftLine
     price: l.product.price_inc_gst,
     dealBuy: l.product.deal_buy_qty ?? null,
     dealGet: l.product.deal_free_qty ?? null,
+    switchNote: productSwitchNote(l.product),
     par: l.product.par,
     counted: l.suggestion.counted,
     suggested: l.suggestion.uncounted ? null : l.suggestion.orderQty,
@@ -176,6 +185,7 @@ export function draftLineFromProduct(product: OrderingProduct, suggested?: Sugge
     price: product.price_inc_gst,
     dealBuy: product.deal_buy_qty ?? null,
     dealGet: product.deal_free_qty ?? null,
+    switchNote: productSwitchNote(product),
     par: product.par,
     counted: null,
     suggested: null,

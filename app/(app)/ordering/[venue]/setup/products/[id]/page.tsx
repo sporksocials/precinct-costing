@@ -5,6 +5,9 @@ import { useCallback, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { updateProduct, type ProductDraft } from "@/lib/ordering-data";
 import { exGst, qtyText } from "@/lib/ordering";
+import { brisbaneToday } from "@/lib/deals";
+import { dateShort } from "@/lib/format";
+import { compareSentence } from "@/lib/supplier-compare";
 import { bySortThenName, moneyInput, nameTaken, packsSentence, parseMoney, parseQuantity, parseWhole, UNIT_CHOICE_OPTIONS, unitChoice, unitTitle, type UnitChoice } from "@/lib/ordering-setup";
 import { Banner, Empty, Group, PageHeader } from "@/components/ui";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
@@ -141,6 +144,38 @@ export default function OrderingProductPage() {
             void persist({ pack_multiple: v });
           }}
         />
+      </Group>
+
+      <Group title="Other Supplier (Optional)" footer="For an item we can also buy from another supplier. We order from the supplier above unless the other one is 10% cheaper: this only adds a note on the order, it never switches anything.">
+        <ChoiceBlock label="Other Supplier">
+          <TouchChips
+            wrap
+            ariaLabel="Other supplier"
+            value={product.alt_supplier_name ?? ""}
+            onChange={(v) => void persist({ alt_supplier_name: v || null, ...(v ? {} : { alt_item_code: null, alt_price_inc_gst: null, alt_price_on: null }) })}
+            options={[{ value: "", label: "None" }, ...suppliers.filter((s) => s.id !== product.supplier_id).map((s) => ({ value: s.name, label: s.name }))]}
+          />
+        </ChoiceBlock>
+        {product.alt_supplier_name ? (
+          <>
+            <TextField label="Other Supplier Item Code" value={product.alt_item_code ?? ""} placeholder="Their item number" onCommit={(t) => void persist({ alt_item_code: nullable(t) })} />
+            <TextField
+              label="Other Supplier Price Inc GST"
+              prefix="$"
+              inputMode="decimal"
+              value={moneyInput(product.alt_price_inc_gst ?? null)}
+              suffix={product.alt_price_on ? `Checked ${dateShort(product.alt_price_on)}` : "Same unit and size as this product"}
+              error={errors.altPrice}
+              hint={compareSentence({ price: product.price_inc_gst, otherName: product.alt_supplier_name, otherPrice: product.alt_price_inc_gst, unit: product.unit_name }) ?? undefined}
+              onCommit={(t) => {
+                const v = t.trim() === "" ? null : parseMoney(t);
+                if (t.trim() !== "" && v == null) return setError("altPrice", "Type an amount like 62.00.");
+                setError("altPrice", null);
+                void persist({ alt_price_inc_gst: v, alt_price_on: v == null ? null : brisbaneToday() });
+              }}
+            />
+          </>
+        ) : null}
       </Group>
 
       <Group title="Price And Build To">

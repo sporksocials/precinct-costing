@@ -2358,3 +2358,13 @@ alter table public.ordering_order_lines
 alter table public.ordering_order_lines drop constraint if exists ordering_order_lines_deal_chk;
 alter table public.ordering_order_lines add constraint ordering_order_lines_deal_chk
   check ((deal_buy_qty is null and deal_free_qty is null) or (deal_buy_qty > 0 and deal_free_qty > 0));
+
+-- ---------------------------------------------------------------------------
+-- 20261015200000_ordering_other_supplier.sql: optional other-supplier price on an ordering product (advisory 10% note).
+alter table public.ordering_products
+  add column if not exists alt_supplier_name text,
+  add column if not exists alt_item_code text,
+  add column if not exists alt_price_inc_gst numeric(10,2),
+  add column if not exists alt_price_on date;
+alter table public.ordering_products drop constraint if exists ordering_products_alt_price_chk;
+alter table public.ordering_products add constraint ordering_products_alt_price_chk check (alt_price_inc_gst is null or alt_price_inc_gst > 0);

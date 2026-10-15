@@ -68,6 +68,11 @@ export interface OrderingProduct extends Stamped {
   /** "buy X, get Y free" (Star Super Crisp keg: buy 8, the 9th is free). Both set or both null. Order in multiples of X + Y. */
   deal_buy_qty?: number | null;
   deal_free_qty?: number | null;
+  /** the same item at another supplier (advisory: the order screen notes it when this price is 10% or more over): same unit and size, inc GST */
+  alt_supplier_name?: string | null;
+  alt_item_code?: string | null;
+  alt_price_inc_gst?: number | null;
+  alt_price_on?: string | null;
   /** optional link to the costing ingredient (cost_ingredients.id) */
   ingredient_id: string | null;
   /** costing packs in one order unit (24 cans per carton) */

@@ -26,6 +26,12 @@ function ProductCell({ line }: { line: DraftLine }) {
       <span className="block text-[16px] font-medium leading-snug text-label">{line.name}</span>
       <span className="mt-0.5 block text-[13px] text-label-2">{small}</span>
       {counted ? <span className="block text-[13px] text-label-2 tnum">{counted}</span> : null}
+      {line.switchNote ? (
+        <span className="mt-1 flex items-start gap-1 text-[13px] leading-snug text-warn">
+          <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
+          <span>{line.switchNote}</span>
+        </span>
+      ) : null}
     </>
   );
 }

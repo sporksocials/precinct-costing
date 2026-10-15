@@ -158,6 +158,46 @@ export default function OrderingProductPage() {
             void persist({ price_inc_gst: v });
           }}
         />
+        <div className="grid grid-cols-2 gap-x-3">
+          <TextField
+            label="Free Unit Deal: Buy"
+            inputMode="numeric"
+            value={product.deal_buy_qty == null ? "" : String(product.deal_buy_qty)}
+            error={errors.dealBuy}
+            onCommit={(t) => {
+              if (t.trim() === "") {
+                setError("dealBuy", null);
+                return void persist({ deal_buy_qty: null, deal_free_qty: null });
+              }
+              const v = parseWhole(t, 1);
+              if (v == null) return setError("dealBuy", "Type a whole number, 1 or more.");
+              setError("dealBuy", null);
+              void persist({ deal_buy_qty: v, deal_free_qty: product.deal_free_qty ?? 1 });
+            }}
+          />
+          <TextField
+            label="Free Unit Deal: Free"
+            inputMode="numeric"
+            value={product.deal_free_qty == null ? "" : String(product.deal_free_qty)}
+            error={errors.dealGet}
+            onCommit={(t) => {
+              if (t.trim() === "") {
+                setError("dealGet", null);
+                return void persist({ deal_buy_qty: null, deal_free_qty: null });
+              }
+              const v = parseWhole(t, 1);
+              if (v == null) return setError("dealGet", "Type a whole number, 1 or more.");
+              if (product.deal_buy_qty == null) return setError("dealGet", "Fill in Buy first.");
+              setError("dealGet", null);
+              void persist({ deal_free_qty: v });
+            }}
+          />
+        </div>
+        <p className="px-4 pb-3 text-[13px] leading-snug text-label-2">
+          {product.deal_buy_qty != null && product.deal_free_qty != null
+            ? `Buy ${product.deal_buy_qty}, get ${product.deal_free_qty} free: every ${product.deal_buy_qty + product.deal_free_qty} ordered, ${product.deal_free_qty} is not paid for. Set Pack Multiple to ${product.deal_buy_qty + product.deal_free_qty} so orders go in ${product.deal_buy_qty + product.deal_free_qty}s.`
+            : "Leave both blank when there is no deal. Star kegs: buy 8, get 1 free."}
+        </p>
         <TextField
           label={`Build To (${unitTitle(product.unit_name).toLowerCase() || "units"})`}
           inputMode="numeric"

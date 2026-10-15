@@ -43,7 +43,7 @@ function PackNote({ line }: { line: DraftLine }) {
 /** One price: the line total inc GST, with what one costs small. */
 function Price({ line }: { line: DraftLine }) {
   if (line.qty <= 0) return null;
-  const p = linePrice(line.qty, line.price);
+  const p = linePrice(line.qty, line.price, undefined, { buy: line.dealBuy, free: line.dealGet });
   if (!p) return <span className="text-[13px] text-label-2">No price</span>;
   return (
     <span className="block text-[16px] font-medium leading-snug text-label tnum">

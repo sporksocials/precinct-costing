@@ -72,6 +72,8 @@ const LABELS: Record<string, string> = {
   par: "Build To",
   pack_multiple: "Order In Multiples Of",
   price_inc_gst: "Price Inc GST",
+  deal_buy_qty: "Free Unit Deal: Buy",
+  deal_free_qty: "Free Unit Deal: Free",
   supplier_id: "Supplier",
   category_id: "Category",
   supplier_item_code: "Supplier Item Code",

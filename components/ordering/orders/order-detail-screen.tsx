@@ -198,8 +198,8 @@ function ProductCell({ l }: { l: OrderingOrderLine }) {
 }
 
 /** One price per line: the line total inc GST, with what one costs small. ex GST is only in the order total. */
-function Price({ qty, priceInc }: { qty: number; priceInc: number | null }) {
-  const p = linePrice(qty, priceInc);
+function Price({ qty, priceInc, deal }: { qty: number; priceInc: number | null; deal?: { buy?: number | null; free?: number | null } }) {
+  const p = linePrice(qty, priceInc, undefined, deal);
   if (!p) return <span className="text-[13px] text-label-2">No price</span>;
   return (
     <span className="block text-[16px] font-medium leading-snug text-label tnum">
@@ -226,7 +226,7 @@ function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPr
             <td className="px-4 py-2.5"><ProductCell l={l} /></td>
             <td className="px-1 py-2.5 text-right text-[15px] tnum text-label-2">{l.suggested_qty == null ? "-" : qtyText(l.suggested_qty)}</td>
             <td className="px-3 py-2.5 text-right text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</td>
-            {showPrices ? <td className="px-1 py-2.5"><Price qty={l.ordered_qty} priceInc={l.price_inc_gst} /></td> : null}
+            {showPrices ? <td className="px-1 py-2.5"><Price qty={l.ordered_qty} priceInc={l.price_inc_gst} deal={{ buy: l.deal_buy_qty, free: l.deal_free_qty }} /></td> : null}
           </tr>
         ))}
       </tbody>
@@ -245,7 +245,7 @@ function DetailList({ lines, showPrices }: { lines: OrderingOrderLine[]; showPri
           </div>
           <div className="shrink-0 text-right">
             <span className="block text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</span>
-            {showPrices ? <Price qty={l.ordered_qty} priceInc={l.price_inc_gst} /> : null}
+            {showPrices ? <Price qty={l.ordered_qty} priceInc={l.price_inc_gst} deal={{ buy: l.deal_buy_qty, free: l.deal_free_qty }} /> : null}
           </div>
         </li>
       ))}

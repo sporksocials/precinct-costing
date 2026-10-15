@@ -12,6 +12,7 @@ import {
   GST_RATE,
   buildOrderText,
   exGst,
+  freeUnits,
   lineTotals,
   mailtoUrl,
   minimumWarning,
@@ -22,6 +23,7 @@ import {
   qtyWithUnit,
   roundUpToMultiple,
   type ComposeLink,
+  type FreeDeal,
 } from "./ordering";
 import type {
   OrderLineDraft,
@@ -114,6 +116,9 @@ export interface DraftLine {
   packMultiple: number | null;
   /** price of one unit, inc GST */
   price: number | null;
+  /** buy X get Y free (null when the product has none) */
+  dealBuy?: number | null;
+  dealGet?: number | null;
   par: number | null;
   counted: number | null;
   /** the suggestion rounded up to the pack multiple; null for a line that was added by hand */
@@ -148,6 +153,8 @@ export function draftLineFromSuggested(l: SuggestedLine, qty: number): DraftLine
     code: l.product.supplier_item_code,
     packMultiple: l.product.pack_multiple,
     price: l.product.price_inc_gst,
+    dealBuy: l.product.deal_buy_qty ?? null,
+    dealGet: l.product.deal_free_qty ?? null,
     par: l.product.par,
     counted: l.suggestion.counted,
     suggested: l.suggestion.uncounted ? null : l.suggestion.orderQty,
@@ -167,6 +174,8 @@ export function draftLineFromProduct(product: OrderingProduct, suggested?: Sugge
     code: product.supplier_item_code,
     packMultiple: product.pack_multiple,
     price: product.price_inc_gst,
+    dealBuy: product.deal_buy_qty ?? null,
+    dealGet: product.deal_free_qty ?? null,
     par: product.par,
     counted: null,
     suggested: null,
@@ -180,7 +189,7 @@ export function freeTextLine(name: string, qty = 1, unit: string | null = null):
   const clean = plainText(name);
   if (!clean) return null;
   freeCounter += 1;
-  return { key: `free:${Date.now().toString(36)}-${freeCounter}`, productId: null, name: clean, unit: unit ? plainText(unit) || null : null, code: null, packMultiple: null, price: null, par: null, counted: null, suggested: null, qty: clampQty(qty) };
+  return { key: `free:${Date.now().toString(36)}-${freeCounter}`, productId: null, name: clean, unit: unit ? plainText(unit) || null : null, code: null, packMultiple: null, price: null, dealBuy: null, dealGet: null, par: null, counted: null, suggested: null, qty: clampQty(qty) };
 }
 
 export function setLineQty(lines: readonly DraftLine[], key: string, qty: number): DraftLine[] {
@@ -225,6 +234,8 @@ export function draftsToOrderLines(lines: readonly DraftLine[]): OrderLineDraft[
       ordered_qty: l.qty,
       pack_multiple: l.packMultiple,
       price_inc_gst: l.price,
+      deal_buy_qty: l.dealBuy,
+      deal_free_qty: l.dealGet,
       sort: out.length,
     });
   }
@@ -309,7 +320,7 @@ export function orderCardGroups(groups: readonly SupplierOrderGroup[], sentSuppl
 
 /** The line shape the text builder and totals read. Lines with no quantity are left out. */
 export function textLinesFromDraft(lines: readonly DraftLine[]): OrderTextLine[] {
-  return lines.filter((l) => l.qty > 0).map((l) => ({ product_name: l.name, unit_name: l.unit, supplier_item_code: l.code, ordered_qty: l.qty, price_inc_gst: l.price }));
+  return lines.filter((l) => l.qty > 0).map((l) => ({ product_name: l.name, unit_name: l.unit, supplier_item_code: l.code, ordered_qty: l.qty, price_inc_gst: l.price, deal_buy_qty: l.dealBuy, deal_free_qty: l.dealGet }));
 }
 
 /** The one unit all the ordered lines share ("carton"), or null when they differ or none is named. Used for a minimum in units. */
@@ -475,7 +486,7 @@ export function cardMode(sent: readonly OrderingOrder[], sendAgain: boolean): Ca
 }
 
 /** The line a sent card or detail page prints: products and units, and the total when any line has a price. */
-export function sentSummary(lines: readonly Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst">[]): { products: number; units: number; totals: OrderTotals } {
+export function sentSummary(lines: readonly Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst" | "deal_buy_qty" | "deal_free_qty">[]): { products: number; units: number; totals: OrderTotals } {
   const real = lines.filter((l) => l.ordered_qty > 0);
   const totals = orderTotals(real);
   return { products: real.length, units: totals.units, totals };
@@ -493,17 +504,19 @@ export interface PriceCells {
 }
 
 /** Price and line total of a line, as shown (ex and inc GST), all null when the line has no price. */
-export function priceCells(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE): PriceCells {
+export function priceCells(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): PriceCells {
   if (priceInc == null) return { unitEx: null, unitInc: null, totalEx: null, totalInc: null };
-  const t = lineTotals(qty, priceInc, rate);
+  const t = lineTotals(qty, priceInc, rate, deal);
   return { unitEx: money(exGst(priceInc, rate)), unitInc: money(priceInc), totalEx: t ? money(t.ex) : null, totalInc: t ? money(t.inc) : null };
 }
 
 /** The ONE price shown on an order line: the line total inc GST and what one unit costs inc GST. Null without a price or a quantity. */
-export function linePrice(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE): { total: string; each: string } | null {
+export function linePrice(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): { total: string; each: string } | null {
   if (priceInc == null || !(qty > 0)) return null;
-  const p = priceCells(qty, priceInc, rate);
-  return p.totalInc && p.unitInc ? { total: p.totalInc, each: `${p.unitInc} each` } : null;
+  const p = priceCells(qty, priceInc, rate, deal);
+  const free = freeUnits(qty, deal);
+  // "$410.00 each, 1 free": the total already leaves the free units out
+  return p.totalInc && p.unitInc ? { total: p.totalInc, each: `${p.unitInc} each${free > 0 ? `, ${qtyText(free)} free` : ""}` } : null;
 }
 
 /** The one quiet line under an order line: "Counted 5 of 8" (Counted, then Build To). Null for a line that was not counted. */

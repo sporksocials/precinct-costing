@@ -385,6 +385,8 @@ export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan 
         supplier_item_code: p.supplier_item_code,
         pack_multiple: p.pack_multiple,
         price_inc_gst: null,
+        deal_buy_qty: p.deal_buy_qty ?? null,
+        deal_free_qty: p.deal_free_qty ?? null,
         ingredient_id: null,
         costing_packs_per_unit: null,
         par: 0,

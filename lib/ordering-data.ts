@@ -150,7 +150,7 @@ export function blankCategory(name = "", unit_name = "carton"): CategoryDraft {
   return { name, sort: 0, second_location_label: null, unit_name };
 }
 export function blankProduct(categoryId: string, name = "", unit_name = "carton"): ProductDraft {
-  return { category_id: categoryId, sort: 0, name, unit_name, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true };
+  return { category_id: categoryId, sort: 0, name, unit_name, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, deal_buy_qty: null, deal_free_qty: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true };
 }
 
 export async function createSupplier(sb: SupabaseClient, venueId: number, draft: SupplierDraft, id: string = newId()): Promise<OrderingSupplier> {

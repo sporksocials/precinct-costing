@@ -239,10 +239,29 @@ export function exGst(inc: number, rate: number = GST_RATE): number {
   return round2(inc / (1 + rate));
 }
 
+/** A "buy X, get Y free" deal on a unit (Star Super Crisp keg: buy 8, get 1 free). Both numbers must be above zero to count. */
+export interface FreeDeal {
+  buy?: number | null;
+  free?: number | null;
+}
+
+/** Whole units in an order that come free: for every X + Y ordered, Y are free (9 kegs on "buy 8 get 1" is 1 free, 18 is 2). */
+export function freeUnits(qty: number, deal?: FreeDeal | null): number {
+  const b = Math.floor(Number(deal?.buy));
+  const f = Math.floor(Number(deal?.free));
+  if (!(b > 0) || !(f > 0) || !(qty > 0)) return 0;
+  return Math.floor(qty / (b + f)) * f;
+}
+
+/** Units that are paid for: the quantity less the free ones. */
+export function paidUnits(qty: number, deal?: FreeDeal | null): number {
+  return qty - freeUnits(qty, deal);
+}
+
 /** A line's value for a quantity at one inc GST unit price: inc is qty x price to the cent, ex is that divided by 1.1. */
-export function lineTotals(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE): MoneyPair | null {
+export function lineTotals(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): MoneyPair | null {
   if (priceInc == null || !Number.isFinite(Number(priceInc))) return null;
-  const inc = round2(qty * Number(priceInc));
+  const inc = round2(paidUnits(qty, deal) * Number(priceInc));
   return { inc, ex: round2(inc / (1 + rate)) };
 }
 
@@ -262,7 +281,7 @@ export function orderTotals(lines: readonly PricedLine[], rate: number = GST_RAT
     if (l.price_inc_gst == null) unpriced += 1;
     else {
       priced += 1;
-      rawInc += l.ordered_qty * Number(l.price_inc_gst);
+      rawInc += paidUnits(l.ordered_qty, { buy: l.deal_buy_qty, free: l.deal_free_qty }) * Number(l.price_inc_gst);
     }
   }
   const inc = round2(rawInc);
@@ -368,10 +387,13 @@ export function buildOrderText(input: OrderTextInput): OrderText {
   out.push(`Order for ${venue}${account ? `, account ${account}` : ""}:`, "");
   for (const l of lines) {
     let text = `${plainText(l.product_name)} - ${qtyWithUnit(l.ordered_qty, l.unit_name)}`;
+    const deal = { buy: l.deal_buy_qty, free: l.deal_free_qty };
+    const free = freeUnits(l.ordered_qty, deal);
     if (input.showPrices) {
       const code = plainText(l.supplier_item_code);
       if (code) text += ` (item ${code})`;
-      const v = lineTotals(l.ordered_qty, l.price_inc_gst);
+      if (free > 0) text += ` (${qtyText(l.ordered_qty - free)} paid, ${qtyText(free)} free)`;
+      const v = lineTotals(l.ordered_qty, l.price_inc_gst, undefined, deal);
       if (v && l.price_inc_gst != null) text += ` @ ${money(exGst(l.price_inc_gst))} ex GST / ${money(l.price_inc_gst)} inc GST = ${money(v.ex)} ex GST / ${money(v.inc)} inc GST`;
     }
     out.push(text);

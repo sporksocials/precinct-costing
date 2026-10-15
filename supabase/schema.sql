@@ -2343,3 +2343,18 @@ revoke all on function public.cost_kitchen_matrix(text) from public;
 grant execute on function public.cost_kitchen_matrix(text) to anon, authenticated;
 
 comment on function public.cost_kitchen_matrix(text) is 'Kitchen display (public iPad Allergy Matrix): one venue''s active Food dishes with their own allergens (contains, can-be-made-without notes, sign-off time ONLY while the sign-off is still valid: the dish''s components, through nested preps, and the allergen ticks on its ingredients, preps and the dish itself must equal those stored at sign-off, with every ingredient reviewed), hand-set marks and dietary options with the swap resolved to names, and the venue''s cross-contact line. Display fields only: never a price, surcharge, cost, who signed off, the components list or the ticks. Null when the venue slug does not exist.';
+
+-- ---------------------------------------------------------------------------
+-- 20261015100000_ordering_free_unit_deal.sql: "buy X get Y free" on an ordering product, snapshotted on order lines.
+alter table public.ordering_products
+  add column if not exists deal_buy_qty integer,
+  add column if not exists deal_free_qty integer;
+alter table public.ordering_products drop constraint if exists ordering_products_deal_chk;
+alter table public.ordering_products add constraint ordering_products_deal_chk
+  check ((deal_buy_qty is null and deal_free_qty is null) or (deal_buy_qty > 0 and deal_free_qty > 0));
+alter table public.ordering_order_lines
+  add column if not exists deal_buy_qty integer,
+  add column if not exists deal_free_qty integer;
+alter table public.ordering_order_lines drop constraint if exists ordering_order_lines_deal_chk;
+alter table public.ordering_order_lines add constraint ordering_order_lines_deal_chk
+  check ((deal_buy_qty is null and deal_free_qty is null) or (deal_buy_qty > 0 and deal_free_qty > 0));

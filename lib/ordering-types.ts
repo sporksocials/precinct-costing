@@ -65,6 +65,9 @@ export interface OrderingProduct extends Stamped {
   pack_multiple: number;
   /** price of one order unit, inc GST */
   price_inc_gst: number | null;
+  /** "buy X, get Y free" (Star Super Crisp keg: buy 8, the 9th is free). Both set or both null. Order in multiples of X + Y. */
+  deal_buy_qty?: number | null;
+  deal_free_qty?: number | null;
   /** optional link to the costing ingredient (cost_ingredients.id) */
   ingredient_id: string | null;
   /** costing packs in one order unit (24 cans per carton) */
@@ -138,6 +141,9 @@ export interface OrderingOrderLine extends Stamped {
   ordered_qty: number;
   pack_multiple: number | null;
   price_inc_gst: number | null;
+  /** the product's free-unit deal as at the order */
+  deal_buy_qty?: number | null;
+  deal_free_qty?: number | null;
   sort: number;
 }
 
@@ -209,6 +215,9 @@ export interface SupplierOrderGroup {
 export interface PricedLine {
   ordered_qty: number;
   price_inc_gst: number | null;
+  /** buy X get Y free: the free units are in ordered_qty but are not paid for */
+  deal_buy_qty?: number | null;
+  deal_free_qty?: number | null;
 }
 export interface OrderTextLine extends PricedLine {
   product_name: string;
@@ -238,6 +247,8 @@ export interface OrderLineDraft {
   ordered_qty: number;
   pack_multiple: number | null;
   price_inc_gst: number | null;
+  deal_buy_qty?: number | null;
+  deal_free_qty?: number | null;
   sort: number;
 }
 

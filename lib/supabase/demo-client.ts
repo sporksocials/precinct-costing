@@ -152,11 +152,11 @@ const CASCADES: Record<string, { table: string; fk: string }[]> = {
 const ORDERING_DEFAULTS: Record<string, () => Row> = {
   ordering_suppliers: () => ({ method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null, min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: 0 }),
   ordering_categories: () => ({ sort: 0, second_location_label: null, unit_name: "carton" }),
-  ordering_products: () => ({ sort: 0, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true }),
+  ordering_products: () => ({ sort: 0, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, deal_buy_qty: null, deal_free_qty: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true }),
   ordering_count_sessions: () => ({ started_by: null, started_at: new Date().toISOString(), status: "in_progress", finalised_by: null, finalised_at: null, note: null, source: null }),
   ordering_count_lines: () => ({ store_qty: null, second_qty: null, counted_by: null, counted_at: null, client_uuid: null, product_name: null, par_at_count: null, unit_name: null }),
   ordering_orders: () => ({ session_id: null, status: "draft", kind: "count", sent_by: null, sent_at: null, method: null, subject: null, body_text: null, warning_text: null, show_prices: false }),
-  ordering_order_lines: () => ({ product_id: null, supplier_item_code: null, unit_name: null, suggested_qty: null, pack_multiple: null, price_inc_gst: null, sort: 0 }),
+  ordering_order_lines: () => ({ product_id: null, supplier_item_code: null, unit_name: null, suggested_qty: null, pack_multiple: null, price_inc_gst: null, deal_buy_qty: null, deal_free_qty: null, sort: 0 }),
   ordering_price_uploads: () => ({ supplier_id: null, uploaded_by: null, uploaded_at: new Date().toISOString(), rows_matched: 0, rows_changed: 0, rows_unmatched: 0, updated_costing: false }),
   ordering_price_log: () => ({ old_price: null, new_price: null, upload_id: null, changed_by: null, changed_at: new Date().toISOString() }),
 };

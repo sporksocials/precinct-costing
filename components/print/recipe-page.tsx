@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { hasLogo } from "../brand";
-import { fitFontSize, INVERT_LOGO_ON_PAPER, titleScale, type FitResult, type PrintRecipe } from "@/lib/print-recipe";
+import { fitPage, INVERT_LOGO_ON_PAPER, titleScale, type FitResult, type PrintRecipe } from "@/lib/print-recipe";
 
 /** Logo height on paper in mm: Drift's anchor is nearly square, so it is drawn taller to read the same size as the wide marks. */
 const LOGO_MM: Record<string, number> = { drift: 15, chiobu: 11, greedy: 11, gelato: 11 };
@@ -28,13 +28,17 @@ export function RecipePage({ recipe, register, onFit }: { recipe: PrintRecipe; r
     if (!page || !body) return;
     // measure against the fixed page height, never the grown one
     page.removeAttribute("data-long");
-    const r = fitFontSize((pt) => {
-      page.style.setProperty("--fs", `${pt}pt`);
-      return body.scrollHeight <= body.clientHeight;
-    });
+    const r = fitPage(
+      !!photo,
+      (mm) => page.style.setProperty("--photo", `${mm}mm`),
+      (pt) => {
+        page.style.setProperty("--fs", `${pt}pt`);
+        return body.scrollHeight <= body.clientHeight;
+      },
+    );
     if (!r.fits) page.setAttribute("data-long", "");
     onFit(recipe.id, r);
-  }, [recipe.id, onFit]);
+  }, [recipe.id, onFit, photo]);
 
   useLayoutEffect(() => {
     refit();

@@ -371,3 +371,32 @@ export function fitFontSize(fits: (size: number) => boolean, opts: FitOptions = 
   }
   return { size: min, fits: false };
 }
+
+/**
+ * Photo sizes on the printed sheet, largest first (mm, square). A dish photo starts big (58mm, about 2.5 times the area of the
+ * old 36mm thumbnail) because a top down shot is what the head chef compares the plate against; the photo only shrinks, step by
+ * step, when the recipe would otherwise not fit one page at the type floor. Type size comes first, so a long recipe keeps its
+ * readable text and gives the space back through the photo, never the other way round.
+ */
+export const PHOTO_SIZES_MM = [58, 46, 36] as const;
+
+export interface PageFit extends FitResult {
+  /** photo edge in mm that was used, null when the recipe has no photo */
+  photoMm: number | null;
+}
+
+/**
+ * Fits one recipe page: for each photo size (just one pass when there is no photo) it applies the size through `setPhoto`,
+ * then runs the type fit. The first size where the page fits wins; when none does, the smallest photo at the type floor is
+ * kept, which is exactly what the sheet did before photos grew.
+ */
+export function fitPage(hasPhoto: boolean, setPhoto: (mm: number) => void, fits: (pt: number) => boolean): PageFit {
+  if (!hasPhoto) return { ...fitFontSize(fits), photoMm: null };
+  let last: PageFit = { size: FONT_MIN_PT, fits: false, photoMm: PHOTO_SIZES_MM[PHOTO_SIZES_MM.length - 1] };
+  for (const mm of PHOTO_SIZES_MM) {
+    setPhoto(mm);
+    last = { ...fitFontSize(fits), photoMm: mm };
+    if (last.fits) return last;
+  }
+  return last;
+}

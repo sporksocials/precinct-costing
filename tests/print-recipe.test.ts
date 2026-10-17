@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { buildIndex } from "@/lib/costing";
@@ -7,12 +7,14 @@ import { DEFAULT_POLICY } from "@/lib/allergen-badges";
 import {
   buildPrintRecipe,
   fitFontSize,
+  fitPage,
   FONT_MIN_PT,
   FONT_START_PT,
   formatUpdated,
   INVERT_LOGO_ON_PAPER,
   MAX_PRINT,
   NOT_CHECKED_LINE,
+  PHOTO_SIZES_MM,
   printAmount,
   titleScale,
   toTitleCase,
@@ -352,5 +354,43 @@ describe("house rules for the print files", () => {
     const colours = [...page.matchAll(/(?:^|[;{\s])(?:background(?:-color)?|color|border(?:-[a-z]+)?)\s*:[^;}]*/g)].flatMap((m) => m[0].match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi) ?? []);
     expect(colours.length).toBeGreaterThan(0);
     expect([...new Set(colours.map((c) => c.toLowerCase()))].sort()).toEqual(["#000", "#fff"]);
+  });
+});
+
+describe("fitPage (photo size)", () => {
+  it("starts a dish photo at 58mm and keeps it when the page fits", () => {
+    const used: number[] = [];
+    const r = fitPage(true, (mm) => used.push(mm), () => true);
+    expect(used).toEqual([58]);
+    expect(r).toEqual({ size: FONT_START_PT, fits: true, photoMm: 58 });
+  });
+  it("shrinks the photo only after the type has gone all the way down to the floor", () => {
+    const events: string[] = [];
+    // fits only with the 46mm photo, at any size
+    let photo = 0;
+    const r = fitPage(
+      true,
+      (mm) => ((photo = mm), events.push(`photo ${mm}`)),
+      (pt) => (events.push(`pt ${pt}`), photo <= 46),
+    );
+    expect(r.photoMm).toBe(46);
+    expect(r.fits).toBe(true);
+    // 58mm tried at every type size first (15 down to the 14pt floor), then 46mm
+    const firstShrink = events.indexOf("photo 46");
+    expect(events.slice(0, firstShrink).filter((e) => e.startsWith("pt")).length).toBeGreaterThan(1);
+    expect(events.slice(0, firstShrink).filter((e) => e === "pt 14").length).toBe(1);
+  });
+  it("ends on the smallest photo at the type floor when nothing fits, and never goes under the floor", () => {
+    const r = fitPage(true, () => {}, () => false);
+    expect(r).toEqual({ size: FONT_MIN_PT, fits: false, photoMm: 36 });
+  });
+  it("a recipe with no photo makes one plain pass and never touches the photo size", () => {
+    const setPhoto = vi.fn();
+    const r = fitPage(false, setPhoto, () => true);
+    expect(setPhoto).not.toHaveBeenCalled();
+    expect(r.photoMm).toBeNull();
+  });
+  it("the photo sizes only go down", () => {
+    expect([...PHOTO_SIZES_MM]).toEqual([...PHOTO_SIZES_MM].sort((a, b) => b - a));
   });
 });

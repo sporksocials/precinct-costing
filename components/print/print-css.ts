@@ -10,7 +10,8 @@ import { FONT_START_PT } from "@/lib/print-recipe";
  * never reach paper. Everything on the page is black on white: no fills, no grey, nothing a mono printer would smudge.
  *
  * Sizes: the recipe's base font size is the CSS variable --fs, set by the fit (lib/print-recipe.ts fitFontSize) from 15pt down
- * to a floor of 14pt. Every other size on the page is in em of that, except the footer (10pt). The page box is 186 x 272mm: the
+ * to a floor of 14pt. A dish photo is the CSS variable --photo (58mm, shrinking to 36mm only when the recipe needs the room, see
+ * fitPage in lib/print-recipe.ts). Every other size on the page is in em of that, except the footer (10pt). The page box is 186 x 272mm: the
  * printable area of A4 with a 12mm margin is 186 x 273mm, and the 1mm spare stops a rounding error making a blank extra page.
  */
 export const PRINT_CSS = `
@@ -36,7 +37,7 @@ export const PRINT_CSS = `
 .pr-venue { font-size: 0.9em; font-weight: 700; letter-spacing: 0.01em; }
 .pr-title { margin: 2mm 0 0; font-weight: 800; line-height: 1.04; letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .pr-sub { margin: 2mm 0 0; font-weight: 600; }
-.pr-photo { flex: none; display: block; width: 36mm; height: 36mm; object-fit: cover; border: 0.35mm solid #000; border-radius: 1.5mm; }
+.pr-photo { flex: none; display: block; width: var(--photo, 36mm); height: var(--photo, 36mm); object-fit: cover; border: 0.35mm solid #000; border-radius: 1.5mm; }
 
 .pr-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .pr-body > * { flex: none; }

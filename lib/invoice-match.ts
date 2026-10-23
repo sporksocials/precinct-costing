@@ -35,7 +35,8 @@ const nameKeysOf = (s: InvoiceSupplierRow): Set<string> => new Set([s.name, ...(
 /** Match the supplier: ABN digits first, then the normalised name against the supplier's name and aliases. */
 export function matchSupplier(ex: Pick<ExtractedInvoice, "supplier_name" | "supplier_abn">, suppliers: InvoiceSupplierRow[]): SupplierMatch {
   const abn = abnDigits(ex.supplier_abn);
-  const activeFirst = [...suppliers].sort((a, b) => Number(b.active) - Number(a.active));
+  // a supplier switched off is not a candidate: its name and ABN no longer match anything
+  const activeFirst = suppliers.filter((s) => s.active !== false);
   if (abn) {
     const hit = activeFirst.find((s) => abnDigits(s.abn) === abn);
     if (hit) return { status: "matched", supplier: hit, candidates: [hit] };
@@ -93,18 +94,34 @@ export function checkVenue(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, ve
 }
 
 // ---------------------------------------------------------------- duplicates
-/** The id of an invoice already filed with the same venue, supplier and number (a repeat scan), or null. */
+/**
+ * The id of an invoice already filed, or null. A repeat is the same venue and supplier with the same invoice number (compared by
+ * `normInvoiceNumber`, so "INV-51329" and "#0051329" are one number), OR the same venue and supplier with the same invoice date and
+ * a printed total within a cent, even when the number was read differently. Documents marked duplicate or failed are ignored.
+ */
 export function findDuplicate(
   invoiceNumber: string | null,
   venueId: number,
   supplierId: string | null,
   existing: AnalyseContext["existingDocs"],
+  invoiceDate: string | null = null,
+  totalInc: number | null = null,
 ): string | null {
+  if (!supplierId) return null;
   const num = normInvoiceNumber(invoiceNumber);
-  if (!num || !supplierId) return null;
   const skip: DocStatus[] = ["duplicate", "failed"];
-  const hit = existing.find((d) => d.venue_id === venueId && d.supplier_id === supplierId && !skip.includes(d.status) && normInvoiceNumber(d.invoice_number) === num);
-  return hit ? hit.id : null;
+  const live = existing.filter((d) => d.venue_id === venueId && d.supplier_id === supplierId && !skip.includes(d.status));
+  if (num) {
+    const hit = live.find((d) => normInvoiceNumber(d.invoice_number) === num);
+    if (hit) return hit.id;
+  }
+  if (invoiceDate && totalInc != null && Number.isFinite(totalInc)) {
+    const hit = live.find(
+      (d) => d.invoice_date != null && d.invoice_date === invoiceDate && d.total_inc != null && Number.isFinite(d.total_inc) && Math.abs(d.total_inc - totalInc) <= 0.01 + 1e-9,
+    );
+    if (hit) return hit.id;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- lines

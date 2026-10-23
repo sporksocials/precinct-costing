@@ -67,9 +67,15 @@ export function sameSupplierName(a: string | null | undefined, b: string | null 
   return ka.some((k) => kb.has(k));
 }
 
-/** An invoice number made comparable for duplicate checks: trimmed, upper case, no spaces, no leading "#". */
+/**
+ * An invoice number made comparable for duplicate checks: lower case, every non-alphanumeric dropped, a leading word "inv",
+ * "invoice", "tax" or "ti" dropped, then leading zeros dropped ("0" alone stays). "INV-51329", "#0051329" and "51329" are one number;
+ * "51329-1" is not (a suffix is a different document).
+ */
 export function normInvoiceNumber(n: string | null | undefined): string | null {
-  const s = String(n ?? "").replace(/\s+/g, "").replace(/^#+/, "").toUpperCase();
+  let s = stripMarks(String(n ?? "")).toLowerCase().replace(/[^a-z0-9]+/g, "");
+  for (let k = 0; k < 3; k++) s = s.replace(/^(?:invoice|inv|tax|ti)(?=[0-9]|tax|inv|ti)/, "");
+  s = s.replace(/^0+(?=[0-9a-z])/, "");
   return s === "" ? null : s;
 }
 

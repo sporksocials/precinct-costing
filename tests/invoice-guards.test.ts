@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideLine, evaluateGuards, isSamePrice } from "../lib/invoice-guards";
+import { MAX_INVOICE_AGE_DAYS, SAME_PRICE_EPS, decideLine, evaluateGuards, isSamePrice } from "../lib/invoice-guards";
 import type { DecideInput, GuardId } from "../lib/invoice-guards";
 
 /** a line that passes every guard */
@@ -12,6 +12,7 @@ const good = (over: Partial<DecideInput> = {}): DecideInput => ({
   mathOk: true,
   matchState: "matched",
   matchMethod: "code",
+  costedSupplierOk: true,
   unitsKnown: true,
   unitsProblem: null,
   hasPrice: true,
@@ -47,6 +48,7 @@ describe("decideLine: the auto-apply guards", () => {
     ["not reconciled", { reconciled: false }, "reconciled", "Invoice does not add up."],
     ["line maths wrong", { mathOk: false }, "math", "The line's quantity times price does not match its total."],
     ["line maths unchecked", { mathOk: null }, "math", "The line's maths could not be checked."],
+    ["ingredient costed on another supplier", { costedSupplierOk: false }, "costed_supplier", "This ingredient is costed on a different supplier's price, so this invoice should not change it on its own."],
     ["no pack size", { unitsKnown: false }, "units", "The pack size for this unit is not known."],
     ["pack conflict", { unitsProblem: "A saved match says 24 per CTN but the ordering list says 12." }, "units", "A saved match says 24 per CTN but the ordering list says 12."],
     ["no price", { hasPrice: false, priceProblem: "GST is unclear on this line." }, "price", "GST is unclear on this line."],
@@ -58,6 +60,7 @@ describe("decideLine: the auto-apply guards", () => {
     ["no invoice date", { invoiceDate: null }, "date", "The invoice date could not be read."],
     ["no last price date", { lastPriceUpdate: null }, "date", "There is no record of when this price last changed."],
     ["invoice dated in the future", { invoiceDate: "2026-11-01" }, "date", "The invoice date is in the future."],
+    ["an old invoice", { invoiceDate: "2026-09-01", lastPriceUpdate: "2026-08-01" }, "age", "This invoice is more than 45 days old, so a person should check it before its prices are used."],
     ["a big rise", { changePct: 0.062 }, "change", "6.2% change is over the 5% limit."],
     ["a big fall", { changePct: -0.12 }, "change", "12.0% change is over the 5% limit."],
     ["exactly at the limit", { changePct: 0.05 }, "change", "5.0% change is at the 5% limit."],
@@ -143,9 +146,9 @@ describe("decideLine: a price that equals the current price is confirmed", () =>
 describe("guards as a checklist", () => {
   it("lists every guard in order for an apply, and a shorter list for a confirm", () => {
     const ids = evaluateGuards(good(), "apply").map((g) => g.id);
-    expect(ids).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "units", "price", "delivered", "credit", "deal", "date", "change", "learning", "supplier_trust"]);
+    expect(ids).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "costed_supplier", "units", "price", "delivered", "credit", "deal", "date", "age", "change", "learning", "supplier_trust"]);
     const confirm = evaluateGuards(good(), "confirm").map((g) => g.id);
-    expect(confirm).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "units", "price", "date"]);
+    expect(confirm).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "costed_supplier", "units", "price", "date", "age"]);
   });
 
   it("every result carries a label and a reason for a screen to show", () => {
@@ -160,5 +163,52 @@ describe("guards as a checklist", () => {
     expect(isSamePrice(68.9, 68.904)).toBe(true);
     expect(isSamePrice(68.9, 68.91)).toBe(false);
     expect(isSamePrice(68.9, 68.9)).toBe(true);
+  });
+});
+
+describe("review fixes: costed supplier, age and the shared epsilon", () => {
+  it("the costed supplier guard sits right after match and before units", () => {
+    const v = decideLine(good({ costedSupplierOk: false, unitsKnown: false, hasPrice: false }));
+    expect(v.failed?.id).toBe("costed_supplier");
+    expect(decideLine(good({ matchMethod: null, costedSupplierOk: false })).failed?.id).toBe("match");
+  });
+
+  it("a price that equals the current one is NOT confirmed from a different supplier, in plain words", () => {
+    const v = decideLine(good({ allSame: true, costedSupplierOk: false }));
+    expect(v.decision).toBe("none");
+    expect(v.failed?.id).toBe("costed_supplier");
+    expect(v.reason).toBe("The price matches, but it is not confirmed: this ingredient is costed on a different supplier's price, so this invoice should not change it on its own.");
+  });
+
+  it("an invoice more than 45 days old is not automatic and not confirmed; 45 days exactly is fine", () => {
+    expect(MAX_INVOICE_AGE_DAYS).toBe(45);
+    // today is 2026-10-24: 45 days back is 2026-09-09
+    expect(decideLine(good({ invoiceDate: "2026-09-09", lastPriceUpdate: "2026-09-01" })).decision).toBe("apply");
+    const old = decideLine(good({ invoiceDate: "2026-09-08", lastPriceUpdate: "2026-09-01" }));
+    expect(old.decision).toBe("needs_approval");
+    expect(old.failed?.id).toBe("age");
+    const same = decideLine(good({ allSame: true, invoiceDate: "2026-09-08", lastPriceUpdate: "2026-09-01" }));
+    expect(same.decision).toBe("none");
+    expect(same.failed?.id).toBe("age");
+  });
+
+  it("the date guard still wins for a future or unreadable date, and the age guard keeps quiet then", () => {
+    expect(decideLine(good({ invoiceDate: "2026-11-01" })).failed?.id).toBe("date");
+    expect(decideLine(good({ invoiceDate: null })).failed?.id).toBe("date");
+    expect(evaluateGuards(good({ invoiceDate: "2026-11-01" })).find((g) => g.id === "age")?.ok).toBe(true);
+  });
+
+  it("every label is plain English with no dashes", () => {
+    const all = [...evaluateGuards(good({ costedSupplierOk: false, invoiceDate: "2026-01-01", lastPriceUpdate: "2025-01-01", learningMode: true })), ...evaluateGuards(good(), "confirm")];
+    for (const g of all) {
+      expect(g.label).not.toMatch(/[\u2013\u2014]/);
+      expect(g.reason).not.toMatch(/[\u2013\u2014]/);
+    }
+  });
+
+  it("'same' means within SAME_PRICE_EPS, and the constant is half a cent", () => {
+    expect(SAME_PRICE_EPS).toBe(0.005);
+    expect(isSamePrice(10, 10.0049)).toBe(true);
+    expect(isSamePrice(10, 10.005)).toBe(false);
   });
 });

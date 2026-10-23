@@ -145,6 +145,11 @@ export interface AnalyseConfirmations {
   venueConfirmed?: boolean;
   /** a person said the supplier with a different ABN is the same supplier */
   supplierConfirmed?: boolean;
+  /**
+   * The caller already read this document a second time because the first reading did not add up. The second reading may be
+   * different but is not independent evidence, so a person must check the numbers: the invoice counts as not reconciled.
+   */
+  hintedReread?: boolean;
 }
 
 export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0: AnalyseContext): InvoiceAnalysis => {
@@ -160,7 +165,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   const venueRead = checkVenue(extracted, ctx.venueNames, ctx.folderVenueId);
   const venue = ctx.venueConfirmed === true ? { ...venueRead, check: "ok" as const } : venueRead;
   const folderVenueName = ctx.venueNames.find((v) => v.id === ctx.folderVenueId)?.name ?? "this venue";
-  const duplicateOf = supplier ? findDuplicate(extracted.invoice_number, ctx.venueId, supplierId, ctx.existingDocs) : null;
+  const duplicateOf = supplier ? findDuplicate(extracted.invoice_number, ctx.venueId, supplierId, ctx.existingDocs, extracted.invoice_date, extracted.total_inc) : null;
   const isDuplicate = duplicateOf != null;
   const invoiceLike = extracted.doc_type === "invoice" || extracted.doc_type === "credit_note";
 
@@ -208,6 +213,11 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   }));
   const recon = reconcile({ lines: reconLines, gstRate: ctx.gstRate, subtotal_ex: extracted.subtotal_ex, gst_total: extracted.gst_total, total_inc: extracted.total_inc });
   for (const w of work) w.mathOk = recon.mathOk.get(w.i) ?? null;
+  const reread = ctx.hintedReread === true;
+  const reconciled = recon.reconciled && !reread;
+  const rereadNote: ReconNote | null = reread
+    ? { check: "other", ok: false, message: "This invoice was read twice because the first reading did not add up. A person needs to check the numbers before any price is used." }
+    : null;
 
   // ---------------------------------------------------------------- 5 landed cost
   const products = work.filter((w) => w.cls.line_class === "product");
@@ -307,12 +317,14 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
       duplicate: isDuplicate,
       supplierKnown: supplierSure,
       venueCheck: venue.check,
-      reconciled: recon.reconciled,
+      reconciled,
       lineClass: cls,
       mathOk: w.mathOk,
       matchState: m.state,
       matchMethod: m.method,
-      unitsKnown: targets.list.length > 0 || (pack.packs != null && !!ingredient),
+      costedSupplierOk: !ingredient || (ingredient.supplier_id != null && supplier?.cost_supplier_id != null && ingredient.supplier_id === supplier.cost_supplier_id),
+      // an ingredient with no stated pack count waits for an answer even when an ordering price could be read
+      unitsKnown: ingredient ? pack.packs != null && targets.list.length > 0 : targets.list.length > 0,
       unitsProblem,
       hasPrice: targets.list.length > 0,
       priceProblem: targets.problem,
@@ -366,8 +378,8 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     if (venue.check !== "ok") {
       docQuestions.push(venueQuestion({ supplier: supplierLabel, invoiceNumber: extracted.invoice_number, folderVenue: folderVenueName, named: venue.named.map((v) => v.name), billTo: extracted.bill_to, shipTo: extracted.ship_to }));
     }
-    if (!recon.reconciled) {
-      docQuestions.push(totalsQuestion({ supplier: supplierLabel, invoiceNumber: extracted.invoice_number, problems: recon.notes.filter((n) => !n.ok).map((n) => n.message) }));
+    if (!reconciled) {
+      docQuestions.push(totalsQuestion({ supplier: supplierLabel, invoiceNumber: extracted.invoice_number, problems: [...recon.notes, ...(rereadNote ? [rereadNote] : [])].filter((n) => !n.ok).map((n) => n.message) }));
     }
     if (landed.poolCents !== 0 && !landed.allocated) docQuestions.push(poolQuestion({ supplier: supplierLabel, poolEx: landed.poolEx }));
   }
@@ -380,7 +392,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     }
   }
 
-  const reconNotes: ReconNote[] = [...recon.notes];
+  const reconNotes: ReconNote[] = [...recon.notes, ...(rereadNote ? [rereadNote] : [])];
   if (ctx.venueConfirmed === true && venueRead.check !== "ok") reconNotes.push({ check: "venue", ok: true, message: `A person confirmed the invoice is for ${folderVenueName}.` });
   else if (venue.check === "ok") reconNotes.push({ check: "venue", ok: true, message: `The invoice is addressed to ${venue.named[0].name}.` });
   else if (venue.check === "mismatch") reconNotes.push({ check: "venue", ok: false, message: `The invoice names ${venue.named.map((v) => v.name).join(" and ")}, not ${folderVenueName}.` });
@@ -409,7 +421,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     new_supplier: sm.status === "new" ? { name: readName || `Supplier ${plain(extracted.supplier_abn)}`, abn: abnDigits(extracted.supplier_abn) } : null,
     venue_check: venue.check,
     price_basis: priceBasis,
-    reconciled: recon.reconciled,
+    reconciled,
     recon_notes: reconNotes,
     fee_pool_ex: landed.poolEx,
     lines: outLines,

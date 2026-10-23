@@ -3,7 +3,8 @@
  * the screens can show the same checklist the engine used. A price applies itself only when EVERY guard passes; the first guard
  * that fails gives the one plain-words reason the line waits for a person.
  *
- *   duplicate, supplier, venue, reconciled, math, match, units, price, delivered, credit, deal, date, change, learning, supplier_trust
+ *   duplicate, supplier, venue, reconciled, math, match, costed_supplier, units, price, delivered, credit, deal, date, age, change,
+ *   learning, supplier_trust
  *
  * The substantive problems come before the two policy switches (learning mode, supplier trust), so a line that is both risky and in
  * learning mode tells people about the risk. A price that equals the current price ("price confirmed") only needs the guards that
@@ -19,12 +20,14 @@ export type GuardId =
   | "reconciled"
   | "math"
   | "match"
+  | "costed_supplier"
   | "units"
   | "price"
   | "delivered"
   | "credit"
   | "deal"
   | "date"
+  | "age"
   | "change"
   | "learning"
   | "supplier_trust";
@@ -49,6 +52,12 @@ export interface GuardInput {
   mathOk: boolean | null;
   matchState: MatchState;
   matchMethod: MatchMethod | null;
+  /**
+   * The line's target is not an ingredient costed on another supplier's price. True when the line has no ingredient target, or the
+   * ingredient's costing supplier is the invoice supplier's costing supplier. Owners cost interchangeable products on the dearer
+   * supplier, so one supplier's invoice must not move a price that another supplier's list sets.
+   */
+  costedSupplierOk: boolean;
   /** at least one price target (ingredient pack, ordering product) has a known unit conversion */
   unitsKnown: boolean;
   /** a plain-words problem with the units that must stop the line (a pack count conflict), else null */
@@ -79,8 +88,23 @@ export type GuardPurpose = "apply" | "confirm";
 const pass = (id: GuardId, label: string, reason = label): GuardResult => ({ id, ok: true, label, reason });
 const stop = (id: GuardId, label: string, reason: string): GuardResult => ({ id, ok: false, label, reason });
 
-/** Two prices are the same when they differ by less than half a cent. */
-export const isSamePrice = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
+/**
+ * Two prices are the same when they differ by less than half a cent. The apply layer (invoice-apply) uses this same constant for
+ * "nothing to change", so the engine's "price confirmed" and the apply layer's skip can never disagree.
+ */
+export const SAME_PRICE_EPS = 0.005;
+export const isSamePrice = (a: number, b: number): boolean => Math.abs(a - b) < SAME_PRICE_EPS;
+
+/** An invoice dated more than this many days before today is never automatic: a person looks at it first. */
+export const MAX_INVOICE_AGE_DAYS = 45;
+
+const DAY_MS = 86_400_000;
+/** Whole days from one ISO date to another (b minus a); null when either is not a date. */
+function daysBetween(a: string, b: string): number | null {
+  const x = Date.parse(`${a}T00:00:00Z`);
+  const y = Date.parse(`${b}T00:00:00Z`);
+  return Number.isFinite(x) && Number.isFinite(y) ? Math.round((y - x) / DAY_MS) : null;
+}
 
 const iso = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,6 +129,15 @@ export function evaluateGuards(i: GuardInput, purpose: GuardPurpose = "apply"): 
   );
   const certain = i.matchState === "matched" && (i.matchMethod === "code" || i.matchMethod === "alias" || i.matchMethod === "human");
   g.push(certain ? pass("match", "Matched by code or saved match") : stop("match", "Matched by code or saved match", "The product is not matched by code or by a saved match."));
+  g.push(
+    i.costedSupplierOk
+      ? pass("costed_supplier", "Costed on this supplier")
+      : stop(
+          "costed_supplier",
+          "Costed on this supplier",
+          "This ingredient is costed on a different supplier's price, so this invoice should not change it on its own.",
+        ),
+  );
   g.push(
     i.unitsProblem
       ? stop("units", "Pack size known", i.unitsProblem)
@@ -138,6 +171,14 @@ export function evaluateGuards(i: GuardInput, purpose: GuardPurpose = "apply"): 
   else if (last && inv < last) dateProblem = "The invoice is older than the price already in the app.";
   else if (purpose === "apply" && !last) dateProblem = "There is no record of when this price last changed.";
   g.push(dateProblem ? stop("date", "Newer than the current price", dateProblem) : pass("date", "Newer than the current price"));
+
+  // age: an old invoice is read by a person first, whatever else is true (both purposes: it also stops a price being "confirmed")
+  const age = inv && inv <= i.today ? daysBetween(inv, i.today) : null;
+  g.push(
+    age != null && age > MAX_INVOICE_AGE_DAYS
+      ? stop("age", "Recent invoice", `This invoice is more than ${MAX_INVOICE_AGE_DAYS} days old, so a person should check it before its prices are used.`)
+      : pass("age", "Recent invoice"),
+  );
 
   if (purpose === "apply") {
     let changeProblem: string | null = null;

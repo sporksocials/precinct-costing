@@ -185,7 +185,7 @@ describe("units", () => {
     const i = ing({ id: "i", name: "Gin", pack_size: 700, pack_unit: "ml" });
     expect(resolvePacks({ mapPacks: 12, product: null, ingredient: i, invoiceUnit: "CTN" })).toMatchObject({ packs: 12, source: "map", conflict: null });
     expect(resolvePacks({ mapPacks: null, product: p, ingredient: i, invoiceUnit: "CTN" })).toMatchObject({ packs: 6, source: "product", productUnitMatches: true });
-    expect(resolvePacks({ mapPacks: null, product: { ...p, costing_packs_per_unit: null }, ingredient: i, invoiceUnit: "CTN" }).packs).toBe(1);
+    expect(resolvePacks({ mapPacks: null, product: { ...p, costing_packs_per_unit: null }, ingredient: i, invoiceUnit: "CTN" })).toMatchObject({ packs: null, source: "none" });
     expect(resolvePacks({ mapPacks: 12, product: p, ingredient: i, invoiceUnit: "CTN" }).conflict).toEqual({ mapPacks: 12, productPacks: 6 });
     // product unit not matching: falls back to the safe derivation or null
     expect(resolvePacks({ mapPacks: null, product: p, ingredient: i, invoiceUnit: "EA" }).packs).toBeNull();

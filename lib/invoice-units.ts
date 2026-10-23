@@ -123,13 +123,16 @@ export interface PackResolution {
 }
 
 /**
- * Decide packs_per_unit. A saved match wins; then the ordering product's own costing packs (1 when blank) if the invoice unit is
- * the product's unit; then only the safe derivations. Never guesses.
+ * Decide packs_per_unit. A saved match with a stated number wins (a null there means nobody said, never 1); then the ordering
+ * product's own costing packs if the invoice unit is the product's unit and it states them (blank is unknown, never 1); then only
+ * the safe derivations. Never guesses: still unknown gives null and the engine asks.
  */
 export function resolvePacks(input: PackInput): PackResolution {
   const { mapPacks, product, ingredient, invoiceUnit } = input;
   const productUnitMatches = !!product && unitsMatch(invoiceUnit, product.unit_name);
-  const productPacks = product && productUnitMatches ? product.costing_packs_per_unit ?? 1 : null;
+  // a blank costing_packs_per_unit means nobody has said, not "1": it falls through to the safe derivations or a question
+  const rawProductPacks = product && productUnitMatches ? product.costing_packs_per_unit : null;
+  const productPacks = rawProductPacks != null && Number.isFinite(rawProductPacks) && rawProductPacks > 0 ? rawProductPacks : null;
   const hasMap = mapPacks != null && Number.isFinite(mapPacks) && mapPacks > 0;
 
   if (hasMap) {

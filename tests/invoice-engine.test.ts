@@ -283,7 +283,7 @@ describe("guards end to end (one invoice line, one broken thing at a time)", () 
     const base = diabloCtx().ingredients.find((i) => i.id === "ing-ginger")!;
     const a = run({ ctx: { ingredients: [{ ...base, has_deal: true }, ...diabloCtx().ingredients.filter((i) => i.id !== "ing-ginger")] } });
     expect(keg(a).decision_reason).toBe("This product has a deal, so its real price is not the list price.");
-    const p = prod({ id: "p", name: "Ginger Keg", supplier_item_code: "K1", supplier_name: "Diablo Co", unit_name: "keg", price_inc_gst: 390, ingredient_id: "ing-ginger", deal_buy_qty: 8, deal_free_qty: 1, venue_id: CHIOBU });
+    const p = prod({ id: "p", name: "Ginger Keg", supplier_item_code: "K1", supplier_name: "Diablo Co", unit_name: "keg", costing_packs_per_unit: 1, price_inc_gst: 390, ingredient_id: "ing-ginger", deal_buy_qty: 8, deal_free_qty: 1, venue_id: CHIOBU });
     const b = run({ ctx: { products: [p], maps: [] }, edit: (d) => (d.lines[0].item_code = "K1") });
     expect(keg(b).decision_reason).toBe("This product has a deal, so its real price is not the list price.");
   });

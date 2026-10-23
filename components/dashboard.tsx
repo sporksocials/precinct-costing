@@ -15,6 +15,7 @@ import { cx, Group, Row } from "@/components/ui";
 import { useRefreshIgnored } from "@/components/alert-parts";
 import { formatToday, useOpenAlerts } from "@/components/today-feed";
 import { useDataHealthSummary } from "@/lib/use-data-health";
+import { InvoicesHomeCard } from "@/components/invoices/home-card";
 
 /** Counts a number up from where it last was (first paint from ~85%), eased; static under reduced motion. */
 function useCountUp(target: number | null, ms = 900): number | null {
@@ -245,6 +246,9 @@ export function Dashboard() {
       </div>
 
       <div className="space-y-6">
+        {/* 2b. invoices this week: hides itself when the invoice tables cannot be read */}
+        <InvoicesHomeCard />
+
         {/* 3. what needs attention: the top few, then everything else one tap away */}
         <section aria-labelledby="needs-attention">
           <h2 id="needs-attention" className="px-1 pb-2 text-[22px] font-bold tracking-tight">

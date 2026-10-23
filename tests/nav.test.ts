@@ -50,6 +50,9 @@ describe("phone tab bar", () => {
     ["/allergens", "more"],
     ["/research-notes", "more"],
     ["/portal-prices", "more"],
+    ["/invoices", "more"],
+    ["/invoices/abc", "more"],
+    ["/invoices/questions", "more"],
     ["/data-health", "more"],
     ["/change-log", "more"],
     ["/trash", "more"],
@@ -67,6 +70,21 @@ describe("phone tab bar", () => {
   });
   it("Ordering is not also under More", () => {
     expect(phoneTab("/ordering/greedy/count")).not.toBe("more");
+  });
+});
+
+describe("Invoices share Supplier Prices' home", () => {
+  it("highlights Supplier Prices in the sidebar and keeps the tab bar on every invoice screen", () => {
+    for (const p of ["/invoices", "/invoices/abc", "/invoices/questions", "/portal-prices"]) expect(isActive(p, "/portal-prices"), p).toBe(true);
+    for (const p of ["/invoices", "/invoices/abc", "/invoices/questions"]) {
+      expect(hidesTabBar(p), p).toBe(false);
+      expect(isActive(p, "/"), p).toBe(false);
+      expect(isActive(p, "/ingredients"), p).toBe(false);
+    }
+  });
+  it("does not capture lookalike paths", () => {
+    expect(isActive("/invoicesx", "/portal-prices")).toBe(false);
+    expect(phoneTab("/invoicesx")).toBe(null);
   });
 });
 

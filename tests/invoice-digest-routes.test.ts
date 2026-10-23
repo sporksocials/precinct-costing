@@ -94,7 +94,7 @@ function dataset(): Tables {
   };
 }
 
-const SECRET = "test-secret-value";
+const SECRET = "test-secret-value-0123456789abcdef";
 let current: ReturnType<typeof fakeSb>;
 
 vi.mock("@/lib/invoice-digest-data", async (importOriginal) => {
@@ -130,6 +130,10 @@ describe("secret check", () => {
     expect(checkSecret(SECRET, { INVOICE_INGEST_SECRET: SECRET })).toBe("ok");
     expect(checkSecret("x", { INVOICE_INGEST_SECRET: SECRET })).toBe("denied");
     expect(checkSecret(SECRET, {})).toBe("not_configured");
+    // a weak secret (under 24 characters) is treated as not set up, even when the caller sends exactly it
+    expect(checkSecret("short-secret", { INVOICE_INGEST_SECRET: "short-secret" })).toBe("not_configured");
+    expect(checkSecret("x".repeat(23), { INVOICE_INGEST_SECRET: "x".repeat(23) })).toBe("not_configured");
+    expect(checkSecret("x".repeat(24), { INVOICE_INGEST_SECRET: "x".repeat(24) })).toBe("ok");
   });
   it("cleanIds keeps well formed distinct ids only", () => {
     expect(cleanIds([D1, D1, D2])).toEqual([D1, D2]);
@@ -226,6 +230,17 @@ describe("POST and GET /api/invoices/digest", () => {
     const res = await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": "anything" }, { documentIds: [D1] }));
     expect(res.status).toBe(503);
     expect(JSON.stringify(await res.json())).not.toMatch(/anything/);
+  });
+
+  it("a weak server secret (under 24 characters) is a 503 on both digest routes, never a way in", async () => {
+    vi.stubEnv("INVOICE_INGEST_SECRET", "weak-secret");
+    for (const res of [
+      await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": "weak-secret" }, { documentIds: [D1] })),
+      await weeklyRoute.GET(req("GET", "/api/invoices/weekly", { "x-invoice-secret": "weak-secret" })),
+    ]) {
+      expect(res.status).toBe(503);
+      expect(JSON.stringify(await res.json())).not.toContain("weak-secret");
+    }
   });
 
   it("with the right secret and no webhook returns { sent: false, text } and records nothing", async () => {

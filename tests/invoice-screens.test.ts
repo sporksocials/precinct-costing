@@ -206,6 +206,18 @@ describe("the invoice screens obey Troy's rules", () => {
     // Approve is never an automatic mode from a screen
     for (const f of MY_FILES) expect(src(f), f).not.toMatch(/mode: "auto"/);
   });
+  it("the approve sheet says why the person is being asked, and warns when the invoice does not add up", () => {
+    const s = src("components/invoices/inv-detail.tsx");
+    expect(s).toMatch(/reconciled=\{doc\.reconciled\}/);
+    expect(s).toContain("{decisionText(line)}");
+    expect(s).toContain("Why you are being asked: ");
+    expect(s).toContain("This invoice does not add up. Check the invoice before you approve.");
+    // the warning has an icon and a word (not colour alone) and shows only for an unreconciled document
+    expect(s).toMatch(/\{reconciled \? null : \(\s*<p[^>]*bg-warn-soft[^>]*>\s*<AlertTriangle/);
+    // the reason is not shown for a "confirm the same price" sheet
+    expect(s).toMatch(/\{confirmOnly \? null : \(\s*<p[^>]*>\s*<span[^>]*>Why you are being asked/);
+    expect(s).not.toMatch(/[—–]/);
+  });
   it("undo asks to force only after the plain warning", () => {
     const s = src("components/invoices/inv-undo.tsx");
     expect(s).toContain("needsForce");

@@ -24,7 +24,7 @@ export function supabaseRepo(sb: SupabaseClient): PipelineRepo {
         .select("*")
         .or(`status.eq.received,and(status.in.(sorting,reading),updated_at.lt.${stalledBefore})`)
         .gte("attempts", 0)
-        .lt("attempts", MAX_ATTEMPTS)
+        .lte("attempts", MAX_ATTEMPTS) // a file AT the limit is handed back only so the pipeline can mark it failed
         .order("received_at", { ascending: true })
         .limit(5);
       const candidates = (check(res, "Could not look for files") ?? []) as FileWithStamp[];

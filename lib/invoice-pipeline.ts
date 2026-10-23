@@ -79,7 +79,11 @@ export interface ShellInput {
 
 /** The pipeline's database operations on invoice_files and invoice_documents (lib/invoice-repo.ts is the Supabase version). */
 export interface PipelineRepo {
-  /** compare and set: the oldest 'received' file, or a 'sorting'/'reading' file untouched since `stalledBefore`, with fewer than MAX_ATTEMPTS attempts. Null when nothing is waiting or another caller won. */
+  /**
+   * compare and set: the oldest 'received' file, or a 'sorting'/'reading' file untouched since `stalledBefore`, whose attempts are 0 to MAX_ATTEMPTS
+   * (a file AT MAX_ATTEMPTS is handed back only so the pipeline can mark it failed: it was claimed that many times and never finished).
+   * Null when nothing is waiting or another caller won. The returned row still holds the attempts it had BEFORE this claim.
+   */
   claimFile(args: { stalledBefore: string; nowIso: string }): Promise<InvoiceFileRow | null>;
   updateFile(id: string, patch: Partial<Pick<InvoiceFileRow, "status" | "error" | "attempts" | "page_count" | "processed_at">>): Promise<void>;
   venueSlug(venueId: number): Promise<string>;
@@ -140,6 +144,8 @@ export function safeError(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
   return m
     .replace(/sk-[A-Za-z0-9_-]{8,}/g, "[hidden]")
+    .replace(/sb_(?:secret|publishable)_[A-Za-z0-9_-]{6,}/gi, "[hidden]")
+    .replace(/sbp_[A-Za-z0-9]{10,}/g, "[hidden]")
     .replace(/eyJ[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]+)*/g, "[hidden]")
     .replace(/Bearer\s+\S+/gi, "[hidden]")
     .replace(/\s+/g, " ")
@@ -267,6 +273,15 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
 
   const finished: Finished[] = [];
   try {
+    // A file that was claimed MAX_ATTEMPTS times and never finished (a step killed by the platform timeout never reaches the catch
+    // below) is not tried again: it is marked failed, with its unread documents.
+    if (file.attempts >= MAX_ATTEMPTS) {
+      const text = `This file did not finish after ${MAX_ATTEMPTS} tries (a step ran out of time).`;
+      await failFile(repo, file.id, MAX_ATTEMPTS, text);
+      return { idle: false, fileId: file.id, stage: "failed", documents: [], message: `Could not read this file after ${MAX_ATTEMPTS} tries. ${text}` };
+    }
+    // The attempt is counted when the file is CLAIMED, not when something throws: a step killed mid-way still used one.
+    await repo.updateFile(file.id, { attempts: file.attempts + 1 });
     const venueSlug = await repo.venueSlug(file.venue_id);
     let fileBytes: Uint8Array | null = null;
     const getBytes = async () => (fileBytes ??= await storage.download(INVOICE_BUCKET, file.storage_path));
@@ -303,8 +318,9 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
     }
 
     if (budgetHit) {
-      // claimable again straight away: the shells exist, so the next claim goes straight to reading
-      await repo.updateFile(file.id, { status: "received" });
+      // claimable again straight away: the shells exist, so the next claim goes straight to reading. A step that made progress is
+      // not a failed attempt, so its claim is handed back (otherwise a long file would run out of attempts by being read in pieces).
+      await repo.updateFile(file.id, { status: "received", ...(finished.length > 0 || sortedNow ? { attempts: file.attempts } : {}) });
       return {
         idle: false,
         fileId: file.id,
@@ -327,15 +343,19 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
     const dead = attempts >= MAX_ATTEMPTS;
     const text = e instanceof AiError || e instanceof ReadError || e instanceof PdfError ? safeError(e) : `Something went wrong reading this file: ${safeError(e)}`;
     try {
-      await repo.updateFile(file.id, { status: dead ? "failed" : "received", attempts, error: text });
-      if (dead) {
-        for (const d of await repo.listDocuments(file.id)) if (d.read_model == null) await repo.updateDocument(d.id, { status: "failed" });
-      }
+      if (dead) await failFile(repo, file.id, attempts, text);
+      else await repo.updateFile(file.id, { status: "received", attempts, error: text });
     } catch {
       // the claim goes stale after 10 minutes and the file is picked up again
     }
     return { idle: false, fileId: file.id, stage: "failed", documents: finished, message: dead ? `Could not read this file after ${MAX_ATTEMPTS} tries. ${text}` : `That file hit a problem and will be tried again. ${text}` };
   }
+}
+
+/** Marks a file failed with a short error, and every document of it that was never read. */
+async function failFile(repo: PipelineRepo, fileId: string, attempts: number, text: string): Promise<void> {
+  await repo.updateFile(fileId, { status: "failed", attempts, error: text });
+  for (const d of await repo.listDocuments(fileId)) if (d.read_model == null) await repo.updateDocument(d.id, { status: "failed" });
 }
 
 async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSlug: string, doc: DocShell, getBytes: () => Promise<Uint8Array>, start: number): Promise<Finished> {
@@ -375,9 +395,10 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
   const path = buildPdfPath({ venueSlug, date: extracted.invoice_date ?? fallbackDate, supplier: extracted.supplier_name ?? doc.supplier_name_read, invoiceNumber: extracted.invoice_number ?? doc.invoice_number, firstPage: doc.pages[0] });
   await storage.upload(INVOICE_BUCKET, path, pdf, "application/pdf");
 
-  const analyseWith = async (ex: ExtractedInvoice) => {
+  const analyseWith = async (ex: ExtractedInvoice, hinted = false) => {
     const ctx = await deps.loadContext(deps.sb, { venueId: file.venue_id, folderVenueId: file.venue_id, today: deps.clock.today() });
-    return deps.analyse(ex, ctx);
+    // hintedReread (the engine's AnalyseConfirmations): the reader was told which checks failed, so no line of it may apply itself
+    return deps.analyse(ex, hinted ? ({ ...ctx, hintedReread: true } as typeof ctx & { hintedReread: true }) : ctx);
   };
   let analysis = await analyseWith(extracted);
 
@@ -391,7 +412,8 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
         const secondAnalysis = await analyseWith(second);
         if ((secondAnalysis.reconciled && !analysis.reconciled) || passing(secondAnalysis) > passing(analysis)) {
           extracted = second;
-          analysis = secondAnalysis;
+          // the kept reading came from a hinted re-read: analyse it again with that flag so none of its lines is automatic
+          analysis = await analyseWith(second, true);
           readModel = stronger;
         }
       } catch {
@@ -401,11 +423,14 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
   }
 
   const saved = await deps.save(deps.sb, { fileId: file.id, venueId: file.venue_id, extracted, analysis, pagePdfPath: path, readModel, documentId: doc.id });
-  if (analysis.mode === "auto" && saved.status !== "duplicate" && saved.status !== "failed") {
+  // Always asked, in learning mode too: the apply layer itself refuses real price changes while learning mode is on and only
+  // confirms prices that are the same as today's. A failure is logged short and never fails the file.
+  if (saved.status !== "duplicate" && saved.status !== "failed" && saved.status !== "ignored") {
     try {
-      await deps.autoApply(deps.sb, { documentId: saved.documentId, actor: "invoice-reader" });
-    } catch {
+      await deps.autoApply(deps.sb, { documentId: saved.documentId, actor: "invoice reader" });
+    } catch (e) {
       // the invoice is saved and waits for a tap like any other; nothing was half-applied that the undo ledger does not hold
+      console.warn(`Invoice auto-apply failed for a document: ${safeError(e)}`);
     }
   }
   if (deps.notify) {

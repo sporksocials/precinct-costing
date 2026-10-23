@@ -77,7 +77,7 @@ class World {
   repo: PipelineRepo = {
     claimFile: async ({ stalledBefore, nowIso }) => {
       const c = this.files
-        .filter((f) => f.attempts >= 0 && f.attempts < MAX_ATTEMPTS && (f.status === "received" || ((f.status === "sorting" || f.status === "reading") && f.updated_at < stalledBefore)))
+        .filter((f) => f.attempts >= 0 && f.attempts <= MAX_ATTEMPTS && (f.status === "received" || ((f.status === "sorting" || f.status === "reading") && f.updated_at < stalledBefore)))
         .sort((a, b) => a.received_at.localeCompare(b.received_at))[0];
       if (!c) return null;
       const seenStatus = c.status;
@@ -123,7 +123,9 @@ class World {
     return { text: typeof reply === "string" ? reply : JSON.stringify(reply), usage, costUsd: 0.001, model: a.model, stopReason: "end_turn" };
   };
 
-  analyse = (ex: ExtractedInvoice): InvoiceAnalysis => {
+  analyseCtxs: unknown[] = [];
+  analyse = (ex: ExtractedInvoice, ctx?: unknown): InvoiceAnalysis => {
+    this.analyseCtxs.push(ctx);
     const bad = ex.notes.includes("BAD");
     const notes = [
       { check: "line_math" as const, ok: true, message: "Every line adds up." },
@@ -151,7 +153,7 @@ class World {
       },
       claude: this.claude,
       analyse: this.analyse,
-      loadContext: async () => ({}) as never,
+      loadContext: async () => ({ marker: "ctx" }) as never,
       save: async (_sb, args) => {
         this.saves.push(args);
         if (this.failSaveOn != null && ++this.saveCount === this.failSaveOn) throw new Error("database went away");
@@ -219,18 +221,42 @@ describe("processStep end to end", () => {
     expect(w.saves[2].extracted.pages).toEqual([4]);
     expect(w.saves[2].extracted.lines[0].page).toBe(4);
     expect(w.notified).toEqual(["d1", "d2", "d3"]);
-    // learning mode: nothing applies itself
-    expect(w.autoApplied).toEqual([]);
+    // learning mode: the apply layer is still asked (it refuses real changes itself and only confirms same prices)
+    expect(w.autoApplied).toEqual(["d1", "d2", "d3"]);
     // next step: nothing to do
     expect(await processStep(w.deps())).toMatchObject({ idle: true, stage: "idle", documents: [] });
   });
 
-  it("applies automatically only when the analysis says auto, and a notify hook that throws changes nothing", async () => {
+  it("asks the apply layer in auto mode too, as the invoice reader, and a notify hook that throws changes nothing", async () => {
     w.addFile();
     w.mode = "auto";
     const result = await runStep(w.deps({ notify: async () => { throw new Error("slack is down"); } }));
     expect(result.stage).toBe("read");
     expect(w.autoApplied).toEqual(["d1", "d2", "d3"]);
+    expect(w.files[0].status).toBe("done");
+  });
+
+  it("calls autoApply for every saved document with the actor 'invoice reader', in learning mode as well", async () => {
+    w.addFile();
+    const actors: string[] = [];
+    await runStep(w.deps({ autoApply: async (_sb, a) => { actors.push(a.actor); w.autoApplied.push(a.documentId); return []; } }));
+    expect(actors).toEqual(["invoice reader", "invoice reader", "invoice reader"]);
+  });
+
+  it("does not call autoApply for a duplicate, failed or ignored document", async () => {
+    w.addFile();
+    const statuses = ["duplicate", "failed", "ignored"] as const;
+    let n = 0;
+    await runStep(
+      w.deps({
+        save: async (_sb, args) => {
+          const d = w.docs.find((x) => x.id === args.documentId)!;
+          d.read_model = args.readModel;
+          return { documentId: d.id, status: statuses[n++], lineIds: [] };
+        },
+      }),
+    );
+    expect(w.autoApplied).toEqual([]);
     expect(w.files[0].status).toBe("done");
   });
 
@@ -460,6 +486,94 @@ describe("bad replies and failures", () => {
   });
 });
 
+// ---------------------------------------------------------------- hinted re-read
+describe("a hinted re-read is never automatic", () => {
+  it("analyses the kept re-read again with hintedReread set, and leaves a normal read alone", async () => {
+    w.addFile();
+    w.readReply = (n, model) => (n === "51329" && model === "claude-sonnet-5-5" ? { ...EXTRACTS[n], notes: ["BAD"] } : EXTRACTS[n]);
+    await runStep(w.deps());
+    const flagged = w.analyseCtxs.filter((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread === true);
+    expect(flagged).toHaveLength(1);
+    expect((flagged[0] as { marker: string }).marker).toBe("ctx"); // the rest of the context is carried over
+    // the saved analysis for the re-read document is the hinted one (the last analyse call for it)
+    expect(w.saves[0].readModel).toBe("claude-opus-5-5");
+    expect(w.analyseCtxs.slice(0, 2).map((c) => (c as { hintedReread?: boolean }).hintedReread ?? false)).toEqual([false, false]);
+    expect(w.analyseCtxs.filter((c) => (c as { hintedReread?: boolean }).hintedReread).length).toBe(1);
+  });
+
+  it("does not set the flag when the first reading is kept", async () => {
+    w.addFile();
+    w.readReply = (n) => ({ ...EXTRACTS[n], notes: ["BAD"] });
+    await runStep(w.deps());
+    expect(w.analyseCtxs.some((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread)).toBe(false);
+  });
+
+  it("does not set the flag when nothing needed a re-read", async () => {
+    w.addFile();
+    await runStep(w.deps());
+    expect(w.analyseCtxs.some((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------- poison files
+describe("a step that never finishes still uses up an attempt", () => {
+  const hang = () => new Promise<never>(() => {});
+  async function waitForCall(count: number) {
+    for (let i = 0; i < 200 && w.claudeCalls.length < count; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(w.claudeCalls.length).toBeGreaterThanOrEqual(count);
+  }
+
+  it("counts the attempt when the file is claimed, before anything can hang", async () => {
+    w.addFile();
+    const stuck = runStep(w.deps({ claude: async (a) => { w.claudeCalls.push(a); return hang(); } }));
+    void stuck; // never settles: the platform killed it
+    await waitForCall(1);
+    expect(w.files[0]).toMatchObject({ status: "sorting", attempts: 1 });
+  });
+
+  it("after 3 claims that never finished, the 4th look marks the file failed and its unread documents failed", async () => {
+    w.addFile();
+    const hung = () => w.deps({ claude: async (a) => { w.claudeCalls.push(a); return hang(); } });
+    for (let claim = 1; claim <= 3; claim++) {
+      void runStep(hung());
+      await waitForCall(claim);
+      expect(w.files[0]).toMatchObject({ status: "sorting", attempts: claim });
+      // ten minutes pass with no progress: the claim is stale
+      w.files[0].updated_at = new Date(NOW - STALLED_AFTER_MS - 1000).toISOString();
+    }
+    const calls = w.claudeCalls.length;
+    // make shells exist so the documents can be failed too
+    w.docs.push({ id: "dx", file_id: w.files[0].id, doc_type: "invoice", supplier_name_read: "S", invoice_number: "1", invoice_date: null, pages: [1], page_pdf_path: null, read_model: null, status: "needs_review" });
+    w.docs.push({ id: "dy", file_id: w.files[0].id, doc_type: "invoice", supplier_name_read: "S", invoice_number: "2", invoice_date: null, pages: [2], page_pdf_path: null, read_model: "claude-sonnet-5-5", status: "needs_review" });
+    const r = await runStep(w.deps());
+    expect(r).toMatchObject({ stage: "failed", idle: false });
+    expect(r.message).toMatch(/after 3 tries/);
+    expect(w.claudeCalls).toHaveLength(calls); // nothing was read on the fourth look
+    expect(w.files[0]).toMatchObject({ status: "failed", attempts: 3 });
+    expect(w.docs.find((d) => d.id === "dx")!.status).toBe("failed");
+    expect(w.docs.find((d) => d.id === "dy")!.status).toBe("needs_review"); // already read: left alone
+    expect((await runStep(w.deps())).idle).toBe(true);
+  });
+
+  it("a long file read in several steps is not charged an attempt for each step", async () => {
+    w.addFile();
+    w.callMs = 20_000;
+    await runStep(w.deps());
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
+    await runStep(w.deps());
+    expect(w.files[0]).toMatchObject({ status: "done" });
+  });
+
+  it("the awaiting-upload sentinel is still never claimed, and the claim counts from zero once released", async () => {
+    w.addFile({ id: "waiting", attempts: AWAITING_UPLOAD });
+    expect((await runStep(w.deps())).idle).toBe(true);
+    expect(w.files[0].attempts).toBe(AWAITING_UPLOAD);
+    w.files[0].attempts = 0; // the upload route releases it
+    await runStep(w.deps());
+    expect(w.files[0]).toMatchObject({ status: "done", attempts: 1 });
+  });
+});
+
 // ---------------------------------------------------------------- helpers
 describe("helpers", () => {
   it("builds the bucket path from venue, month, date, supplier and number with no slashes", () => {
@@ -476,6 +590,21 @@ describe("helpers", () => {
   it("safeError hides keys and caps length", () => {
     expect(safeError(new Error("bad sk-ant-api03-abcdefghijk key"))).not.toContain("sk-ant");
     expect(safeError(new Error("x".repeat(500)))).toHaveLength(200);
+  });
+  it("safeError hides the new Supabase secret and publishable key formats", () => {
+    const samples = [
+      "request failed with key sb" + "_secret_AbCdEf0123456789_xyz-QRSTUV",
+      "apikey=sb" + "_publishable_9f8e7d6c5b4a39281706f5e4d3c2b1a0 rejected",
+      "SB_SECRET_UPPERCASE1234567890abcdef in a header",
+      "token sbp" + "_0123456789abcdef0123456789abcdef01234567 expired",
+      "mixed eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.sig and sb" + "_secret_ZZZZZZZZZZZZZZ",
+    ];
+    for (const m of samples) {
+      const out = safeError(new Error(m));
+      expect(out).not.toMatch(/sb_(secret|publishable)_[A-Za-z0-9]{6}|sbp_0123|eyJhbGci/i);
+      expect(out).toContain("[hidden]");
+    }
+    expect(safeError(new Error("The scan is for sb_ordering_products, which is fine"))).toBe("The scan is for sb_ordering_products, which is fine");
   });
   it("reads model names from the environment with the documented defaults", () => {
     expect(resolveModels({})).toEqual({ sort: "claude-haiku-5-5", read: "claude-sonnet-5-5" });

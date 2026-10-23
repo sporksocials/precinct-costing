@@ -12,7 +12,8 @@ import { DEFAULT_INVOICE_SETTINGS, INVOICE_SETTING_KEYS, type InvoiceChargeRuleR
 
 /* ---------------------------------------------------------------- the numbers */
 
-export const AUTO_APPLY_MAX_PCT = 50;
+/** The most the Auto-Apply Limit field accepts (percentage points). A price move bigger than this always waits for a tap. */
+export const AUTO_APPLY_MAX_PCT = 20;
 export const AVERAGE_DAYS_MIN = 7;
 export const AVERAGE_DAYS_MAX = 365;
 export const RATE_MIN = 0.5;
@@ -47,7 +48,7 @@ export function autoApplyDisplay(fraction: number): string {
   return String(Math.round(fraction * 1000) / 10);
 }
 
-/** What was typed in the Auto-Apply Limit field (percentage points) as the stored fraction, clamped to 0 to 50 points. Null when it is not a number. */
+/** What was typed in the Auto-Apply Limit field (percentage points) as the stored fraction, clamped to 0 to 20 points. Null when it is not a number. */
 export function parseAutoApplyInput(text: string): { value: number; clamped: boolean } | null {
   const n = parseDecimal(text);
   if (n == null) return null;

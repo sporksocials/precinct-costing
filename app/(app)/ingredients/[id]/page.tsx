@@ -22,6 +22,7 @@ import { parseYieldInput } from "@/lib/solver";
 import { addRecent } from "@/lib/recents";
 import { PACK_UNITS, type Ingredient, type PriceLog } from "@/lib/types";
 import { IngredientHistory } from "@/components/ingredient-history";
+import { IngInvoiceCosts } from "@/components/invoices/ing-invoice-costs";
 import { IngredientAllergensSection } from "@/components/allergen-picker";
 import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-parts";
 import { RenameTitle } from "@/components/rename-title";
@@ -209,6 +210,8 @@ function Detail({ ing }: { ing: Ingredient }) {
               </button>
             </div>
           </section>
+
+          <IngInvoiceCosts ing={ing} />
 
           <div className="group-list mt-4">
             <Row

@@ -13,6 +13,7 @@ import { formatVerifiedTime } from "@/lib/health";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { cleanName, isOwnerEmail, NAME_MAX } from "@/lib/people";
 import type { AllowedUser } from "@/lib/types";
+import { InvoiceSettings } from "@/components/settings/invoice-settings";
 import { CROSS_CONTACT_MAX, DEFAULT_CROSS_CONTACT, crossContactFromSettings, crossContactSettingKey } from "@/lib/allergy-matrix";
 
 export default function SettingsPage() {
@@ -113,6 +114,8 @@ export default function SettingsPage() {
         </div>
         <p className="px-4 pt-1.5 text-[13px] text-label-2">One short line per venue, printed in the footer of every Allergy Matrix sheet and shown on the kitchen iPad. Leave it blank to use: “{DEFAULT_CROSS_CONTACT}”</p>
       </section>
+
+      <InvoiceSettings />
 
       <Group title="Data Health" footer="Checks costs, prices and recipes for anything that could make a number wrong.">
         <Row

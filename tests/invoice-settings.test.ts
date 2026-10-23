@@ -5,6 +5,7 @@ import {
   abnProblem,
   aiCostSummary,
   aliasesText,
+  AUTO_APPLY_MAX_PCT,
   autoApplyBlockedReason,
   autoApplyDisplay,
   brisbaneMonthKey,
@@ -38,16 +39,22 @@ describe("the settings numbers", () => {
       { key: "ai_usd_to_aud", value: 1.6 },
     ]);
     expect(s).toEqual({ autoApplyPct: 0.03, learningMode: false, averageDays: 60, usdToAud: 1.6 });
-    expect(invoiceSettingsFromRows([{ key: "invoice_auto_apply_pct", value: 9 }]).autoApplyPct).toBe(0.5);
+    expect(invoiceSettingsFromRows([{ key: "invoice_auto_apply_pct", value: 9 }]).autoApplyPct).toBe(0.2);
+    expect(invoiceSettingsFromRows([{ key: "invoice_auto_apply_pct", value: 0.3 }]).autoApplyPct).toBe(0.2);
+    expect(invoiceSettingsFromRows([{ key: "invoice_auto_apply_pct", value: 0.2 }]).autoApplyPct).toBe(0.2);
     expect(invoiceSettingsFromRows([{ key: "invoice_average_days", value: 5000 }]).averageDays).toBe(365);
     expect(invoiceSettingsFromRows([{ key: "invoice_average_days", value: 0 }]).averageDays).toBe(90);
   });
-  it("Auto-Apply Limit: typed percentage points become the stored fraction, 0 to 50", () => {
+  it("Auto-Apply Limit: typed percentage points become the stored fraction, 0 to 20", () => {
     expect(parseAutoApplyInput("5")).toEqual({ value: 0.05, clamped: false });
     expect(parseAutoApplyInput("5%")).toEqual({ value: 0.05, clamped: false });
     expect(parseAutoApplyInput("2.5")).toEqual({ value: 0.025, clamped: false });
     expect(parseAutoApplyInput("0")).toEqual({ value: 0, clamped: false });
-    expect(parseAutoApplyInput("80")).toEqual({ value: 0.5, clamped: true });
+    expect(parseAutoApplyInput("20")).toEqual({ value: 0.2, clamped: false });
+    expect(parseAutoApplyInput("21")).toEqual({ value: 0.2, clamped: true });
+    expect(parseAutoApplyInput("50")).toEqual({ value: 0.2, clamped: true });
+    expect(parseAutoApplyInput("80")).toEqual({ value: 0.2, clamped: true });
+    expect(AUTO_APPLY_MAX_PCT).toBe(20);
     expect(parseAutoApplyInput("abc")).toBeNull();
     expect(parseAutoApplyInput("-3")).toBeNull();
     expect(autoApplyDisplay(0.05)).toBe("5");

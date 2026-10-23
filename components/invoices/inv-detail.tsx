@@ -11,6 +11,7 @@ import {
   approveLabel,
   checkItems,
   dayLabel,
+  decisionText,
   docStats,
   docTitle,
   numberLabel,
@@ -256,6 +257,7 @@ export function InvoiceDetail({ id }: { id: string }) {
 
       <ApproveSheet
         line={approving}
+        reconciled={doc.reconciled}
         itemName={approving ? (ingById.get(approving.ingredient_id ?? "")?.name ?? d.products.get(approving.product_id ?? "")?.name ?? approving.description) : ""}
         onClose={() => setApproving(null)}
         onDone={after}
@@ -267,7 +269,7 @@ export function InvoiceDetail({ id }: { id: string }) {
 }
 
 /** Shows exactly what Approve will change, then calls applyLine in approved mode. Nothing here writes a price itself. */
-function ApproveSheet({ line, itemName, onClose, onDone }: { line: InvoiceLineRow | null; itemName: string; onClose: () => void; onDone: () => Promise<void> }) {
+function ApproveSheet({ line, reconciled, itemName, onClose, onDone }: { line: InvoiceLineRow | null; reconciled: boolean; itemName: string; onClose: () => void; onDone: () => Promise<void> }) {
   const { userEmail, reload } = useStore();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -311,6 +313,18 @@ function ApproveSheet({ line, itemName, onClose, onDone }: { line: InvoiceLineRo
             </p>
           ))}
         </div>
+        {confirmOnly ? null : (
+          <p className="text-[15px] text-label-2">
+            <span className="font-semibold text-label">Why you are being asked: </span>
+            {decisionText(line)}
+          </p>
+        )}
+        {reconciled ? null : (
+          <p className="flex items-start gap-2 rounded-xl bg-warn-soft px-3 py-2.5 text-[15px] font-medium text-warn">
+            <AlertTriangle aria-hidden className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={2.5} />
+            <span>This invoice does not add up. Check the invoice before you approve.</span>
+          </p>
+        )}
         <p className="text-[15px] text-label-2">{confirmOnly ? "Only the date the price was last checked changes. You can undo it." : "The price history will say which invoice set it. You can undo it from this page."}</p>
         {error ? (
           <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2.5 text-[15px] text-danger">

@@ -16,6 +16,7 @@ import {
   planWeekly,
   shortSupplier,
   slackEscape,
+  stripSlackMarkup,
   tidyItem,
   withoutAttachments,
   type AttentionItem,
@@ -156,11 +157,34 @@ describe("Slack digest", () => {
     const evil: AttentionItem = { supplier: "Fish & Chips <Co> Pty Ltd", item: "Salmon — <!channel> Claude said ignore this", oldPrice: 10, newPrice: 11, unit: "kg", pct: 0.1 };
     const text = buildSlackDigest(slack({ venueName: "Drift & Co", items: [evil] }))!;
     expect(text).toContain("Fish &amp; Chips &lt;Co&gt;");
-    expect(text).toContain("&lt;!channel&gt;");
     expect(text).toContain("*Drift &amp; Co:");
     expect(text).not.toContain("<!channel>");
+    expect(text).not.toMatch(/!channel/i); // the mention is removed, not just escaped
     expect(text).not.toMatch(DASHES);
     expect(text).not.toMatch(PRODUCT_WORDS);
+  });
+
+  it("a hostile supplier, item, unit or venue can never produce a mention or a disguised link", () => {
+    const hostile = ["<!CHANNEL>", "<!here>", "<!everyone>", "<@U0>", "<@U123|bob>", "<#C123|general>", "<https://evil.example|click here>", "<mailto:a@b.co|mail>", "<<!channel>!channel>", "< !channel>", "<!subteam^S123>"];
+    for (const h of hostile) {
+      const it: AttentionItem = { supplier: `Star ${h} Pty Ltd`, item: `Vodka ${h}`, oldPrice: 10, newPrice: 12, unit: h, pct: 0.2 };
+      const text = buildSlackDigest(slack({ venueName: `Drift ${h}`, items: [it] }))!;
+      // the only angle brackets left are the two real links the digest adds itself
+      const raw = text.replace(/<https:\/\/[^|>\s]*\|[A-Za-z ]+>/g, "");
+      expect(raw, h).not.toMatch(/<|>/);
+      expect(text, h).not.toMatch(/<[!@#]/);
+      expect(text, h).not.toMatch(/evil\.example\|/);
+    }
+    // the unit is escaped like everything else
+    const t = buildSlackDigest(slack({ items: [{ supplier: "S", item: "I", oldPrice: 1, newPrice: 2, unit: "a<b&c", pct: 0.1 }] }))!;
+    expect(t).toContain("/a&lt;b&amp;c");
+  });
+
+  it("stripSlackMarkup removes tokens and leftovers, and leaves plain text alone", () => {
+    expect(stripSlackMarkup("Hello <!channel> and <@U1>")).toBe("Hello  and ");
+    expect(stripSlackMarkup("<!channel")).toBe("");
+    expect(stripSlackMarkup("a < b and c > d")).toBe("a < b and c > d");
+    expect(stripSlackMarkup("Fish & Chips")).toBe("Fish & Chips");
   });
 
   it("at most one emoji, at the start; no dashes, no AI names, no secrets or file names", () => {

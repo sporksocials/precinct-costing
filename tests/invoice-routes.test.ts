@@ -67,6 +67,10 @@ describe("secret check", () => {
     expect(checkInvoiceSecret(null, ENV)).toBe("denied");
     expect(checkInvoiceSecret(SECRET, {})).toBe("not_configured");
     expect(checkInvoiceSecret(SECRET, { INVOICE_INGEST_SECRET: "  " })).toBe("not_configured");
+    // a weak secret (under 24 characters) is treated as not set up, even for a caller who sends exactly it
+    expect(checkInvoiceSecret("secret123", { INVOICE_INGEST_SECRET: "secret123" })).toBe("not_configured");
+    expect(checkInvoiceSecret("y".repeat(23), { INVOICE_INGEST_SECRET: "y".repeat(23) })).toBe("not_configured");
+    expect(checkInvoiceSecret("y".repeat(24), { INVOICE_INGEST_SECRET: "y".repeat(24) })).toBe("ok");
   });
   it("compares without caring where the first difference is", () => {
     expect(safeEqual("abc", "abc")).toBe(true);
@@ -105,6 +109,13 @@ describe("POST /api/invoices/upload-url", () => {
   it("503 with a plain message when the server has no secret set (never lets anyone in)", async () => {
     const res = await handleUploadUrl(req(good, "anything"), { getStore: () => store, env: {} });
     expect(res.status).toBe(503);
+  });
+  it("503 with the same neutral message for a weak server secret (under 24 characters), even when the caller sends it", async () => {
+    const getStore = vi.fn(() => store);
+    const res = await handleUploadUrl(req(good, "letmein"), { getStore, env: { INVOICE_INGEST_SECRET: "letmein" } });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Invoice intake is not set up yet." });
+    expect(getStore).not.toHaveBeenCalled();
   });
 
   it.each<[string, unknown, boolean?]>([

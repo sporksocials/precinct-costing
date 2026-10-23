@@ -40,9 +40,28 @@ export function plainText(input: string | null | undefined): string {
     .trim();
 }
 
-/** Slack mrkdwn needs only these three escaped. */
+/**
+ * Takes the Slack control sequences out of text that came off an invoice: <!channel>, <!here>, <@U123>, <#C123> (a ping or a
+ * channel link) and <https://...|label> or <mailto:...> (a link that reads as something else). Whole tokens go first, then any
+ * leftover opener, so a mention can never be produced however the text is escaped or joined afterwards.
+ */
+export function stripSlackMarkup(s: string): string {
+  let out = String(s);
+  // repeat until stable, so "<<!channel>!channel>" cannot rebuild a mention from the pieces left behind
+  for (let i = 0; i < 5; i++) {
+    const next = out
+      .replace(/<\s*[!@#][^>]*>?/g, "")
+      .replace(/<\s*(?:https?:|mailto:|tel:)[^>]*>?/gi, "")
+      .replace(/<\s*[!@#]/g, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/** Slack mrkdwn needs only these three escaped. Mention and link markup is removed first (see stripSlackMarkup). */
 export function slackEscape(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return stripSlackMarkup(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export function htmlEscape(s: string): string {
@@ -156,7 +175,7 @@ function wholePct(frac: number): string {
 
 /** "Kingfish fillets, Daniel Street: $68.90 to $74.20/kg (+7.7%)" */
 export function attentionLine(it: AttentionItem): string {
-  const unit = it.unit ? `/${plainText(it.unit).toLowerCase()}` : "";
+  const unit = it.unit ? `/${slackEscape(plainText(it.unit).toLowerCase())}` : "";
   let change: string;
   if (it.newPrice == null) change = "price to check";
   else if (it.oldPrice == null) change = `${fmtPrice(it.newPrice)}${unit} (new price)`;

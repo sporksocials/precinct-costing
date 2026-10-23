@@ -28,12 +28,15 @@ export function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** A shared secret shorter than this is treated as NOT set up (a weak secret must never be usable). `openssl rand -hex 32` makes 64. */
+export const MIN_SECRET_LENGTH = 24;
+
 export type SecretCheck = "ok" | "denied" | "not_configured";
 
-/** Checks the header value against INVOICE_INGEST_SECRET. A missing server secret never lets anyone in. */
+/** Checks the header value against INVOICE_INGEST_SECRET. A missing or too short (under 24 characters) server secret never lets anyone in. */
 export function checkInvoiceSecret(headerValue: string | null | undefined, env: Record<string, string | undefined> = process.env): SecretCheck {
   const expected = env[INVOICE_ENV.ingestSecret]?.trim();
-  if (!expected) return "not_configured";
+  if (!expected || expected.length < MIN_SECRET_LENGTH) return "not_configured";
   if (typeof headerValue !== "string" || headerValue.length === 0) return "denied";
   return safeEqual(headerValue.trim(), expected) ? "ok" : "denied";
 }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { loadChargeRules, loadInvoiceSuppliers, saveNumericSetting } from "@/lib/invoice-data-extra";
-import { AUTO_APPLY_HELP, autoApplyDisplay, invoiceSettingsFromRows, LEARNING_HELP, parseAutoApplyInput, parseDaysInput } from "@/lib/invoice-settings-view";
+import { AUTO_APPLY_HELP, AUTO_APPLY_MAX_PCT, autoApplyDisplay, invoiceSettingsFromRows, LEARNING_HELP, parseAutoApplyInput, parseDaysInput } from "@/lib/invoice-settings-view";
 import { INVOICE_SETTING_KEYS, type InvoiceChargeRuleRow, type InvoiceSettings, type InvoiceSupplierRow } from "@/lib/invoice-types";
 import { Banner, Group } from "@/components/ui";
 import { SaveNote, SwitchRow, TextField, TouchAddButton } from "@/components/ordering/touch";
@@ -77,10 +77,10 @@ export function InvoiceSettings() {
             onCommit={(t) => {
               const p = parseAutoApplyInput(t);
               if (!p) {
-                setPctError("Type a percentage from 0 to 50, such as 5.");
+                setPctError(`Type a percentage from 0 to ${AUTO_APPLY_MAX_PCT}, such as 5.`);
                 return;
               }
-              setPctError(p.clamped ? "The most it can be is 50%, so it was set to 50%." : null);
+              setPctError(p.clamped ? `The most it can be is ${AUTO_APPLY_MAX_PCT}%, so it was set to ${AUTO_APPLY_MAX_PCT}%.` : null);
               void saveNumber(INVOICE_SETTING_KEYS.autoApplyPct, p.value, { autoApplyPct: p.value });
             }}
           />

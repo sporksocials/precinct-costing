@@ -9,6 +9,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient as baseServiceClient, insertRow } from "./supabase/service";
+import { MIN_SECRET_LENGTH } from "./invoice-auth";
 import { INVOICE_ENV, INVOICE_SETTING_KEYS, DEFAULT_INVOICE_SETTINGS } from "./invoice-types";
 import {
   DEFAULT_APP_ORIGIN,
@@ -39,10 +40,10 @@ export function secretOk(provided: string | null | undefined, expected: string |
   return timingSafeEqual(a, b);
 }
 
-/** Checks the `x-invoice-secret` header value against INVOICE_INGEST_SECRET. A secret that is not set never lets anyone in. */
+/** Checks the `x-invoice-secret` header value against INVOICE_INGEST_SECRET. A secret that is not set, or is shorter than 24 characters, never lets anyone in. */
 export function checkSecret(headerValue: string | null | undefined, env: Record<string, string | undefined> = process.env): SecretCheck {
   const expected = env[INVOICE_ENV.ingestSecret]?.trim();
-  if (!expected) return "not_configured";
+  if (!expected || expected.length < MIN_SECRET_LENGTH) return "not_configured";
   return secretOk(headerValue, expected) ? "ok" : "denied";
 }
 

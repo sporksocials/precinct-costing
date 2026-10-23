@@ -163,7 +163,8 @@ create table if not exists public.invoice_item_map (
   constraint invoice_item_map_key_chk check (item_code is not null or desc_key is not null)
 );
 create unique index if not exists invoice_item_map_key
-  on public.invoice_item_map (supplier_id, coalesce(venue_id, 0), coalesce(item_code, ''), coalesce(desc_key, ''), coalesce(ingredient_id, '00000000-0000-0000-0000-000000000000'));
+  on public.invoice_item_map (supplier_id, coalesce(venue_id, 0), coalesce(item_code, ''), coalesce(desc_key, ''),
+    coalesce(ingredient_id, '00000000-0000-0000-0000-000000000000'), coalesce(product_id, '00000000-0000-0000-0000-000000000000'));
 create index if not exists invoice_item_map_ingredient_idx on public.invoice_item_map (ingredient_id) where ingredient_id is not null;
 alter table public.invoice_lines drop constraint if exists invoice_lines_map_fk;
 alter table public.invoice_lines add constraint invoice_lines_map_fk foreign key (map_id) references public.invoice_item_map (id) on delete set null;
@@ -314,13 +315,19 @@ declare t text;
 begin
   foreach t in array array[
     'invoice_suppliers', 'invoice_files', 'invoice_documents', 'invoice_lines', 'invoice_item_map', 'invoice_charge_rules',
-    'invoice_price_changes', 'invoice_questions', 'invoice_digests', 'ai_model_prices'
+    'invoice_price_changes', 'invoice_questions', 'invoice_digests'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists cost_allowed_all on public.%I', t);
     execute format('create policy cost_allowed_all on public.%I for all to authenticated using (public.cost_is_allowed()) with check (public.cost_is_allowed())', t);
   end loop;
 end $$;
+
+-- AI prices: everyone allowed can read them; only the service role (migrations, Troy in the SQL editor) changes them
+alter table public.ai_model_prices enable row level security;
+drop policy if exists cost_allowed_all on public.ai_model_prices;
+drop policy if exists ai_model_prices_select on public.ai_model_prices;
+create policy ai_model_prices_select on public.ai_model_prices for select to authenticated using (public.cost_is_allowed());
 
 -- AI cost: only the listed viewers (Troy and Abbey) can read it; nobody signed in can change it (the service role writes it)
 alter table public.ai_usage_log enable row level security;

@@ -549,14 +549,11 @@ describe("invoice_item_map unique key (null venue and null code treated as value
     await ins({ code: "R1", ing: u(2), rejected: true });
   });
 
-  it("KNOWN GAP: product_id is not in the key, so two product-only rows for the same supplier and code collide", async () => {
-    // Ordering-product-only mappings (ingredient_id null) are distinguished by nothing but supplier, venue, code and desc.
-    // One code mapping to two different products at one venue is probably wrong anyway, but a rejected-product row next to a
-    // confirmed-product row (same code, different products) cannot be stored. See the report for the suggested index change.
+  it("keeps product-only rows apart by product, but refuses an identical repeat", async () => {
     await ins({ code: "PO1", prod: u(3) });
     expect(await fails("insert into invoice_item_map (supplier_id, item_code, product_id) values ($1,'PO1',$2)", [s, u(3)])).toMatch(/duplicate key/);
     await db.query("insert into ordering_products (id, venue_id, name) values ($1, 1, 'Second Product')", [u(70)]);
-    expect(await fails("insert into invoice_item_map (supplier_id, item_code, product_id) values ($1,'PO1',$2)", [s, u(70)])).toMatch(/duplicate key/);
+    await db.query("insert into invoice_item_map (supplier_id, item_code, product_id, rejected) values ($1,'PO1',$2,true)", [s, u(70)]);
   });
 });
 

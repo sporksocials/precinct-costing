@@ -285,6 +285,6 @@ async function answerInner(
       parts.push("The answer is saved, but the invoice could not be checked again just now.");
     }
   }
-  if (autoUpdated > 0) parts.push(`${autoUpdated} more ${autoUpdated === 1 ? "price was" : "prices were"} updated.`);
+  if (autoUpdated > 0) parts.push(`${autoUpdated} more ${autoUpdated === 1 ? "line was" : "lines were"} applied automatically.`);
   return { ok: true, message: ["Saved.", ...parts].join(" "), applied };
 }

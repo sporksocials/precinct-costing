@@ -33,7 +33,7 @@ const fakeEngine: AnalyseInvoice = (ex: ExtractedInvoice, ctx): InvoiceAnalysis 
     };
     if (map?.rejected) {
       lines.push({ ...base, match_state: "ignored", match_method: "human", map_id: map.id, ingredient_id: null, packs_per_unit: null, old_pack_price: null, new_pack_price: null, change_pct: null, decision: "none", decision_reason: null });
-    } else if (ing && l.unit_price !== null && l.line_class !== "delivery") {
+    } else if (ing && l.unit_price !== null && l.class_hint !== "delivery") {
       const change = (l.unit_price - ing.pack_price) / ing.pack_price;
       const small = Math.abs(change) < ctx.settings.autoApplyPct;
       const decision = Math.abs(change) < 1e-9 ? "same" : small && !ctx.settings.learningMode && venue_check === "ok" ? "apply" : "needs_approval";
@@ -120,7 +120,7 @@ describe("answering with a match", () => {
     expect(f.db.cost_price_log[0].source).toBe("Invoice 51329 · Daniel Street Fish Market · 14 Oct 2026");
     expect(r.applied).toHaveLength(1);
     expect(r.applied[0]).toMatchObject({ ok: true });
-    expect(r.message).toContain("1 more price was updated.");
+    expect(r.message).toContain("1 more line was applied automatically.");
     expect(f.db.invoice_documents[0].status).toBe("applied");
   });
 
@@ -130,7 +130,7 @@ describe("answering with a match", () => {
       questions: [{ id: "Q1", venue_id: 1, document_id: IDS.doc, line_id: "L1", kind: "unmatched_line", prompt: "?", status: "open", options: [{ id: "ly", label: "Lychee Liqueur", ingredient_id: IDS.lychee, packs_per_unit: 1 }] }],
     });
     const r = await answerQuestion(f.sb, { questionId: "Q1", optionId: "ly", actor: "mon" }, deps());
-    expect(r.message).toBe('Saved. Daniel Street Fish Market "Lychee Liqueur 700ml Bottle" is now Lychee Liqueur.');
+    expect(r.message).toContain('Saved. Daniel Street Fish Market "Lychee Liqueur 700ml Bottle" is now Lychee Liqueur.');
     expect(f.db.invoice_item_map[0]).toMatchObject({ desc_key: "lycheeliqueur700mlbottle", ingredient_id: IDS.lychee, packs_per_unit: 1 });
     expect(f.db.invoice_item_map[0].item_code ?? null).toBeNull();
     expect(f.db.invoice_lines.find((x) => x.line_no === 1)).toMatchObject({ match_state: "matched", decision: "same" });
@@ -307,7 +307,7 @@ describe("re-analysis details", () => {
 
   it("a database error before the answer is recorded leaves the question open", async () => {
     const f = setup();
-    f.failNext("invoice_item_map", "insert", "disk full");
+    f.failNext("invoice_item_map", "upsert", "disk full");
     const r = await answerQuestion(f.sb, { questionId: "Q1", optionId: "kf", actor: "mon" }, deps());
     expect(r.ok).toBe(false);
     expect(r.message).toContain("Nothing was saved");

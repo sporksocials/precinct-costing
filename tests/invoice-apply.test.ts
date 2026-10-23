@@ -438,16 +438,18 @@ describe("undoDocument", () => {
 });
 
 describe("raw inserts", () => {
-  it("only lib/invoice-insert.ts calls .insert( (every other invoice module goes through insertRow / insertRows)", () => {
+  it("only lib/invoice-insert.ts writes new rows (every other invoice module goes through insertRow / insertRows)", () => {
     for (const file of ["invoice-apply", "invoice-store", "invoice-answer", "invoice-context"]) {
       const src = readFileSync(new URL(`../lib/${file}.ts`, import.meta.url), "utf8");
       expect(src, `${file}.ts`).not.toMatch(/\.insert\(/);
       expect(src, `${file}.ts`).not.toMatch(/\[["']insert["']\]/);
       expect(src, `${file}.ts`).not.toMatch(/\.upsert\(/);
     }
-    // the one place that inserts strips null/undefined keys first
+    // the one place that writes strips null/undefined keys first, and never imports the store or the service-role module
     const helper = readFileSync(new URL("../lib/invoice-insert.ts", import.meta.url), "utf8");
-    expect(helper).toMatch(/\["insert"\]\(withoutNulls\(row\)\)/);
-    expect(helper).toMatch(/\["insert"\]\(rows\.map\(withoutNulls\)\)/);
+    expect(helper).toMatch(/\.upsert\(withoutNulls\(row\)\)/);
+    expect(helper).toMatch(/\.upsert\(rows\.map\(withoutNulls\)\)/);
+    expect(helper).not.toMatch(/^import .*(\.\/store|supabase\/service)/m);
+    expect(helper).not.toMatch(/\.insert\(/);
   });
 });

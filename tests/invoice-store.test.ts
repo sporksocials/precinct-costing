@@ -35,7 +35,7 @@ describe("saveAnalysis: a new document", () => {
   it("writes only through insertRows: a null column is left to the database default", async () => {
     const f = empty();
     await saveAnalysis(f.sb, { ...base, extracted: extracted(), analysis: analysis({ lines: [aLine(1, { map_id: null, match_method: null })] }) });
-    const inserts = f.log.filter((l) => l.op === "insert" && l.table === "invoice_lines");
+    const inserts = f.log.filter((l) => l.op === "upsert" && l.table === "invoice_lines");
     expect(inserts).toHaveLength(1);
     const payload = inserts[0].payload[0];
     expect(Object.values(payload)).not.toContain(null);

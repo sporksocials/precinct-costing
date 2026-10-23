@@ -331,7 +331,7 @@ export interface AnalyseContext {
   ingredients: AnalyseIngredient[];
   products: AnalyseProduct[];
   /** invoices already filed, for duplicate detection: venue + supplier + number */
-  existingDocs: { id: string; venue_id: number; supplier_id: string | null; invoice_number: string | null; status: DocStatus }[];
+  existingDocs: { id: string; venue_id: number; supplier_id: string | null; invoice_number: string | null; status: DocStatus; invoice_date?: string | null; total_inc?: number | null }[];
   /** today's Brisbane date, injected so tests are deterministic */
   today: string;
 }

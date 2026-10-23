@@ -26,7 +26,7 @@ export type AnalyseInvoice = (extracted: ExtractedInvoice, ctx: AnalyseContext) 
 
 /** C: pure. Last cost and quantity-weighted average landed cost per ingredient, from stored invoice lines (applied or not, product lines only). */
 export type ComputeIngredientCosts = (
-  lines: Pick<InvoiceLineRow, "ingredient_id" | "document_id" | "invoice_date" | "line_class" | "unit_price_ex" | "landed_total_ex" | "landed_base_ex" | "base_qty" | "base_unit" | "packs_per_unit" | "state">[],
+  lines: Pick<InvoiceLineRow, "ingredient_id" | "document_id" | "invoice_date" | "line_class" | "qty" | "unit_price_ex" | "landed_total_ex" | "landed_base_ex" | "base_qty" | "base_unit" | "packs_per_unit" | "state">[],
   settings: Pick<InvoiceSettings, "averageDays">,
   today: string,
 ) => IngredientInvoiceCost[];

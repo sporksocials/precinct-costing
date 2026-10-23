@@ -605,12 +605,20 @@ describe("row level security (PGlite roles, JWT email read through auth.jwt())",
     });
   });
 
+  it("lets an allowed user read AI prices but not change them", async () => {
+    await asUser(OTHER, async () => {
+      expect(Number((await one("select count(*)::int n from ai_model_prices")).n)).toBe(4);
+      await db.query("update ai_model_prices set input_per_mtok = 99 where model = 'claude-sonnet-5-5'");
+      expect(Number((await one("select input_per_mtok::int n from ai_model_prices where model = 'claude-sonnet-5-5'")).n)).toBe(2);
+    });
+  });
+
   it("is idempotent for the policies: one policy of each name after three runs", async () => {
     const p = await rows(`select tablename, policyname from pg_policies where policyname in ('cost_allowed_all','ai_usage_viewers_select','ai_cost_viewers_select','invoice_pdfs_select')`);
     const keys = p.map((r) => `${r.tablename}.${r.policyname}`);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).toEqual(expect.arrayContaining(["objects.invoice_pdfs_select", "ai_usage_log.ai_usage_viewers_select", "ai_cost_viewers.ai_cost_viewers_select"]));
-    expect(keys.filter((k) => k.endsWith(".cost_allowed_all")).length).toBe(10);
+    expect(keys.filter((k) => k.endsWith(".cost_allowed_all")).length).toBe(9);
   });
 });
 

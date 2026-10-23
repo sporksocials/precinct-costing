@@ -25,7 +25,7 @@ const DEFAULTS: Record<string, () => Row> = {
   invoice_price_changes: () => ({ status: "applied" }),
   invoice_documents: () => ({ status: "needs_review", mode: "learning", venue_check: "unknown", reconciled: false, recon_notes: [], fee_pool_ex: 0, pages: [] }),
   invoice_suppliers: () => ({ aliases: [], allocation_basis: "value", auto_apply: false, active: true }),
-  invoice_item_map: () => ({ packs_per_unit: 1, rejected: false }),
+  invoice_item_map: () => ({ rejected: false }), // packs_per_unit is nullable with no default: null = nobody stated it
   invoice_files: () => ({ status: "received", attempts: 0 }),
 };
 

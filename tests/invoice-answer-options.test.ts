@@ -279,13 +279,13 @@ describe("custom:<ingredientId> from the search box", () => {
     expect(rec.seen).toHaveLength(1);
   });
 
-  it("uses the line's pack count, else 1, when the note has none; works for ambiguous_match too", async () => {
+  it("uses the line's pack count when the note has none, else stores NO pack count (never 1); works for ambiguous_match too", async () => {
     const f = setup({ lines: [{ ...unmatchedLine(), packs_per_unit: 24 }], questions: [{ ...unmatched(), kind: "ambiguous_match" }] });
     await ask(f, "Q1", `custom:${IDS.lychee}`, JSON.stringify({ ingredient_id: IDS.lychee }));
     expect(f.db.invoice_item_map[0].packs_per_unit).toBe(24);
     const g = setup({ lines: [unmatchedLine()], questions: [unmatched()] });
     await ask(g, "Q1", `custom:${IDS.lychee}`); // no note at all
-    expect(g.db.invoice_item_map[0].packs_per_unit).toBe(1);
+    expect(g.db.invoice_item_map[0].packs_per_unit ?? null).toBeNull(); // nobody stated it, so the engine asks the unit question
   });
 
   it("checks that the ingredient exists", async () => {

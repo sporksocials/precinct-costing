@@ -48,22 +48,45 @@ const VENUE_ALIASES: Record<string, string[]> = {
   gelato: ["gelato rumba"],
 };
 
+/** A pack count a person stated, or null when nobody did (a blank is "not said", never 1). */
+function positiveOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function num(v: unknown, fallback: number): number {
   const n = typeof v === "string" ? Number(v) : (v as number);
   return typeof n === "number" && Number.isFinite(n) ? n : fallback;
 }
 
-/** The invoice settings from cost_settings rows; a missing or unreadable row falls back to the default. */
+/** A deal that is in force now or coming (not expired, not switched off) changes what a unit really costs. */
+export function dealInForce(d: { active: boolean; starts_on: string | null; ends_on: string | null }, today: string): boolean {
+  const st = dealStatus({ active: d.active, starts_on: d.starts_on, ends_on: d.ends_on }, today);
+  return st !== "expired" && st !== "off";
+}
+
+/** The settings are numbers a person can edit, so garbage (a typo, a huge value, NaN) must not widen a safety rule. */
+const AUTO_PCT_RANGE = [0, 0.2] as const;
+const AVG_DAYS_RANGE = [7, 365] as const;
+function clamped(v: unknown, fallback: number, [lo, hi]: readonly [number, number]): number {
+  const n = typeof v === "string" ? (v.trim() === "" ? NaN : Number(v)) : typeof v === "number" ? v : NaN;
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(hi, Math.max(lo, n));
+}
+
+/** The invoice settings from cost_settings rows; a missing or unreadable row falls back to the default, a wild one is clamped. */
 export function settingsFromRows(rows: { key: string; value: unknown }[]): { settings: InvoiceSettings; gstRate: number } {
   const by = new Map(rows.map((r) => [r.key, r.value]));
   const d = DEFAULT_INVOICE_SETTINGS;
   const learning = by.get(INVOICE_SETTING_KEYS.learningMode);
   return {
     settings: {
-      autoApplyPct: num(by.get(INVOICE_SETTING_KEYS.autoApplyPct), d.autoApplyPct),
-      // anything but an explicit 0 keeps learning mode on: the safe side
-      learningMode: learning === undefined || learning === null ? d.learningMode : num(learning, 1) !== 0,
-      averageDays: num(by.get(INVOICE_SETTING_KEYS.averageDays), d.averageDays),
+      // never above 20%: a mistyped 5 (meaning 5%) must not let a 500% change apply itself
+      autoApplyPct: clamped(by.get(INVOICE_SETTING_KEYS.autoApplyPct), d.autoApplyPct, AUTO_PCT_RANGE),
+      // only an explicit 0 turns learning mode off: missing, null, blank or garbage keeps it on (the safe side)
+      learningMode: !(learning !== undefined && learning !== null && typeof learning !== "boolean" && String(learning).trim() !== "" && Number(learning) === 0),
+      averageDays: clamped(by.get(INVOICE_SETTING_KEYS.averageDays), d.averageDays, AVG_DAYS_RANGE),
       usdToAud: num(by.get(INVOICE_SETTING_KEYS.usdToAud), d.usdToAud),
     },
     gstRate: num(by.get("gst_rate"), 0.1),
@@ -103,17 +126,13 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
       (q) => q.eq("venue_id", venueId),
     ),
     fetchAll<{ id: string; name: string }>(sb, "ordering_suppliers", "id,name", (q) => q.eq("venue_id", venueId)),
-    fetchAll<AnalyseContext["existingDocs"][number]>(sb, "invoice_documents", "id,venue_id,supplier_id,invoice_number,status", (q) => q.eq("venue_id", venueId)),
+    fetchAll<AnalyseContext["existingDocs"][number]>(sb, "invoice_documents", "id,venue_id,supplier_id,invoice_number,status,invoice_date,total_inc", (q) => q.eq("venue_id", venueId)),
   ]);
 
   const { settings, gstRate } = settingsFromRows(settingRows);
 
   // a deal in force (or coming) changes what a unit really costs, so the price must never apply itself; an expired one does not
-  const inForce = (d: (typeof dealRows)[number]) => {
-    const st = dealStatus({ active: d.active, starts_on: d.starts_on, ends_on: d.ends_on }, now);
-    return st !== "expired" && st !== "off";
-  };
-  const withDeal = new Set(dealRows.filter(inForce).map((d) => d.ingredient_id));
+  const withDeal = new Set(dealRows.filter((d) => dealInForce(d, now)).map((d) => d.ingredient_id));
   const ingredients: AnalyseIngredient[] = ingredientRows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -153,7 +172,7 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
     gstRate,
     suppliers: suppliers.map((s) => ({ ...s, aliases: s.aliases ?? [], auto_apply: !!s.auto_apply, active: s.active !== false })),
     // a map entry is for this venue or for every venue (venue_id null)
-    maps: maps.map((m) => ({ ...m, packs_per_unit: num(m.packs_per_unit, 1), rejected: !!m.rejected })).filter((m) => m.venue_id === null || m.venue_id === venueId),
+    maps: maps.map((m) => ({ ...m, packs_per_unit: positiveOrNull(m.packs_per_unit), rejected: !!m.rejected })).filter((m) => m.venue_id === null || m.venue_id === venueId),
     chargeRules: rules,
     ingredients,
     products,

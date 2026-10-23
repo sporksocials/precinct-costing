@@ -11,6 +11,7 @@ import { brisbaneToday } from "./deals";
 import { applyDocumentAuto, applyLine } from "./invoice-apply";
 import { fetchAll, loadAnalyseContext } from "./invoice-context";
 import { insertRow } from "./invoice-insert";
+import { descKey, normCode } from "./invoice-names";
 import type { AnalyseInvoice, AnswerQuestion, AnswerResult, ApplyResult } from "./invoice-interfaces";
 import { saveAnalysis } from "./invoice-store";
 import type {
@@ -30,11 +31,6 @@ export interface AnswerDeps {
   analyse?: AnalyseInvoice;
   /** Brisbane yyyy-mm-dd, injected by tests */
   today?: string;
-}
-
-/** The description as the item map stores it: lower case, letters and digits only (see invoice_item_map.desc_key). */
-export function descKey(description: string): string {
-  return description.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function check<T extends { error: any }>(res: T, what: string): T {
@@ -82,34 +78,62 @@ function numOrNull(v: unknown): number | null {
   return v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v);
 }
 
+/** A pack count above zero, or null (a blank, zero or garbage value is "not said"). */
+function positiveOrNull(v: unknown): number | null {
+  const n = numOrNull(v);
+  return n !== null && n > 0 ? n : null;
+}
+
 type MapTarget = { ingredientId: string | null; productId: string | null };
 
-/** Remembers a match (or a "not a product") for this supplier and item code, or description when the line has no code. */
+/**
+ * Remembers a match (or a "not a product") for this supplier and item code, or description when the line has no code.
+ *
+ * A row belongs to a VENUE SCOPE and only ever reads, updates or replaces rows in its own scope: `venueId` is the document's venue
+ * for an answer that names an ordering product (that product exists in one venue only) and null (every venue) for an ingredient-only
+ * answer. Drift's saved match is never touched by a Chiobu answer for the same supplier and code. Within a scope, one row per code
+ * (or description) holds the answer: a different target is a correction and updates that row, an earlier "not that" for the same
+ * target flips its flag. `packs` is only what a person (or the engine, safely) stated; otherwise the column stays null and the
+ * engine asks the unit question itself. `alsoClear` is the extra scope a "not a product" answer also clears of positive matches.
+ */
 async function learnMap(
   sb: SupabaseClient,
-  a: { supplierId: string; venueId: number | null; line: InvoiceLineRow; target: MapTarget; packs: number; rejected: boolean; actor: string },
+  a: { supplierId: string; venueId: number | null; line: InvoiceLineRow; target: MapTarget; packs: number | null; rejected: boolean; actor: string; alsoClear?: number | null },
 ): Promise<void> {
   const code = a.line.item_code?.trim() || null;
-  const dkey = code ? null : descKey(a.line.description);
+  const dkey = code ? null : descKey(a.line.description) || null;
   if (!code && !dkey) throw new Error("This line has no item code or description to remember.");
+  const scope = a.venueId ?? null;
+  const wanted = code ? normCode(code) : null;
   const rows = await fetchAll<InvoiceItemMapRow>(sb, "invoice_item_map", "id,supplier_id,venue_id,item_code,desc_key,ingredient_id,product_id,packs_per_unit,rejected", (q) => q.eq("supplier_id", a.supplierId));
-  const forKey = rows.filter((m) => (m.item_code ?? null) === code && (m.desc_key ?? null) === dkey);
+  const forKey = (inScope: (venue: number | null) => boolean) =>
+    rows.filter((m) => inScope(m.venue_id ?? null) && (code ? !!m.item_code && normCode(m.item_code) === wanted : !m.item_code && m.desc_key === dkey));
+  const mine = forKey((v) => v === scope);
   const sameTarget = (m: InvoiceItemMapRow) => (m.ingredient_id ?? null) === a.target.ingredientId && (m.product_id ?? null) === a.target.productId;
-  const fields = { venue_id: a.venueId, ingredient_id: a.target.ingredientId, product_id: a.target.productId, packs_per_unit: a.packs, rejected: a.rejected };
+  const packsOf = (m: InvoiceItemMapRow | undefined): number | null => (m && Number(m.packs_per_unit) > 0 ? Number(m.packs_per_unit) : null);
 
   if (a.rejected && !a.target.ingredientId && !a.target.productId) {
     // "not a product": a learned match for the same code would contradict it, so the person's newer answer replaces it
-    const positives = forKey.filter((m) => !m.rejected);
+    // (in the row's own scope, and in the venue the answer came from)
+    const positives = forKey((v) => v === scope || (a.alsoClear !== undefined && a.alsoClear !== null && v === a.alsoClear)).filter((m) => !m.rejected);
     if (positives.length) check(await sb.from("invoice_item_map").delete().in("id", positives.map((m) => m.id)), "Could not replace the earlier match");
-    if (forKey.some((m) => m.rejected && !m.ingredient_id && !m.product_id)) return;
+    if (mine.some((m) => m.rejected && !m.ingredient_id && !m.product_id)) return;
   } else {
-    const hit = forKey.find(sameTarget) ?? (a.rejected ? undefined : forKey.find((m) => !m.rejected));
+    const hit = mine.find(sameTarget) ?? (a.rejected ? undefined : mine.find((m) => !m.rejected));
     if (hit) {
-      check(await sb.from("invoice_item_map").update({ ...fields, updated_by: a.actor }).eq("id", hit.id), "Could not update what was learned");
+      // the same target keeps the pack size a person already gave when this answer says nothing about it; a corrected target starts fresh
+      const packs = a.packs ?? (sameTarget(hit) ? packsOf(hit) : null);
+      check(
+        await sb.from("invoice_item_map").update({ venue_id: scope, ingredient_id: a.target.ingredientId, product_id: a.target.productId, packs_per_unit: packs, rejected: a.rejected, updated_by: a.actor }).eq("id", hit.id),
+        "Could not update what was learned",
+      );
       return;
     }
   }
-  check(await insertRow(sb, "invoice_item_map", { supplier_id: a.supplierId, item_code: code, desc_key: dkey, ...fields, created_by: a.actor }), "Could not remember the match");
+  check(
+    await insertRow(sb, "invoice_item_map", { supplier_id: a.supplierId, item_code: code, desc_key: dkey, venue_id: scope, ingredient_id: a.target.ingredientId, product_id: a.target.productId, packs_per_unit: a.packs, rejected: a.rejected, created_by: a.actor }),
+    "Could not remember the match",
+  );
 }
 
 async function nameOf(sb: SupabaseClient, option: QuestionOption): Promise<string> {
@@ -244,10 +268,21 @@ async function addSupplierIfMissing(sb: SupabaseClient, doc: InvoiceDocumentRow)
   return `${hit.name} is added as a new supplier.`;
 }
 
-/** Saves a charge rule for this supplier unless an identical active one exists. Returns false when it already existed. */
-async function saveChargeRule(sb: SupabaseClient, a: { supplierId: string; line: InvoiceLineRow; spread: boolean }): Promise<boolean> {
-  const match_text = a.line.description.trim().toLowerCase().slice(0, 60).trim();
-  if (!match_text) throw new Error("This line has no description to make a rule from.");
+/** A rule matches on text contained in a description or code, so a very short one would catch unrelated lines. */
+const MIN_RULE_TEXT = 5;
+const MIN_RULE_CODE = 3;
+export const RULE_TOO_SHORT = "That description is too short to make a rule from. Ask for the rule to be added in Settings.";
+
+/**
+ * Saves a charge rule for this supplier unless an identical active one exists. Returns false when it already existed, or a
+ * refusal in plain words when the line gives nothing safe to match on.
+ */
+async function saveChargeRule(sb: SupabaseClient, a: { supplierId: string; line: InvoiceLineRow; spread: boolean }): Promise<boolean | { refusal: string }> {
+  const fromDescription = a.line.description.trim().toLowerCase().slice(0, 60).trim();
+  // a short description ("Fee") would catch every line containing those letters: use the supplier's own item code for the charge instead
+  const code = a.line.item_code?.trim().toLowerCase() ?? "";
+  const match_text = fromDescription.length >= MIN_RULE_TEXT ? fromDescription : code.length >= MIN_RULE_CODE ? code : null;
+  if (!match_text) return { refusal: RULE_TOO_SHORT };
   // spreading only works for a charge class (the engine ignores it on "other"), so an unclear class becomes a fee
   const spreadable = ["delivery", "fee", "discount", "deposit"];
   const line_class = a.spread ? (spreadable.includes(a.line.line_class) ? a.line.line_class : "fee") : "other";
@@ -310,7 +345,9 @@ async function answerInner(
     const l = needLine();
     if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the rule cannot be saved.");
     const spread = answerId === "spread_charge";
-    const made = await saveChargeRule(sb, { supplierId: doc.supplier_id, line: l, spread });
+    const saved = await saveChargeRule(sb, { supplierId: doc.supplier_id, line: l, spread });
+    if (typeof saved === "object") return fail(saved.refusal);
+    const made = saved;
     const who = (await supplierName(sb, doc)) ?? "This supplier";
     parts.push(spread ? `${who} "${l.description.trim()}" will be spread over the products as part of their cost.` : `${who} "${l.description.trim()}" will be left out of cost.`);
     if (!made) parts.push("That rule already existed.");
@@ -331,7 +368,7 @@ async function answerInner(
     }
     case "not_a_product": {
       const l = needLine();
-      if (doc.supplier_id) await learnMap(sb, { supplierId: doc.supplier_id, venueId: null, line: l, target: { ingredientId: null, productId: null }, packs: 1, rejected: true, actor });
+      if (doc.supplier_id) await learnMap(sb, { supplierId: doc.supplier_id, venueId: null, alsoClear: doc.venue_id, line: l, target: { ingredientId: null, productId: null }, packs: null, rejected: true, actor });
       check(await sb.from("invoice_lines").update({ state: "ignored", match_state: "ignored" }).eq("id", l.id), "Could not update the line");
       parts.push(`${l.description} is not a product, and it will be ignored from now on.`);
       break;
@@ -356,6 +393,10 @@ async function answerInner(
     }
     case "reread": {
       check(await sb.from("invoice_files").update({ status: "received", attempts: 0, error: null }).eq("id", doc.file_id), "Could not queue the file");
+      // the reader skips a document that already has a stored reading, so forget it on every invoice of this file that is not settled
+      const siblings = (check(await sb.from("invoice_documents").select("id,status").eq("file_id", doc.file_id), "Could not read the file's invoices").data ?? []) as { id: string; status: string }[];
+      const rereadable = siblings.filter((d) => !["applied", "partly_applied", "ignored", "duplicate"].includes(d.status)).map((d) => d.id);
+      if (rereadable.length) check(await sb.from("invoice_documents").update({ read_model: null }).in("id", rereadable), "Could not clear the earlier reading");
       parts.push("This invoice will be read again.");
       reanalyseAfter = false;
       break;
@@ -383,7 +424,8 @@ async function answerInner(
       } else if (option.ingredient_id || option.product_id) {
         const l = needLine();
         if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the match cannot be remembered.");
-        const packs = option.packs_per_unit ?? numOrNull(l.packs_per_unit) ?? 1;
+        // only a pack size somebody stated (or the engine derived safely, already on the line) is remembered; never a guess of 1
+        const packs = positiveOrNull(option.packs_per_unit) ?? positiveOrNull(l.packs_per_unit);
         await learnMap(sb, {
           supplierId: doc.supplier_id,
           venueId: option.product_id ? doc.venue_id : null,

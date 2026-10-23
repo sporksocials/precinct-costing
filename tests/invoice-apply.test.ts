@@ -144,7 +144,7 @@ describe("applyLine: an approved price change", () => {
 });
 
 describe("applyLine: price confirmed", () => {
-  const same = () => ({ lines: [line({ new_pack_price: 65, change_pct: 0, decision: "same", decision_reason: null })] });
+  const same = () => ({ lines: [line({ unit_price_ex: 65, new_pack_price: 65, change_pct: 0, decision: "same", decision_reason: null })] });
 
   it("changes no price, dates the confirmation to the invoice and logs it", async () => {
     const f = setup(same());
@@ -180,11 +180,40 @@ describe("applyLine: price confirmed", () => {
     expect(f.db.invoice_price_changes ?? []).toHaveLength(0);
   });
 
-  it("will not auto-confirm a line whose numbers differ (that would be a silent price change)", async () => {
+  it("a line decided 'same' whose numbers differ is still only a confirmation: it never writes a price", async () => {
     const f = setup({ lines: [line({ decision: "same" })] }); // new 68.90 vs old 65
     const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" });
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
     expect(f.db.cost_ingredients[0].pack_price).toBe(65);
+    expect(f.db.invoice_price_changes[0]).toMatchObject({ kind: "price_confirmed", old_price: 65, new_price: 65 });
+    expect(f.db.invoice_lines[0].state).toBe("confirmed");
+  });
+
+  it("a price within half a cent of the current one is a confirmation even when the decision says apply or needs approval", async () => {
+    for (const mode of ["auto", "approved"] as const) {
+      const f = setup({ doc: { mode: "auto" }, lines: [line({ unit_price_ex: 65.004, new_pack_price: 65.004, decision: mode === "auto" ? "apply" : "needs_approval" })] });
+      const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode });
+      expect(r.ok, mode).toBe(true);
+      expect(r.message).toBe("Kingfish Fillets: price confirmed at $65.00.");
+      expect(f.db.cost_ingredients[0].pack_price).toBe(65); // no price written
+      expect(f.db.invoice_price_changes[0].kind).toBe("price_confirmed");
+      expect(f.db.invoice_lines[0].state).toBe("confirmed");
+    }
+  });
+
+  it("a difference of half a cent or more is a real change and uses the guarded price write", async () => {
+    const f = setup({ lines: [line({ unit_price_ex: 65.006, new_pack_price: 65.006, decision: "needs_approval" })] });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(true);
+    expect(f.db.cost_ingredients[0].pack_price).toBe(65.006);
+    expect(f.db.invoice_price_changes[0].kind).toBe("price_change");
+  });
+
+  it("approving a same-price line confirms it instead of refusing", async () => {
+    const f = setup(same());
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(true);
+    expect(f.db.invoice_lines[0].state).toBe("confirmed");
   });
 });
 
@@ -232,7 +261,7 @@ describe("applyLine: both an ingredient and an ordering product", () => {
 });
 
 describe("applyLine: automatic mode is paranoid", () => {
-  const near = () => ({ lines: [line({ new_pack_price: 66.3, change_pct: 0.02, decision: "apply", decision_reason: null })], doc: { mode: "auto" } });
+  const near = () => ({ lines: [line({ unit_price_ex: 66.3, new_pack_price: 66.3, change_pct: 0.02, decision: "apply", decision_reason: null })], doc: { mode: "auto" } });
 
   it("applies a small change when everything allows it", async () => {
     const f = setup(near());
@@ -243,7 +272,7 @@ describe("applyLine: automatic mode is paranoid", () => {
   });
 
   it("refuses a line that needs approval", async () => {
-    const f = setup({ ...near(), lines: [line({ new_pack_price: 66.3, decision: "needs_approval" })] });
+    const f = setup({ ...near(), lines: [line({ unit_price_ex: 66.3, new_pack_price: 66.3, decision: "needs_approval" })] });
     expect((await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" })).ok).toBe(false);
     expect(f.db.cost_ingredients[0].pack_price).toBe(65);
   });
@@ -259,7 +288,7 @@ describe("applyLine: automatic mode is paranoid", () => {
   });
 
   it("refuses a change at or over the limit even if the line says apply", async () => {
-    const f = setup({ ...near(), lines: [line({ new_pack_price: 68.25, decision: "apply" })] }); // exactly 5%
+    const f = setup({ ...near(), lines: [line({ unit_price_ex: 68.25, new_pack_price: 68.25, decision: "apply" })] }); // exactly 5%
     expect((await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" })).ok).toBe(false);
   });
 
@@ -274,9 +303,9 @@ describe("applyLine: automatic mode is paranoid", () => {
 
 describe("applyDocumentAuto", () => {
   const twoLines = () => [
-    line({ id: "a", line_no: 1, new_pack_price: 66.3, decision: "apply" }),
-    line({ id: "b", line_no: 2, ingredient_id: IDS.barra, old_pack_price: 40, new_pack_price: 40, decision: "same" }),
-    line({ id: "c", line_no: 3, ingredient_id: IDS.lychee, old_pack_price: 30, new_pack_price: 35, decision: "needs_approval" }),
+    line({ id: "a", line_no: 1, unit_price_ex: 66.3, new_pack_price: 66.3, decision: "apply" }),
+    line({ id: "b", line_no: 2, ingredient_id: IDS.barra, old_pack_price: 40, unit_price_ex: 40, new_pack_price: 40, decision: "same" }),
+    line({ id: "c", line_no: 3, ingredient_id: IDS.lychee, old_pack_price: 30, unit_price_ex: 35, new_pack_price: 35, decision: "needs_approval" }),
   ];
   const withIngs = (f: FakeSupabase) => {
     f.db.cost_ingredients.push(ingredient({ id: IDS.barra, name: "Barramundi", pack_price: 40 }), ingredient({ id: IDS.lychee, name: "Lychee Liqueur", pack_price: 30 }));
@@ -360,7 +389,7 @@ describe("undoChange", () => {
   });
 
   it("undoes a price confirmation by putting the date back, without touching history", async () => {
-    const f = setup({ lines: [line({ new_pack_price: 65, decision: "same" })] });
+    const f = setup({ lines: [line({ unit_price_ex: 65, new_pack_price: 65, decision: "same" })] });
     const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" });
     const logRows = f.db.cost_price_log.length;
     const u = await undoChange(f.sb, { changeId: r.changeIds[0], actor: "troy" });
@@ -396,7 +425,7 @@ describe("undoChange", () => {
 describe("undoDocument", () => {
   function twoApplied() {
     const f = setup({
-      lines: [line({ id: "a", line_no: 1 }), line({ id: "b", line_no: 2, ingredient_id: IDS.barra, old_pack_price: 40, new_pack_price: 41, decision: "apply" })],
+      lines: [line({ id: "a", line_no: 1 }), line({ id: "b", line_no: 2, ingredient_id: IDS.barra, old_pack_price: 40, unit_price_ex: 41, new_pack_price: 41, decision: "apply" })],
     });
     f.db.cost_ingredients.push(ingredient({ id: IDS.barra, name: "Barramundi", pack_price: 40 }));
     return f;

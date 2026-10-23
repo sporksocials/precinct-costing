@@ -42,8 +42,9 @@ import { useUrlState } from "@/components/use-url-state";
 import { InvoiceTabs } from "./inv-tabs";
 import { MoveLabel, StatusLabel } from "./inv-parts";
 import { UndoChangeSheet } from "./inv-undo";
+import { DiscountsView } from "./inv-discounts";
 
-type View = "invoices" | "changes";
+type View = "invoices" | "changes" | "discounts";
 const EMPTY_LOOKUPS: ChangeLookups = { lines: new Map(), products: new Map() };
 
 /** Supplier Prices | Invoices: the Invoices tab. A list of invoices, or (view=changes) every price the invoices changed. */
@@ -56,7 +57,7 @@ export function InvoicesScreen() {
   const [viewRaw, setView] = useUrlState("view", "invoices");
   const period = readPeriod(periodRaw);
   const status = readStatusFilter(statusRaw);
-  const view: View = viewRaw === "changes" ? "changes" : "invoices";
+  const view: View = viewRaw === "changes" ? "changes" : viewRaw === "discounts" ? "discounts" : "invoices";
   const [limit, setLimit] = useState(PAGE);
   useEffect(() => setLimit(PAGE), [period, status, view, venue?.id]);
 
@@ -75,6 +76,8 @@ export function InvoicesScreen() {
   };
 
   const body = (() => {
+    // Discounts We Found reads its own lines, so it does not wait on (or hide behind) the invoice list
+    if (view === "discounts") return <DiscountsView venueId={venue?.id ?? null} />;
     if (list.loading && !data) return <ListSkeleton rows={8} />;
     if (list.error && !data) return <Banner action={<TouchButton onClick={() => void list.reload()}>Try Again</TouchButton>}>{list.error}</Banner>;
     if (!data) return null;
@@ -104,15 +107,16 @@ export function InvoicesScreen() {
       <div className="mt-3 space-y-3">
         <TouchSegmented<View>
           ariaLabel="View"
-          className="sm:max-w-sm"
+          className="sm:max-w-lg [&>button]:whitespace-normal [&>button]:px-2 [&>button]:leading-tight"
           value={view}
           onChange={(v) => setView(v === "invoices" ? "" : v)}
           options={[
             { value: "invoices", label: "Invoices" },
             { value: "changes", label: "Prices Changed" },
+            { value: "discounts", label: "Discounts We Found" },
           ]}
         />
-        <TouchChips<PeriodId> ariaLabel="Period" value={period} onChange={(v) => setPeriod(v === "week" ? "" : v)} options={PERIOD_OPTIONS} />
+        {view !== "discounts" ? <TouchChips<PeriodId> ariaLabel="Period" value={period} onChange={(v) => setPeriod(v === "week" ? "" : v)} options={PERIOD_OPTIONS} /> : null}
         {view === "invoices" ? <TouchChips<StatusFilterId> ariaLabel="Status" value={status} onChange={(v) => setStatus(v === "all" ? "" : v)} options={STATUS_FILTERS} /> : null}
       </div>
       <div className="mt-4">{body}</div>

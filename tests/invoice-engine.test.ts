@@ -29,8 +29,8 @@ describe("Daniel Street #51329 (the barramundi line does not add up)", () => {
     expect(byNo(a.lines, 2).math_ok).toBe(false);
   });
 
-  it("classes the lines: two products, a credit, a delivery charge", () => {
-    expect(a.lines.map((l) => l.line_class)).toEqual(["product", "product", "credit", "delivery"]);
+  it("classes the lines: two products, a standing discount on the barramundi, a delivery charge", () => {
+    expect(a.lines.map((l) => l.line_class)).toEqual(["product", "product", "discount", "delivery"]);
     expect(byNo(a.lines, 4)).toMatchObject({ unit_price_ex: 5.9091, line_total_ex: 5.9091, gst_amount: 0.5909 });
   });
 
@@ -39,7 +39,7 @@ describe("Daniel Street #51329 (the barramundi line does not add up)", () => {
     expect(byNo(a.lines, 2)).toMatchObject({ match_state: "matched", match_method: "code", ingredient_id: "ing-barra", product_id: "prod-barra", packs_per_unit: 1, base_qty: 2.39 });
   });
 
-  it("spreads the $5.91 delivery by value net of the credit: kingfish $3.59, barramundi $2.32", () => {
+  it("spreads the $5.91 delivery by value net of the barramundi discount: kingfish $3.59, barramundi $2.32", () => {
     expect(a.fee_pool_ex).toBe(5.91);
     const k = byNo(a.lines, 1);
     const b = byNo(a.lines, 2);
@@ -49,10 +49,10 @@ describe("Daniel Street #51329 (the barramundi line does not add up)", () => {
     expect(k.landed_total_ex).toBe(131.06);
     expect(k.landed_unit_ex).toBe(70.8432);
     expect(k.landed_base_ex).toBe(70.8432);
-    // the barramundi was credited $16.45 with no quantity: the unit cost is unknown
+    // the barramundi carries a $16.45 discount over its full 2.39 kg (see invoice-discounts-engine.test.ts): 82.53 net + 2.32 delivery
     expect(b.landed_total_ex).toBe(84.85);
-    expect(b.landed_unit_ex).toBeNull();
-    expect(b.landed_base_ex).toBeNull();
+    expect(b.landed_unit_ex).toBe(35.5021);
+    expect(b.landed_base_ex).toBe(35.5021);
   });
 
   it("works out the new prices against the app's prices", () => {
@@ -72,11 +72,10 @@ describe("Daniel Street #51329 (the barramundi line does not add up)", () => {
     expect(a.summary).toEqual({ products: 2, matched: 2, same: 0, to_apply: 0, need_approval: 2, unmatched: 0 });
   });
 
-  it("asks the totals question and the credit question, in plain words", () => {
-    expect(kinds(a)).toEqual(["totals_mismatch", "credit_unclear"]);
+  it("asks the totals question and no credit question for a discount, in plain words", () => {
+    expect(kinds(a)).toEqual(["totals_mismatch"]);
     expect(a.questions[0].prompt).toContain("Invoice 51329 from Daniel Street Fish Market does not add up.");
     expect(a.questions[0].prompt).toContain("2.39 x $41.54 is $99.28 but the line says $98.98");
-    expect(a.questions[1]).toMatchObject({ line_no: 2, prompt: "The Humpty Doo Barramundi fillets line was credited $16.45. How many kilos were credited?" });
   });
 });
 
@@ -87,10 +86,10 @@ describe("Daniel Street #51329 with the barramundi corrected (it adds up)", () =
     const k = byNo(a.lines, 1);
     expect(k.decision).toBe("apply");
     expect(k.decision_reason).toBeNull();
-    // a credit was issued against the barramundi, so its price waits for a person
+    // the standing discount does not stop the barramundi price: its 7.7% drop against the ordering price is what waits for a person
     const b = byNo(a.lines, 2);
     expect(b.decision).toBe("needs_approval");
-    expect(b.decision_reason).toBe("A credit of $16.45 was issued against this line.");
+    expect(b.decision_reason).toBe("7.7% change is over the 5% limit.");
     expect(a.summary).toMatchObject({ to_apply: 1, need_approval: 1 });
     expect(a.status).toBe("needs_review");
     expect(a.mode).toBe("auto");
@@ -535,7 +534,7 @@ describe("charges, credits and discounts", () => {
 
   it("a negative product line is a credit, not a product", () => {
     const d = danielStreet51329Fixed();
-    d.lines[2] = { ...d.lines[2], class_hint: "product" };
+    d.lines[2] = { ...d.lines[2], item_code: "ZZZ", description: "Allowance", class_hint: "product" };
     expect(byNo(analyseInvoice(d, baseCtx()).lines, 3).line_class).toBe("credit");
   });
 });

@@ -224,6 +224,18 @@ export interface SuggestedDeal {
 }
 
 /**
+ * The Percent Off form filled in from the address (`?deal=percent_off&pct=16.6`), which the invoice screens link to for a standing
+ * supplier discount. Returns null for anything else, so a stray or hand-edited address opens nothing. It only fills the form in:
+ * the form shows the effect on the dishes, and nothing is saved until a person saves it.
+ */
+export function suggestedFromParams(get: (key: string) => string | null): SuggestedDeal | null {
+  if (get("deal") !== "percent_off") return null;
+  const pct = Number(get("pct"));
+  if (!Number.isFinite(pct) || !(pct > 0) || !(pct < 100)) return null;
+  return { kind: "percent_off", buy_qty: null, free_qty: null, pct_off: Math.round(pct * 10) / 1000, matched: "" };
+}
+
+/**
  * Spots deals written into supplier descriptions: "KEG 8+1 LUC $355", "CTN 10+1", "5% OFF", "BUY 5 GET 1 FREE".
  * Returns null when nothing convincing is there. "a+b" needs a > b so pack sizes like "2+3" are ignored.
  */

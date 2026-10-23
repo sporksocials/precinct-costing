@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { BadgePercent, ChevronDown } from "lucide-react";
 import { money, packLabel } from "@/lib/format";
 import { brisbaneStamp } from "@/lib/ordering-orders-ui";
 import {
@@ -19,6 +19,7 @@ import {
   priceCompares,
   qtyPriceText,
 } from "@/lib/invoice-view";
+import { lineDiscountText, lineNetPerBase, perUnitText } from "@/lib/invoice-discounts";
 import type { InvoiceChargeRuleRow, InvoiceDocumentRow, InvoiceLineRow, InvoicePriceChangeRow, LineClass } from "@/lib/invoice-types";
 import type { Ingredient } from "@/lib/types";
 import { TouchButton } from "@/components/ordering/touch";
@@ -60,6 +61,9 @@ export function InvLine({
   const compares = priceCompares(line);
   const busy = h.busyId === line.id;
   const total = line.line_total_ex;
+  // a standing supplier discount netted off this line (a same-code negative line on the invoice)
+  const discount = lineDiscountText(line);
+  const netPerBase = lineNetPerBase(line);
   return (
     <li className="space-y-2.5 px-4 py-3.5">
       <div className="flex items-start justify-between gap-3">
@@ -89,6 +93,14 @@ export function InvLine({
         ) : (
           <p className="text-[15px] font-medium text-label-2 sm:text-[13px]">{landed}</p>
         )
+      ) : null}
+
+      {discount ? (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-medium text-label sm:text-[13px]">
+          <BadgePercent aria-hidden className="h-4 w-4 shrink-0 text-label-2" strokeWidth={2.5} />
+          <span>{discount}</span>
+          {netPerBase != null ? <span className="text-label-2">{`Net ${perUnitText(netPerBase, line.base_unit)}`}</span> : null}
+        </p>
       ) : null}
 
       <div className="text-[15px] sm:text-[13px]">
@@ -173,8 +185,21 @@ export function InvLine({
 }
 
 /** A charge or credit line, quiet: what it is, its amount, and whether it is part of the cost. */
-export function ChargeLine({ line, doc, rules, supplierId }: { line: InvoiceLineRow; doc: Pick<InvoiceDocumentRow, "fee_pool_ex">; rules: InvoiceChargeRuleRow[]; supplierId: string | null }) {
-  const t = chargeTreatment(line, Number(doc.fee_pool_ex ?? 0), rules, supplierId);
+export function ChargeLine({
+  line,
+  doc,
+  rules,
+  supplierId,
+  takenOff,
+}: {
+  line: InvoiceLineRow;
+  doc: Pick<InvoiceDocumentRow, "fee_pool_ex">;
+  rules: InvoiceChargeRuleRow[];
+  supplierId: string | null;
+  /** the product this line is a standing discount on: it is taken off that product's price, not spread over the invoice */
+  takenOff?: string | null;
+}) {
+  const t = takenOff ? { label: `Taken off the price of ${takenOff}` } : chargeTreatment(line, Number(doc.fee_pool_ex ?? 0), rules, supplierId);
   return (
     <li className="flex items-start justify-between gap-3 px-4 py-3">
       <div className="min-w-0">

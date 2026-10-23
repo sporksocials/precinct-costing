@@ -56,6 +56,11 @@ export interface LandedProduct {
   baseQty: number | null;
   /** line total ex GST; null means the line cannot take part */
   totalEx: number | null;
+  /**
+   * A standing supplier discount netted off this line (positive dollars ex GST), from a same-code negative line (see attachDiscounts).
+   * Unlike a credit it covers the FULL quantity: the net line value is totalEx minus this, and the cost per unit divides by all of it.
+   */
+  discountEx?: number;
 }
 
 export interface LandedCredit {
@@ -96,6 +101,75 @@ export function attachCredits(products: LandedProduct[], credits: LandedCredit[]
   return out;
 }
 
+// ---------------------------------------------------------------- supplier line discounts
+/** Words that mark a negative line as a discount or credit on a product; dropped before descriptions are compared. */
+const DISCOUNT_WORDS = new Set(["discount", "discounts", "discounted", "credit", "credits", "less", "rebate", "rebates", "allowance", "cr"]);
+
+/** A description key without its discount words, comparable with the product's own key. */
+export function discountKey(description: string | null | undefined): string {
+  return descKey(description)
+    .split(" ")
+    .filter((w) => w !== "" && !DISCOUNT_WORDS.has(w))
+    .join(" ");
+}
+
+export interface DiscountProduct {
+  index: number;
+  itemCode: string | null;
+  description: string;
+  /** printed unit price ex GST, null when none was read */
+  unitPriceEx: number | null;
+}
+
+export interface DiscountCandidate {
+  index: number;
+  itemCode: string | null;
+  description: string;
+  qty: number | null;
+  unitPriceEx: number | null;
+  /** negative dollars ex GST */
+  totalEx: number | null;
+}
+
+/**
+ * Is this negative line plainly returned goods rather than a discount? It states a quantity and a unit price within 1% of the
+ * product's own unit price, and quantity times price is its total to 2c. (A discount line prints a dollar amount, or a rate that is
+ * nothing like the product's price.)
+ */
+export function isGoodsReturn(neg: DiscountCandidate, product: DiscountProduct): boolean {
+  if (neg.qty == null || neg.qty === 0 || neg.unitPriceEx == null || neg.totalEx == null || product.unitPriceEx == null || !(product.unitPriceEx > 0)) return false;
+  const nearPrice = Math.abs(Math.abs(neg.unitPriceEx) - product.unitPriceEx) / product.unitPriceEx <= 0.01 + 1e-9;
+  const maths = Math.abs(Math.abs(neg.qty * neg.unitPriceEx) - Math.abs(neg.totalEx)) <= 0.02 + 1e-9;
+  return nearPrice && maths;
+}
+
+/**
+ * Attach each negative line to the product it is a standing DISCOUNT on: the same item code (compared with normCode) as exactly one
+ * product line, else the same description once discount/credit/less/rebate words are dropped. A code shared by several products is
+ * narrowed by description; still more than one means unattached (null) and the existing credit logic handles it. Returned goods
+ * (see isGoodsReturn) are never a discount: they stay credits. Returns negative line index to product index, or null.
+ */
+export function attachDiscounts(products: DiscountProduct[], negatives: DiscountCandidate[]): Map<number, number | null> {
+  const out = new Map<number, number | null>();
+  for (const n of negatives) {
+    if (n.totalEx == null || !(n.totalEx < 0)) {
+      out.set(n.index, null);
+      continue;
+    }
+    const code = normCode(n.itemCode);
+    const key = discountKey(n.description);
+    let hits = code ? products.filter((p) => normCode(p.itemCode) === code) : [];
+    if (hits.length === 0) hits = key === "" ? [] : products.filter((p) => discountKey(p.description) === key);
+    else if (hits.length > 1) {
+      const narrowed = key === "" ? [] : hits.filter((p) => discountKey(p.description) === key);
+      if (narrowed.length === 1) hits = narrowed;
+    }
+    const hit = hits.length === 1 ? hits[0] : null;
+    out.set(n.index, hit && !isGoodsReturn(n, hit) ? hit.index : null);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- the spread
 export interface LandedInput {
   products: LandedProduct[];
@@ -111,6 +185,8 @@ export interface LandedLineResult {
   feeShareEx: number;
   /** total of the credits attached to the line (negative dollars), 0 when none */
   creditEx: number;
+  /** the standing supplier discount netted off the line (positive dollars), 0 when none */
+  discountEx: number;
   creditCount: number;
   /** true when at least one credit is attached and the credited quantity could not be read, so a unit cost is not known */
   creditQtyUnknown: boolean;
@@ -142,7 +218,7 @@ export function allocateLanded(input: LandedInput): LandedResult {
   const creditsFor = (pi: number) => credits.filter((c) => attach.get(c.index) === pi);
   const netValue = (p: LandedProduct): number | null => {
     if (p.totalEx == null) return null;
-    return p.totalEx + creditsFor(p.index).reduce((s, c) => s + (c.totalEx ?? 0), 0);
+    return p.totalEx - (p.discountEx ?? 0) + creditsFor(p.index).reduce((s, c) => s + (c.totalEx ?? 0), 0);
   };
 
   const eligible = products.filter((p) => p.totalEx != null);
@@ -158,6 +234,7 @@ export function allocateLanded(input: LandedInput): LandedResult {
   for (const p of products) {
     const mine = creditsFor(p.index);
     const creditEx = round4(mine.reduce((s, c) => s + (c.totalEx ?? 0), 0));
+    const discountEx = round4(Math.max(0, p.discountEx ?? 0));
     const shareCents = shareByIndex.get(p.index) ?? 0;
     const feeShareEx = fromCents(shareCents);
 
@@ -174,13 +251,14 @@ export function allocateLanded(input: LandedInput): LandedResult {
     let landedUnitEx: number | null = null;
     let landedBaseEx: number | null = null;
     if (p.totalEx != null) {
-      landedTotalEx = round4(p.totalEx + creditEx + feeShareEx);
+      landedTotalEx = round4(p.totalEx - discountEx + creditEx + feeShareEx);
       if (!creditQtyUnknown && netQty != null && netQty > 0) landedUnitEx = round4(landedTotalEx / netQty);
       if (!creditQtyUnknown && netBaseQty != null && netBaseQty > 0) landedBaseEx = round4(landedTotalEx / netBaseQty);
     }
     lines.set(p.index, {
       feeShareEx,
       creditEx,
+      discountEx,
       creditCount: mine.length,
       creditQtyUnknown,
       netQty,

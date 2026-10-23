@@ -117,8 +117,8 @@ describe("computeIngredientCosts", () => {
     expect(kingfish.ingredient_id).toBe("ing-kingfish");
     expect(kingfish.last).toEqual({ invoice_date: "2026-10-14", document_id: "doc-51329", unit_price_base: 68.9, landed_base: 70.8378 });
     expect(kingfish.average_landed_base).toBe(70.8378);
-    // the barramundi was credited with no quantity: its landed cost per kilo is unknown, so it is left out
-    expect(barra.average_landed_base).toBeNull();
-    expect(barra.last).toBeNull();
+    // the barramundi carries a standing $16.45 discount over its full 2.39 kg, so its landed cost per kilo is known and is the NET one
+    expect(barra.average_landed_base).toBe(35.6318);
+    expect(barra.last).toEqual({ invoice_date: "2026-10-14", document_id: "doc-51329", unit_price_base: 41.54, landed_base: 35.6318 });
   });
 });

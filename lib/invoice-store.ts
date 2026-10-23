@@ -75,6 +75,33 @@ async function resolveSupplier(sb: SupabaseClient, analysis: InvoiceAnalysis): P
   throw new Error(`Could not save the supplier: ${error?.message ?? "unknown error"}`);
 }
 
+/** The three supplier-discount columns on a line (added by a later migration). */
+export const DISCOUNT_COLUMNS = ["line_discount_ex", "discount_pct", "discount_per_base"] as const;
+
+/** True when a database error says one of the discount columns is not there yet (an older database): Postgres 42703 or PostgREST PGRST204. */
+function discountColumnMissing(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const text = String(error.message ?? "");
+  return DISCOUNT_COLUMNS.some((c) => text.includes(c)) && (/column|schema cache|does not exist/i.test(text) || error.code === "42703" || error.code === "PGRST204");
+}
+
+/**
+ * Insert the analysed lines. The discount columns are written only on a line that has a discount (the rows are null-stripped), and when
+ * the database does not have them yet the same rows go in again without them: the discount is then simply not stored, nothing else is lost.
+ */
+async function insertLineRows(sb: SupabaseClient, rows: Record<string, any>[]): Promise<{ id: string; line_no: number }[]> {
+  let res = await insertRows(sb, "invoice_lines", rows).select("id,line_no");
+  if (res.error && rows.some((r) => DISCOUNT_COLUMNS.some((c) => c in r)) && discountColumnMissing(res.error as any)) {
+    const stripped = rows.map((r) => {
+      const copy = { ...r };
+      for (const c of DISCOUNT_COLUMNS) delete copy[c];
+      return copy;
+    });
+    res = await insertRows(sb, "invoice_lines", stripped).select("id,line_no");
+  }
+  return (check(res, "Could not save the lines").data ?? []) as { id: string; line_no: number }[];
+}
+
 export const saveAnalysis: SaveAnalysis = async (sb, args) => {
   const { fileId, venueId, extracted, analysis, pagePdfPath, readModel, documentId } = args;
 
@@ -154,9 +181,7 @@ export const saveAnalysis: SaveAnalysis = async (sb, args) => {
     const { source_index: _src, ...rest } = l;
     return { ...rest, document_id: docId, venue_id: venueId, invoice_date: l.invoice_date ?? extracted.invoice_date ?? null, state: carried.get(l.line_no) ?? l.state ?? "open" };
   });
-  const inserted = newRows.length
-    ? ((check(await insertRows(sb, "invoice_lines", newRows).select("id,line_no"), "Could not save the lines").data ?? []) as { id: string; line_no: number }[])
-    : [];
+  const inserted = newRows.length ? await insertLineRows(sb, newRows) : [];
   const lineIdByNo = new Map<number, string>();
   for (const k of kept) lineIdByNo.set(k.line_no, k.id);
   for (const n of inserted) lineIdByNo.set(n.line_no, n.id);

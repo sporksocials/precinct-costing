@@ -258,3 +258,47 @@ describe("recomputeDocumentStatus", () => {
     expect(await recomputeDocumentStatus(f.sb, IDS.doc)).toBe("ignored");
   });
 });
+
+describe("saveAnalysis: supplier line discounts", () => {
+  const discounted = () =>
+    analysis({
+      lines: [
+        aLine(1, { line_discount_ex: 16.45, discount_pct: 0.166195, discount_per_base: 6.8828 }),
+        aLine(2, { line_class: "discount", match_state: "ignored", ingredient_id: null, decision: "none", line_total_ex: -16.45 }),
+      ],
+    });
+
+  it("writes the three discount columns on the product line and leaves them out of every other line", async () => {
+    const f = empty();
+    await saveAnalysis(f.sb, { ...base, extracted: extracted(), analysis: discounted() });
+    expect(f.db.invoice_lines[0]).toMatchObject({ line_discount_ex: 16.45, discount_pct: 0.166195, discount_per_base: 6.8828 });
+    expect(f.db.invoice_lines[1]).not.toHaveProperty("line_discount_ex");
+    expect(f.db.invoice_lines[1]).not.toHaveProperty("discount_pct");
+    expect(f.db.invoice_lines[1]).not.toHaveProperty("discount_per_base");
+  });
+
+  it("sends no discount columns at all for an analysis without a discount (an older database never sees them)", async () => {
+    const f = empty();
+    await saveAnalysis(f.sb, { ...base, extracted: extracted(), analysis: analysis() });
+    const payload = f.log.find((l) => l.op === "upsert" && l.table === "invoice_lines")!.payload;
+    for (const row of payload) expect(Object.keys(row).some((k) => k.includes("discount"))).toBe(false);
+  });
+
+  it("an older database without the columns: the lines are saved again without them and nothing else is lost", async () => {
+    const f = empty();
+    f.failNext("invoice_lines", "upsert", "Could not find the 'discount_pct' column of 'invoice_lines' in the schema cache");
+    const r = await saveAnalysis(f.sb, { ...base, extracted: extracted(), analysis: discounted() });
+    expect(r.lineIds).toHaveLength(2);
+    expect(f.db.invoice_lines).toHaveLength(2);
+    expect(f.db.invoice_lines[0]).toMatchObject({ line_no: 1, decision: "needs_approval", ingredient_id: "ing-kingfish" });
+    expect(f.db.invoice_lines[0]).not.toHaveProperty("line_discount_ex");
+    expect(f.db.invoice_lines[0]).not.toHaveProperty("discount_pct");
+    expect(f.log.filter((l) => l.op === "upsert" && l.table === "invoice_lines")).toHaveLength(2);
+  });
+
+  it("any other failure still stops the save", async () => {
+    const f = empty();
+    f.failNext("invoice_lines", "upsert", "permission denied for table invoice_lines");
+    await expect(saveAnalysis(f.sb, { ...base, extracted: extracted(), analysis: discounted() })).rejects.toThrow(/Could not save the lines/);
+  });
+});

@@ -28,9 +28,9 @@ import { baseUnitFor, baseQuantity, resolvePacks, type PackResolution } from "./
 import { documentPriceBasis, lineAmounts, reconcile, type LineAmounts, type ReconLine } from "./invoice-recon";
 import { classifyLine, isChargeClass, type Classified } from "./invoice-classify";
 import { buildMatcher, checkVenue, findDuplicate, matchSupplier, type LineMatch } from "./invoice-match";
-import { allocateLanded, type LandedLineResult, type LandedProduct, type LandedCredit } from "./invoice-landed";
+import { allocateLanded, attachDiscounts, type LandedLineResult, type LandedProduct, type LandedCredit } from "./invoice-landed";
 import { decideLine, isSamePrice, type DecideInput, type LineVerdict } from "./invoice-guards";
-import { abnDigits, plain, round4, round6 } from "./invoice-names";
+import { abnDigits, plain, round4, round6, tidyLabel } from "./invoice-names";
 import {
   ambiguousQuestion,
   bigChangeQuestion,
@@ -221,9 +221,31 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
 
   // ---------------------------------------------------------------- 5 landed cost
   const products = work.filter((w) => w.cls.line_class === "product");
+
+  // A negative line that shares a product's item code (or its description once "discount" words are dropped) is a standing supplier
+  // DISCOUNT on that product, not a goods credit, unless it plainly returns goods (see isGoodsReturn). It is netted off the product
+  // line's value, never enters the fee pool and never raises the "how many were credited" question.
+  const discountCandidates = extracted.doc_type === "credit_note"
+    ? []
+    : work.filter((w) => (w.cls.line_class === "credit" || w.cls.line_class === "discount") && w.amounts.line_total_ex != null && w.amounts.line_total_ex < 0);
+  const discountAttach = attachDiscounts(
+    products.map((w) => ({ index: w.i, itemCode: w.line.item_code, description: w.line.description, unitPriceEx: w.amounts.unit_price_ex })),
+    discountCandidates.map((w) => ({ index: w.i, itemCode: w.line.item_code, description: w.line.description, qty: w.line.qty, unitPriceEx: w.amounts.unit_price_ex, totalEx: w.amounts.line_total_ex })),
+  );
+  const discountOfProduct = new Map<number, number>(); // product line index to the dollars (ex GST, positive) taken off it
+  const discountLine = new Map<number, number>(); // discount line index to the product line index it was taken off
+  for (const w of discountCandidates) {
+    const pi = discountAttach.get(w.i);
+    if (pi == null) continue;
+    w.cls = { line_class: "discount", rule: null, spread: false };
+    discountLine.set(w.i, pi);
+    discountOfProduct.set(pi, (discountOfProduct.get(pi) ?? 0) + Math.abs(w.amounts.line_total_ex as number));
+  }
+
   const credits = work.filter((w) => w.cls.line_class === "credit");
   const landedProducts: LandedProduct[] = products.map((w) => ({
     index: w.i, itemCode: w.line.item_code, description: w.line.description, unit: w.line.unit, qty: w.line.qty, baseQty: w.baseQty, totalEx: w.amounts.line_total_ex,
+    discountEx: round4(discountOfProduct.get(w.i) ?? 0),
   }));
   const landedCredits: LandedCredit[] = credits.map((w) => ({
     index: w.i, itemCode: w.line.item_code, description: w.line.description, unit: w.line.unit, qty: w.line.qty, totalEx: w.amounts.line_total_ex,
@@ -260,6 +282,12 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     // ----- charges, credits and other non-product lines
     if (cls !== "product") {
       const total = w.amounts.line_total_ex;
+      const takenOffProduct = discountLine.get(w.i);
+      if (takenOffProduct != null) {
+        // a standing discount on a product: no charge question, no credit question, nothing to spread
+        outLines.push({ ...base, ...blank, decision_reason: `Taken off the price of ${tidyLabel(work[takenOffProduct].line.description)}.` });
+        continue;
+      }
       const unknownCharge =
         (isChargeClass(cls) && cls !== "deposit" && w.cls.rule == null) || (cls === "other" && w.cls.rule == null);
       if (unknownCharge && total != null && Math.abs(total) > 0.004) {
@@ -285,11 +313,31 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
       lineQuestions.push(creditQuestion({ lineNo: l.line_no, productDescription: l.description, creditEx: lr.creditEx, unit: l.unit }));
     }
 
+    // the supplier discount taken off this line (positive dollars ex GST), as the three columns the screens read
+    const discEx = discountOfProduct.get(w.i) ?? 0;
+    const grossEx = w.amounts.line_total_ex;
+    const discountFields = discEx > 0.004
+      ? {
+          line_discount_ex: round4(discEx),
+          ...(grossEx != null && grossEx > 0 ? { discount_pct: round6(discEx / grossEx) } : {}),
+          ...(w.baseQty != null && w.baseQty > 0 ? { discount_per_base: round4(discEx / w.baseQty) } : {}),
+        }
+      : {};
+
+    if (m.state === "ignored") {
+      // a person already said this is not a stock item: no match, no question, no price
+      outLines.push({
+        ...base, ...blank, ...landedFields, ...discountFields, match_state: "ignored",
+        decision: "none", decision_reason: "A person said this is not a stock item.",
+      });
+      continue;
+    }
+
     if (m.state !== "matched") {
       if (m.state === "ambiguous") lineQuestions.push(ambiguousQuestion({ supplier: supplierLabel, lineNo: l.line_no, description: l.description, code: l.item_code, candidates: m.options }));
       else lineQuestions.push(unmatchedQuestion({ supplier: supplierLabel, lineNo: l.line_no, description: l.description, code: l.item_code, suggestions: m.options }));
       outLines.push({
-        ...base, ...blank, ...landedFields, match_state: m.state,
+        ...base, ...blank, ...landedFields, ...discountFields, match_state: m.state,
         decision: "none", decision_reason: m.state === "ambiguous" ? "More than one product could match this line." : "No product is matched to this line yet.",
       });
       continue;
@@ -357,7 +405,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
 
     const primary = targets.ing ?? targets.prod;
     outLines.push({
-      ...base, ...landedFields,
+      ...base, ...landedFields, ...discountFields,
       match_state: "matched", match_method: m.method, map_id: m.mapId,
       ingredient_id: ingredient?.id ?? null, product_id: product?.id ?? null,
       packs_per_unit: pack.packs, base_qty: w.baseQty, base_unit: w.baseUnit,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ingredientCostPerBase } from "@/lib/costing";
@@ -13,6 +14,7 @@ import {
   dealSummary,
   parseDealFromText,
   resolveDeals,
+  suggestedFromParams,
   type DealStatus,
   type SuggestedDeal,
 } from "@/lib/deals";
@@ -100,6 +102,20 @@ export function DealsSection({ ing, adding, onAddingChange, renderImpact }: { in
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  // An address like ?deal=percent_off&pct=16.6 (the Discounts We Found screen links here) opens Add Deal already filled in. It saves nothing.
+  const addressParams = useSearchParams();
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const fromAddress = suggestedFromParams((k) => sp.get(k));
+    if (!fromAddress) return;
+    setPrefill(fromAddress);
+    onAddingChange(true);
+    sp.delete("deal");
+    sp.delete("pct");
+    const qs = sp.toString();
+    window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ing.id, addressParams]);
   const res = resolveDeals(Number(ing.pack_price), deals, today);
   // hide the suggestion once a deal of that kind already exists
   const showSuggestion = suggestion && !deals.some((d) => d.kind === suggestion.kind);

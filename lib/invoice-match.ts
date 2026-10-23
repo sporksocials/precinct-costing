@@ -131,7 +131,8 @@ export interface MatchTarget {
 }
 
 export interface LineMatch {
-  state: "matched" | "unmatched" | "ambiguous";
+  /** ignored = a person said "this is not a stock item" for this supplier and code (or description): nothing is matched or asked */
+  state: "matched" | "unmatched" | "ambiguous" | "ignored";
   method: MatchMethod | null;
   mapId: string | null;
   /** packs_per_unit from the saved match, when there is one */
@@ -253,6 +254,12 @@ export function buildMatcher(ctx: AnalyseContext, supplier: InvoiceSupplierRow |
       }
       const byDesc = settle(mapHits(maps.filter((m) => !m.rejected && m.desc_key && m.desc_key === dKey), rejected), "alias");
       if (byDesc) return byDesc;
+
+      // "this is not a stock item" is stored as a rejected row with no ingredient and no product. It stops the automatic matches below
+      // (an ordering product or costing ingredient with this code) and the questions; a match a person confirmed later still wins above.
+      if (rejRows.some((m) => !m.ingredient_id && !m.product_id)) {
+        return { state: "ignored", method: null, mapId: null, mapPacks: null, ingredient: null, product: null, options: [] };
+      }
 
       if (code) {
         // (iii) the venue's ordering product with this supplier item code, then its linked ingredient

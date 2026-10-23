@@ -6,6 +6,8 @@ import { AlertTriangle, Check, FileText, HelpCircle, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { money } from "@/lib/format";
 import { applyLine } from "@/lib/invoice-apply";
+import { productDiscountTargets } from "@/lib/invoice-discounts";
+import { tidyLabel } from "@/lib/invoice-names";
 import { skipLine, unskipLine, useInvoiceDetail } from "@/lib/invoice-data";
 import {
   approveLabel,
@@ -46,7 +48,9 @@ export function InvoiceDetail({ id }: { id: string }) {
 
   const ingById = useMemo(() => new Map(store.ingredients.map((i) => [i.id, i])), [store.ingredients]);
   const lineView = useMemo(() => splitLines(d?.lines ?? []), [d?.lines]);
-  const poolClasses = useMemo<LineClass[]>(() => lineView.charges.map((c) => c.line_class), [lineView.charges]);
+  // negative lines that are a standing discount on a product: they come off that product's price and are not spread or counted as credits
+  const discountTargets = useMemo(() => productDiscountTargets(d?.lines ?? []), [d?.lines]);
+  const poolClasses = useMemo<LineClass[]>(() => lineView.charges.filter((c) => !discountTargets.has(c.id)).map((c) => c.line_class), [lineView.charges, discountTargets]);
   const changesByLine = useMemo(() => {
     const m = new Map<string, InvoicePriceChangeRow[]>();
     for (const c of d?.changes ?? []) m.set(c.line_id, [...(m.get(c.line_id) ?? []), c]);
@@ -228,7 +232,14 @@ export function InvoiceDetail({ id }: { id: string }) {
               </h2>
               <ul className="group-list">
                 {lineView.charges.map((l) => (
-                  <ChargeLine key={l.id} line={l} doc={doc} rules={d.chargeRules} supplierId={doc.supplier_id} />
+                  <ChargeLine
+                    key={l.id}
+                    line={l}
+                    doc={doc}
+                    rules={d.chargeRules}
+                    supplierId={doc.supplier_id}
+                    takenOff={discountTargets.has(l.id) ? tidyLabel(d.lines.find((x) => x.id === discountTargets.get(l.id))?.description) : null}
+                  />
                 ))}
               </ul>
             </section>

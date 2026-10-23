@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isBarPath } from "./lib/bar";
 import { isKitchenPath } from "./lib/kitchen";
+import { isInvoiceIngestPath } from "./lib/invoice-auth";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/icon", "/icons", "/apple-icon"];
 
@@ -12,6 +13,9 @@ export async function middleware(request: NextRequest) {
   if (isBarPath(request.nextUrl.pathname)) return NextResponse.next({ request });
   // ...and neither do the kitchen station iPads: see isKitchenPath
   if (isKitchenPath(request.nextUrl.pathname)) return NextResponse.next({ request });
+
+  // ...nor does the invoice scanner script: its two routes check a shared secret themselves, see isInvoiceIngestPath
+  if (isInvoiceIngestPath(request.nextUrl.pathname)) return NextResponse.next({ request });
 
   let response = NextResponse.next({ request });
 

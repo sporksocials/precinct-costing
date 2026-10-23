@@ -149,8 +149,7 @@ async function reanalyse(sb: SupabaseClient, documentId: string, actor: string, 
 }
 
 async function loadEngine(): Promise<AnalyseInvoice> {
-  // @ts-ignore the engine (lib/invoice-engine.ts) is built separately; remove this line once it is merged
-  const mod = (await import("./invoice-engine")) as { analyseInvoice: AnalyseInvoice };
+  const mod = await import("./invoice-engine");
   return mod.analyseInvoice;
 }
 

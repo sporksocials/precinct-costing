@@ -10,7 +10,7 @@ import { INVOICE_ENV } from "./invoice-types";
 export const INVOICE_SECRET_HEADER = "x-invoice-secret";
 
 /** Exactly the two scanner routes. Other /api/invoices/... routes (answers, undo) belong to signed-in people and stay behind the login. */
-export const INVOICE_INGEST_PATHS = ["/api/invoices/upload-url", "/api/invoices/process"];
+export const INVOICE_INGEST_PATHS = ["/api/invoices/upload-url", "/api/invoices/process", "/api/invoices/digest", "/api/invoices/weekly"];
 
 export function isInvoiceIngestPath(pathname: string): boolean {
   const p = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;

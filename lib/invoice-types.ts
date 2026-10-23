@@ -209,6 +209,10 @@ export interface InvoiceLineRow {
   packs_per_unit: number | null;
   base_qty: number | null;
   base_unit: string | null;
+  /** a same-code negative line netted off this product (a supplier discount); absent until the migration is applied */
+  line_discount_ex?: number | null;
+  discount_pct?: number | null;
+  discount_per_base?: number | null;
   fee_share_ex: number;
   landed_total_ex: number | null;
   landed_unit_ex: number | null;

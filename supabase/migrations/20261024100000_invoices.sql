@@ -124,6 +124,10 @@ create table if not exists public.invoice_lines (
   packs_per_unit numeric(14, 4),                    -- costing packs in one invoice unit (24 cans per carton; 1 per kg)
   base_qty numeric(14, 4),                          -- quantity in the ingredient's base unit (kg, L, each)
   base_unit text,
+  -- a supplier discount printed as a negative line with the same item code (Daniel Street's standing discount on the barramundi PLU)
+  line_discount_ex numeric(14, 4),                  -- the discount in dollars ex GST, positive
+  discount_pct numeric(10, 6),                      -- as a fraction of the gross line (0.1662 = 16.62%)
+  discount_per_base numeric(14, 4),                 -- dollars per base unit (per kg, per L, per each) ex GST
   -- landed cost (ex GST): this line's share of the invoice's fee pool
   fee_share_ex numeric(14, 4) not null default 0,
   landed_total_ex numeric(14, 4),

@@ -21,6 +21,7 @@ import type {
   InvoicePriceChangeRow,
   InvoiceQuestionRow,
 } from "./invoice-types";
+import { recomputeDocumentStatus } from "./invoice-store";
 import { last30Range, type ChangeLite, type DocLite } from "./invoice-view";
 
 const PAGE_SIZE = 1000;
@@ -265,9 +266,15 @@ export interface WriteResult {
  * and nothing is written to the undo ledger. The `from` state is part of the filter, so two people tapping at once cannot clash.
  */
 async function setLineState(sb: SupabaseClient, lineId: string, from: "open" | "approved_skip", to: "open" | "approved_skip"): Promise<WriteResult> {
-  const { data, error } = await sb.from("invoice_lines").update({ state: to }).eq("id", lineId).eq("state", from).select("id");
+  const { data, error } = await sb.from("invoice_lines").update({ state: to }).eq("id", lineId).eq("state", from).select("id, document_id");
   if (error) return { ok: false, message: "That did not save. Check the connection and try again." };
   if (!data?.length) return { ok: false, message: "Someone else has already dealt with this line." };
+  // the document's status follows its lines (a skipped last line can finish the invoice)
+  try {
+    await recomputeDocumentStatus(sb, (data[0] as { document_id: string }).document_id);
+  } catch {
+    // the skip itself is saved; the status catches up on the next change
+  }
   return { ok: true, message: to === "approved_skip" ? "Skipped. The app's price stays as it is." : "Back on the list." };
 }
 export const skipLine = (sb: SupabaseClient, lineId: string) => setLineState(sb, lineId, "open", "approved_skip");

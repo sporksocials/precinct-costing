@@ -231,7 +231,7 @@ async function supplierName(sb: SupabaseClient, doc: InvoiceDocumentRow): Promis
 const digitsOnly = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
 
 /** "supplier:<id>": this invoice is from a supplier we already have. Remember how it writes the name, and its ABN if we lack one. */
-async function useExistingSupplier(sb: SupabaseClient, doc: InvoiceDocumentRow, supplierId: string): Promise<string> {
+async function attachExistingSupplier(sb: SupabaseClient, doc: InvoiceDocumentRow, supplierId: string): Promise<string> {
   const sup = check(await sb.from("invoice_suppliers").select("id,name,abn,aliases").eq("id", supplierId).maybeSingle(), "Could not read the supplier").data as
     | { id: string; name: string; abn: string | null; aliases: string[] | null }
     | null;
@@ -403,7 +403,7 @@ async function answerInner(
     }
     default: {
       if (answerId.startsWith("supplier:")) {
-        parts.push(await useExistingSupplier(sb, doc, answerId.slice("supplier:".length)));
+        parts.push(await attachExistingSupplier(sb, doc, answerId.slice("supplier:".length)));
       } else if (answerId === "add_supplier") {
         parts.push(await addSupplierIfMissing(sb, doc));
       } else if (answerId === "same_supplier") {

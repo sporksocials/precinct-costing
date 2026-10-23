@@ -16,6 +16,7 @@ import { saveAnalysis } from "./invoice-store";
 import type {
   ExtractedInvoice,
   ExtractedLine,
+  InvoiceChargeRuleRow,
   InvoiceDocumentRow,
   InvoiceItemMapRow,
   InvoiceLineRow,
@@ -123,11 +124,6 @@ async function nameOf(sb: SupabaseClient, option: QuestionOption): Promise<strin
   return option.label;
 }
 
-/** The engine reads bill-to and ship-to for the venue check; after a person says "yes, this is for this venue", it is shown the venue's own name. */
-function withVenueConfirmed(extracted: ExtractedInvoice, venueName: string): ExtractedInvoice {
-  return { ...extracted, bill_to: venueName, ship_to: venueName };
-}
-
 async function reanalyse(sb: SupabaseClient, documentId: string, actor: string, deps: AnswerDeps): Promise<{ applied: ApplyResult[] }> {
   const doc = check(await sb.from("invoice_documents").select("*").eq("id", documentId).maybeSingle(), "Could not read the invoice").data as InvoiceDocumentRow | null;
   if (!doc) throw new Error("That invoice no longer exists.");
@@ -135,17 +131,130 @@ async function reanalyse(sb: SupabaseClient, documentId: string, actor: string, 
   const lines = await fetchAll<InvoiceLineRow>(sb, "invoice_lines", "*", (q) => q.eq("document_id", documentId));
   const file = check(await sb.from("invoice_files").select("venue_id").eq("id", doc.file_id).maybeSingle(), "Could not read the file").data as { venue_id: number } | null;
   const questions = (check(await sb.from("invoice_questions").select("*").eq("document_id", documentId).eq("status", "answered"), "Could not read the questions").data ?? []) as InvoiceQuestionRow[];
+  // what people already said is replayed on every look, from the answered questions (not from stored text)
   const venueConfirmed = questions.some((q) => q.kind === "venue_mismatch" && q.options.find((o) => o.id === q.answer?.option_id)?.action === "confirm_venue");
+  const supplierConfirmed = questions.some((q) => q.kind === "new_supplier" && q.answer?.option_id === "same_supplier");
 
   const analyse = deps.analyse ?? (await loadEngine());
   const ctx = await loadAnalyseContext(sb, { venueId: doc.venue_id, folderVenueId: file?.venue_id ?? doc.venue_id, today: deps.today ?? brisbaneToday() });
   // this document is already filed: it must not be seen as a duplicate of itself
   ctx.existingDocs = ctx.existingDocs.filter((d) => d.id !== doc.id);
+  Object.assign(ctx, { venueConfirmed, supplierConfirmed }); // the engine's AnalyseConfirmations
   const extracted = extractedFromStored(doc, lines);
-  const venueName = ctx.venueNames.find((v) => v.id === doc.venue_id)?.name;
-  const analysis = analyse(venueConfirmed && venueName ? withVenueConfirmed(extracted, venueName) : extracted, ctx);
+  const analysis = analyse(extracted, ctx);
   await saveAnalysis(sb, { fileId: doc.file_id, venueId: doc.venue_id, extracted, analysis, pagePdfPath: doc.page_pdf_path, readModel: doc.read_model, documentId });
   return { applied: await applyDocumentAuto(sb, { documentId, actor }) };
+}
+
+// ---------------------------------------------------------------- the choices a question offers, and the ones a screen adds
+const MAX_PACKS = 10_000;
+const CUSTOM = "custom:";
+const CUSTOM_PACKS = "custom:packs";
+
+/**
+ * Finds the option a person chose. Most are on the question. The screens also send two answers the engine never lists:
+ * "custom:<ingredientId>" (an ingredient found by search, for unmatched_line and ambiguous_match) and "custom:packs"
+ * (a pack size typed for unit_unclear); both carry a JSON note that is checked here, because it came from a browser.
+ */
+async function resolveOption(
+  sb: SupabaseClient,
+  q: InvoiceQuestionRow,
+  optionId: string,
+  note: string | undefined,
+): Promise<{ option: QuestionOption } | { error: string }> {
+  const listed = (q.options ?? []).find((o) => o.id === optionId);
+  if (listed) return { option: listed };
+  if (!optionId.startsWith(CUSTOM)) return { error: "That is not one of the choices for this question." };
+
+  let parsed: { ingredient_id?: unknown; packs_per_unit?: unknown } = {};
+  if (note !== undefined && note !== "") {
+    try {
+      const v = JSON.parse(note) as unknown;
+      if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("not an object");
+      parsed = v as typeof parsed;
+    } catch {
+      return { error: "That answer could not be read. Please try again." };
+    }
+  }
+  let packs: number | null = null;
+  if (parsed.packs_per_unit !== undefined && parsed.packs_per_unit !== null) {
+    const n = parsed.packs_per_unit;
+    if (typeof n !== "number" || !Number.isFinite(n) || n <= 0 || n > MAX_PACKS) return { error: "The pack size must be a number above zero." };
+    packs = n;
+  }
+
+  if (optionId === CUSTOM_PACKS) {
+    if (q.kind !== "unit_unclear") return { error: "That answer does not fit this question." };
+    if (packs === null) return { error: "Please say how many are in one unit." };
+    return { option: { id: optionId, label: `${packs} per unit`, packs_per_unit: packs } };
+  }
+
+  if (q.kind !== "unmatched_line" && q.kind !== "ambiguous_match") return { error: "That answer does not fit this question." };
+  const ingredientId = optionId.slice(CUSTOM.length);
+  if (!ingredientId || (typeof parsed.ingredient_id === "string" && parsed.ingredient_id !== ingredientId)) return { error: "That answer could not be read. Please try again." };
+  const found = await sb.from("cost_ingredients").select("id,name").eq("id", ingredientId).maybeSingle();
+  if (found.error) throw new Error(found.error.message);
+  if (!found.data) return { error: "That ingredient could not be found, so nothing was saved." };
+  return { option: { id: optionId, label: (found.data as { name: string }).name, ingredient_id: ingredientId, packs_per_unit: packs } };
+}
+
+async function supplierName(sb: SupabaseClient, doc: InvoiceDocumentRow): Promise<string | null> {
+  if (!doc.supplier_id) return doc.supplier_name_read;
+  const r = await sb.from("invoice_suppliers").select("name").eq("id", doc.supplier_id).maybeSingle();
+  return (r.data as { name?: string } | null)?.name ?? doc.supplier_name_read;
+}
+
+const digitsOnly = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+
+/** "supplier:<id>": this invoice is from a supplier we already have. Remember how it writes the name, and its ABN if we lack one. */
+async function useExistingSupplier(sb: SupabaseClient, doc: InvoiceDocumentRow, supplierId: string): Promise<string> {
+  const sup = check(await sb.from("invoice_suppliers").select("id,name,abn,aliases").eq("id", supplierId).maybeSingle(), "Could not read the supplier").data as
+    | { id: string; name: string; abn: string | null; aliases: string[] | null }
+    | null;
+  if (!sup) throw new Error("That supplier could not be found.");
+  const read = doc.supplier_name_read?.trim() ?? "";
+  const aliases = [...(sup.aliases ?? [])];
+  if (read && read.toLowerCase() !== sup.name.trim().toLowerCase() && !aliases.some((a) => a.trim().toLowerCase() === read.toLowerCase())) aliases.push(read);
+  const patch: Record<string, unknown> = { aliases };
+  const abn = digitsOnly(doc.supplier_abn_read);
+  if (!sup.abn && abn.length === 11) {
+    const taken = check(await sb.from("invoice_suppliers").select("id").eq("abn", abn).neq("id", sup.id), "Could not read the suppliers").data ?? [];
+    if (taken.length === 0) patch.abn = abn;
+  }
+  check(await sb.from("invoice_suppliers").update(patch).eq("id", sup.id), "Could not update the supplier");
+  check(await sb.from("invoice_documents").update({ supplier_id: sup.id }).eq("id", doc.id), "Could not update the invoice");
+  return `${read ? `"${read}"` : "This supplier"} is recorded as ${sup.name}.`;
+}
+
+/** "add_supplier": the supplier row normally exists already (saving the analysis creates it); make it only if the invoice still has none. */
+async function addSupplierIfMissing(sb: SupabaseClient, doc: InvoiceDocumentRow): Promise<string> {
+  if (doc.supplier_id) return "Answer noted.";
+  const name = doc.supplier_name_read?.trim();
+  if (!name) throw new Error("The name of the supplier could not be read from this invoice, so it cannot be added.");
+  const abn = digitsOnly(doc.supplier_abn_read) || null;
+  const all = await fetchAll<{ id: string; name: string; abn: string | null }>(sb, "invoice_suppliers", "id,name,abn");
+  let hit = all.find((x) => abn && x.abn === abn);
+  if (!hit) {
+    // names are unique ignoring case: a different ABN under the same name gets the ABN in brackets
+    const clash = all.some((x) => x.name.trim().toLowerCase() === name.toLowerCase());
+    const created = await insertRow(sb, "invoice_suppliers", { name: clash && abn ? `${name} (ABN ${abn})` : name, abn }).select("id,name").single();
+    hit = check(created, "Could not add the supplier").data as { id: string; name: string; abn: string | null };
+  }
+  check(await sb.from("invoice_documents").update({ supplier_id: hit.id }).eq("id", doc.id), "Could not update the invoice");
+  return `${hit.name} is added as a new supplier.`;
+}
+
+/** Saves a charge rule for this supplier unless an identical active one exists. Returns false when it already existed. */
+async function saveChargeRule(sb: SupabaseClient, a: { supplierId: string; line: InvoiceLineRow; spread: boolean }): Promise<boolean> {
+  const match_text = a.line.description.trim().toLowerCase().slice(0, 60).trim();
+  if (!match_text) throw new Error("This line has no description to make a rule from.");
+  // spreading only works for a charge class (the engine ignores it on "other"), so an unclear class becomes a fee
+  const spreadable = ["delivery", "fee", "discount", "deposit"];
+  const line_class = a.spread ? (spreadable.includes(a.line.line_class) ? a.line.line_class : "fee") : "other";
+  const rules = await fetchAll<InvoiceChargeRuleRow>(sb, "invoice_charge_rules", "id,supplier_id,match_text,line_class,spread,note,active", (q) => q.eq("active", true));
+  if (rules.some((r) => r.supplier_id === a.supplierId && r.match_text.trim().toLowerCase() === match_text && r.line_class === line_class && r.spread === a.spread)) return false;
+  check(await insertRow(sb, "invoice_charge_rules", { supplier_id: a.supplierId, match_text, line_class, spread: a.spread, note: "Added from an answer", active: true }), "Could not save the rule");
+  return true;
 }
 
 async function loadEngine(): Promise<AnalyseInvoice> {
@@ -179,8 +288,9 @@ async function answerInner(
   const q = check(await sb.from("invoice_questions").select("*").eq("id", questionId).maybeSingle(), "Could not read the question").data as InvoiceQuestionRow | null;
   if (!q) return fail("That question no longer exists.");
   if (q.status !== "open") return fail(q.status === "answered" ? "This question has already been answered." : "This question no longer needs an answer.");
-  const option = (q.options ?? []).find((o) => o.id === optionId);
-  if (!option) return fail("That is not one of the choices for this question.");
+  const resolved = await resolveOption(sb, q, optionId, note);
+  if ("error" in resolved) return fail(resolved.error);
+  const option = resolved.option;
   const doc = check(await sb.from("invoice_documents").select("*").eq("id", q.document_id).maybeSingle(), "Could not read the invoice").data as InvoiceDocumentRow | null;
   if (!doc) return fail("The invoice for this question no longer exists.");
   const line = q.line_id ? (check(await sb.from("invoice_lines").select("*").eq("id", q.line_id).maybeSingle(), "Could not read the line").data as InvoiceLineRow | null) : null;
@@ -194,7 +304,17 @@ async function answerInner(
     return line;
   };
 
-  switch (option.action) {
+  // the charge answers carry action "not_a_product" for leave_out_charge, but the rule is the memory, not a rejected map row
+  const answerId = option.id;
+  if (answerId === "spread_charge" || answerId === "leave_out_charge") {
+    const l = needLine();
+    if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the rule cannot be saved.");
+    const spread = answerId === "spread_charge";
+    const made = await saveChargeRule(sb, { supplierId: doc.supplier_id, line: l, spread });
+    const who = (await supplierName(sb, doc)) ?? "This supplier";
+    parts.push(spread ? `${who} "${l.description.trim()}" will be spread over the products as part of their cost.` : `${who} "${l.description.trim()}" will be left out of cost.`);
+    if (!made) parts.push("That rule already existed.");
+  } else switch (option.action) {
     case "approve_change": {
       const r = await applyLine(sb, { lineId: needLine().id, actor, mode: "approved" });
       if (!r.ok) return fail(r.message, [r]);
@@ -241,7 +361,26 @@ async function answerInner(
       break;
     }
     default: {
-      if (option.ingredient_id || option.product_id) {
+      if (answerId.startsWith("supplier:")) {
+        parts.push(await useExistingSupplier(sb, doc, answerId.slice("supplier:".length)));
+      } else if (answerId === "add_supplier") {
+        parts.push(await addSupplierIfMissing(sb, doc));
+      } else if (answerId === "same_supplier") {
+        parts.push(`${doc.supplier_name_read?.trim() || "This supplier"} is confirmed as the supplier we already have.`);
+      } else if (answerId === "credit_leave") {
+        parts.push("Left as it is. The cost per unit stays blank for this line.");
+        reanalyseAfter = false;
+      } else if (!option.ingredient_id && !option.product_id && option.packs_per_unit != null) {
+        const l = needLine();
+        if (l.match_state !== "matched" || (!l.ingredient_id && !l.product_id)) throw new Error("This line is not matched to a product yet, so the pack size cannot be saved.");
+        if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the pack size cannot be remembered.");
+        const n = option.packs_per_unit;
+        await learnMap(sb, { supplierId: doc.supplier_id, venueId: l.product_id ? doc.venue_id : null, line: l, target: { ingredientId: l.ingredient_id, productId: l.product_id }, packs: n, rejected: false, actor });
+        const who = (await supplierName(sb, doc)) ?? doc.supplier_name_read ?? "This supplier";
+        const what = l.item_code?.trim() ? `code ${l.item_code.trim()}` : `"${l.description}"`;
+        const per = answerId.startsWith("packs:") && option.label.includes(" per ") ? option.label : `${n} per ${l.unit?.trim().toLowerCase() || "unit"}`;
+        parts.push(`${who} ${what} is counted as ${per}.`);
+      } else if (option.ingredient_id || option.product_id) {
         const l = needLine();
         if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the match cannot be remembered.");
         const packs = option.packs_per_unit ?? numOrNull(l.packs_per_unit) ?? 1;

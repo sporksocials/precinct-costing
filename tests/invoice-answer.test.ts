@@ -17,7 +17,8 @@ const fakeEngine: AnalyseInvoice = (ex: ExtractedInvoice, ctx): InvoiceAnalysis 
   const supplier = ctx.suppliers.find((s) => s.abn === ex.supplier_abn || s.name === ex.supplier_name) ?? null;
   const venue = ctx.venueNames.find((v) => v.id === ctx.venueId)!;
   const text = `${ex.bill_to ?? ""} ${ex.ship_to ?? ""}`.toLowerCase();
-  const venue_check = text.trim() === "" ? "unknown" : [venue.name, ...venue.aliases].some((n) => text.includes(n.toLowerCase())) ? "ok" : "mismatch";
+  const confirmed = (ctx as unknown as { venueConfirmed?: boolean }).venueConfirmed === true;
+  const venue_check = confirmed ? "ok" : text.trim() === "" ? "unknown" : [venue.name, ...venue.aliases].some((n) => text.includes(n.toLowerCase())) ? "ok" : "mismatch";
   const dup = ctx.existingDocs.find((d) => d.venue_id === ctx.venueId && d.supplier_id === supplier?.id && d.invoice_number === ex.invoice_number);
   const lines: AnalysedLine[] = [];
   const questions: AnalysedQuestion[] = [];

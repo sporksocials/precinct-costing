@@ -7,6 +7,7 @@ import { buildTimeline, type AuditRow, type TimelineEntry } from "@/lib/ingredie
 import type { PriceLog } from "@/lib/types";
 import { cx, Group, Row } from "./ui";
 import { usePersonName } from "./use-person-name";
+import { useInvoiceHistory } from "./invoices/ing-price-source";
 
 const SHOWN = 12;
 
@@ -45,6 +46,7 @@ export function IngredientHistory({
   const [audits, setAudits] = useState<AuditRow[] | null>(null);
   const [all, setAll] = useState(false);
   const nameOf = usePersonName();
+  const invoice = useInvoiceHistory({ ingredientId, logs, version, nameOf });
 
   useEffect(() => {
     let cancelled = false;
@@ -86,11 +88,13 @@ export function IngredientHistory({
           {shown.map((e) => {
             const m = pct(e);
             const values = e.kind === "confirmed" ? `${e.to} still right` : e.from != null ? `${e.from} → ${e.to}` : (e.to ?? "");
+            const sub = invoice.row(e, [e.title, dateShort(e.at), e.note, nameOf(e.by)].filter(Boolean).join(" · "));
             return (
               <Row
                 key={e.key}
                 title={<span className="tnum">{values}</span>}
-                sub={[e.title, dateShort(e.at), e.note, nameOf(e.by)].filter(Boolean).join(" · ")}
+                sub={sub.node}
+                wrapSub={sub.wrap}
                 trailing={m != null ? <span className={cx(m > 0 ? "text-danger" : "text-label-2")}>{movePct(m)}</span> : null}
               />
             );
@@ -102,6 +106,7 @@ export function IngredientHistory({
           ) : null}
         </>
       )}
+      {invoice.sheet}
     </Group>
   );
 }

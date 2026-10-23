@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { answerQuestion, descKey, extractedFromStored } from "../lib/invoice-answer";
+import { answerQuestion, extractedFromStored } from "../lib/invoice-answer";
 import type { AnalyseInvoice } from "../lib/invoice-interfaces";
+import { descKey } from "../lib/invoice-names";
 import type { AnalysedLine, AnalysedQuestion, ExtractedInvoice, InvoiceAnalysis, InvoiceLineRow } from "../lib/invoice-types";
 import { createFakeSupabase, type FakeSupabase } from "./helpers/fake-supabase";
 import { document, ingredient, IDS, line, SETTINGS_AUTO, SUPPLIER, VENUES } from "./helpers/invoice-fixtures";
@@ -23,7 +24,7 @@ const fakeEngine: AnalyseInvoice = (ex: ExtractedInvoice, ctx): InvoiceAnalysis 
   const lines: AnalysedLine[] = [];
   const questions: AnalysedQuestion[] = [];
   ex.lines.forEach((l, i) => {
-    const key = (l.description ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const key = descKey(l.description);
     const map = ctx.maps.find((m) => m.supplier_id === supplier?.id && ((l.item_code && m.item_code === l.item_code) || (!l.item_code && m.desc_key === key)));
     const ing = map?.ingredient_id ? ctx.ingredients.find((x) => x.id === map.ingredient_id) : undefined;
     const base = {
@@ -65,7 +66,7 @@ function setup(over: { doc?: Record<string, any>; lines?: Record<string, any>[];
     invoice_files: [{ id: "file-1", venue_id: 1, storage_path: "x.pdf", sha256: "abc", status: "done", attempts: 2, error: "old" }],
     invoice_documents: [document(over.doc)],
     invoice_lines: over.lines ?? [unmatchedLine()],
-    invoice_questions: over.questions ?? [{ id: "Q1", venue_id: 1, document_id: IDS.doc, line_id: "L1", kind: "unmatched_line", prompt: "Which product is this?", status: "open", options: [{ id: "kf", label: "Kingfish Fillets", ingredient_id: IDS.kingfish }, { id: "np", label: "Not a product", action: "not_a_product" }, { id: "ig", label: "Ignore this line", action: "ignore_line" }] }],
+    invoice_questions: over.questions ?? [{ id: "Q1", venue_id: 1, document_id: IDS.doc, line_id: "L1", kind: "unmatched_line", prompt: "Which product is this?", status: "open", options: [{ id: "kf", label: "Kingfish Fillets", ingredient_id: IDS.kingfish, packs_per_unit: 1 }, { id: "np", label: "Not a product", action: "not_a_product" }, { id: "ig", label: "Ignore this line", action: "ignore_line" }] }],
     invoice_item_map: [],
     invoice_charge_rules: [],
     cost_ingredients: over.ings ?? [ingredient(), ingredient({ id: IDS.lychee, name: "Lychee Liqueur", supplier_code: null, pack_price: 38.62 })],
@@ -132,7 +133,7 @@ describe("answering with a match", () => {
     });
     const r = await answerQuestion(f.sb, { questionId: "Q1", optionId: "ly", actor: "mon" }, deps());
     expect(r.message).toContain('Saved. Daniel Street Fish Market "Lychee Liqueur 700ml Bottle" is now Lychee Liqueur.');
-    expect(f.db.invoice_item_map[0]).toMatchObject({ desc_key: "lycheeliqueur700mlbottle", ingredient_id: IDS.lychee, packs_per_unit: 1 });
+    expect(f.db.invoice_item_map[0]).toMatchObject({ desc_key: "lychee liqueur 700ml bottle", ingredient_id: IDS.lychee, packs_per_unit: 1 });
     expect(f.db.invoice_item_map[0].item_code ?? null).toBeNull();
     expect(f.db.invoice_lines.find((x) => x.line_no === 1)).toMatchObject({ match_state: "matched", decision: "same" });
   });
@@ -317,10 +318,6 @@ describe("re-analysis details", () => {
 });
 
 describe("helpers", () => {
-  it("descKey is lower case letters and digits only", () => {
-    expect(descKey("Lychee Liqueur 700ml / Bottle")).toBe("lycheeliqueur700mlbottle");
-  });
-
   it("extractedFromStored rebuilds the reader's output from the stored rows", () => {
     const rows = [line({ id: "L2", line_no: 2, item_code: null, description: "Delivery", line_class: "delivery", qty: 1, unit_price_ex: 5.91, line_total_ex: 5.91, gst: "taxable" }), line({ id: "L1" })] as unknown as InvoiceLineRow[];
     const ex = extractedFromStored(document() as any, rows);

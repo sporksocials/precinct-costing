@@ -25,7 +25,7 @@ function seeded(extra: Record<string, any[]> = {}) {
     ordering_suppliers: [{ id: "osup-1", venue_id: 1, name: "Daniel Street" }, { id: "osup-9", venue_id: 2, name: "Other" }],
     ordering_products: [product({ deal_buy_qty: 8, deal_free_qty: 1 }), product({ id: "prod-chiobu", venue_id: 2, name: "Chiobu thing", supplier_id: "osup-9" })],
     invoice_documents: [
-      { id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied", pages: [1] },
+      { id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied", pages: [1], invoice_date: "2026-10-14", total_inc: 216.5 },
       { id: "d2", venue_id: 2, supplier_id: IDS.supplier, invoice_number: "777", status: "needs_review", pages: [1] },
     ],
     ...extra,
@@ -43,7 +43,8 @@ describe("loadAnalyseContext", () => {
     expect(ctx.venueNames.find((v) => v.id === 4)!.aliases).toContain("gelato rumba");
     expect(ctx.suppliers).toHaveLength(1);
     expect(ctx.suppliers[0]).toMatchObject({ id: IDS.supplier, auto_apply: true });
-    expect(ctx.existingDocs).toEqual([{ id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied" }]);
+    // the date and total travel with each filed invoice so the engine can recognise a repeat that was filed under another number
+    expect(ctx.existingDocs).toEqual([{ id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied", invoice_date: "2026-10-14", total_inc: 216.5 }]);
   });
 
   it("keeps maps for this venue and for every venue, and only active charge rules", async () => {
@@ -114,6 +115,28 @@ describe("settingsFromRows", () => {
     expect(settingsFromRows([{ key: "invoice_learning_mode", value: "garbage" }]).settings.learningMode).toBe(true);
     expect(settingsFromRows([]).settings.learningMode).toBe(true);
   });
+  it("a blank, null, boolean or text learning value keeps learning mode ON; only a real 0 turns it off", () => {
+    for (const value of ["", "  ", null, false, true, "abc", NaN, undefined]) {
+      expect(settingsFromRows([{ key: "invoice_learning_mode", value }]).settings.learningMode, String(value)).toBe(true);
+    }
+    for (const value of [0, "0", " 0 ", 0.0]) expect(settingsFromRows([{ key: "invoice_learning_mode", value }]).settings.learningMode, String(value)).toBe(false);
+  });
+  it("clamps the automatic limit to 0 to 20 percent and falls back to the default for garbage", () => {
+    const pct = (value: unknown) => settingsFromRows([{ key: "invoice_auto_apply_pct", value }]).settings.autoApplyPct;
+    expect(pct(5)).toBe(0.2); // a typed "5" (meaning 5%) must not let a 500% change apply itself
+    expect(pct(0.5)).toBe(0.2);
+    expect(pct(-1)).toBe(0);
+    expect(pct(0.07)).toBe(0.07);
+    for (const bad of ["abc", "", NaN, null, undefined, Infinity]) expect(pct(bad), String(bad)).toBe(DEFAULT_INVOICE_SETTINGS.autoApplyPct);
+  });
+  it("clamps the average window to 7 to 365 days and falls back to the default for garbage", () => {
+    const days = (value: unknown) => settingsFromRows([{ key: "invoice_average_days", value }]).settings.averageDays;
+    expect(days(0)).toBe(7);
+    expect(days(1)).toBe(7);
+    expect(days(100000)).toBe(365);
+    expect(days("60")).toBe(60);
+    for (const bad of ["abc", "", NaN, null, undefined]) expect(days(bad), String(bad)).toBe(DEFAULT_INVOICE_SETTINGS.averageDays);
+  });
   it("reads the numbers and the GST rate", () => {
     const r = settingsFromRows([{ key: "invoice_auto_apply_pct", value: 0.03 }, { key: "invoice_average_days", value: "60" }, { key: "gst_rate", value: 0.15 }]);
     expect(r.settings.autoApplyPct).toBe(0.03);
@@ -121,3 +144,22 @@ describe("settingsFromRows", () => {
     expect(r.gstRate).toBe(0.15);
   });
 });
+
+describe("saved matches keep an unstated pack size unstated", () => {
+  it("a map row with no packs_per_unit loads as null, never 1", async () => {
+    const f = createFakeSupabase({
+      cost_venues: VENUES,
+      cost_settings: SETTINGS_AUTO,
+      invoice_suppliers: [SUPPLIER],
+      invoice_item_map: [
+        { id: "m-none", supplier_id: IDS.supplier, venue_id: null, item_code: "1", desc_key: null, ingredient_id: IDS.kingfish, product_id: null, packs_per_unit: null, rejected: false },
+        { id: "m-six", supplier_id: IDS.supplier, venue_id: null, item_code: "2", desc_key: null, ingredient_id: IDS.kingfish, product_id: null, packs_per_unit: "6", rejected: false },
+        { id: "m-zero", supplier_id: IDS.supplier, venue_id: null, item_code: "3", desc_key: null, ingredient_id: IDS.kingfish, product_id: null, packs_per_unit: 0, rejected: false },
+      ],
+      invoice_charge_rules: [], cost_ingredients: [], cost_ingredient_deals: [], ordering_suppliers: [], ordering_products: [], invoice_documents: [],
+    });
+    const ctx = await loadAnalyseContext(f.sb, args);
+    expect(Object.fromEntries(ctx.maps.map((m) => [m.id, m.packs_per_unit]))).toEqual({ "m-none": null, "m-six": 6, "m-zero": null });
+  });
+});
+

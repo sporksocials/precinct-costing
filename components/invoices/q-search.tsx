@@ -19,6 +19,9 @@ export function IngredientPicker({ docs, onPick, disabled }: { docs: readonly In
       {typed ? (
         hits.length ? (
           <ul className="mt-2 flex flex-col gap-2" aria-label="Ingredients that match">
+            <li className="px-1 text-[13px] font-medium text-label-2" aria-hidden>
+              Matches From Your Search
+            </li>
             {hits.map((ing) => (
               <li key={ing.id}>
                 <button

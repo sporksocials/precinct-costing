@@ -201,11 +201,19 @@ export function describeOption(o: QuestionOption, look: OptionLookups, unit?: st
   if (ing) sub = ingredientPriceSentence(ing);
   else if (prod) sub = productPriceSentence(prod);
   if (sub && o.packs_per_unit != null && Number(o.packs_per_unit) > 0 && Number(o.packs_per_unit) !== 1) {
-    sub = `${sub} · each ${unit?.trim().toLowerCase() || "unit"} holds ${num(Number(o.packs_per_unit), 3)}`;
+    sub = `${sub} · each ${unitWord(unit)} holds ${num(Number(o.packs_per_unit), 3)}`;
   }
   // an offered ingredient is named by its own current name, whatever label the engine wrote when the question was raised
   const label = o.label?.trim() || ing?.name || prod?.name || "Choose";
   return { id: o.id, label, sub, variant: variantFor(o) };
+}
+
+const UNIT_WORDS: Record<string, string> = { ea: "unit", each: "unit", ctn: "carton", pkt: "packet", pk: "pack", btl: "bottle", bag: "bag", keg: "keg" };
+
+/** A printed unit as a word to put in a sentence: "CTN" is "carton", "EA" is "unit", "KG" stays "kg". */
+export function unitWord(unit: string | null | undefined): string {
+  const u = unit?.trim().toLowerCase() ?? "";
+  return u ? UNIT_WORDS[u] ?? u : "unit";
 }
 
 /** Questions where a person may search every ingredient for something the options missed. */
@@ -300,7 +308,7 @@ export function savedText(b: Pick<QuestionBundle, "doc" | "line" | "supplierName
   const supplier = supplierLabel(b);
   const what = b.line?.item_code?.trim() ? `${supplier} code ${b.line.item_code.trim()}` : b.line?.description?.trim() ? `${supplier} ${b.line.description.trim()}` : `${supplier} line`;
   const item = b.line?.description?.trim() || "that line";
-  if (packs != null && !matchedName) return `Saved. One ${b.line?.unit?.trim() || "unit"} of ${item} holds ${num(packs, 3)}.`;
+  if (packs != null && !matchedName) return `Saved. One ${unitWord(b.line?.unit)} of ${item} holds ${num(packs, 3)}.`;
   if (matchedName) return `Saved. ${what} is now ${matchedName}.`;
   switch (option.action) {
     case "ignore_line":

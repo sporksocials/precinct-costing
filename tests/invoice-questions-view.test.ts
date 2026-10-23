@@ -28,6 +28,7 @@ import {
   type QDoc,
   type QLine,
   type QuestionBundle,
+  unitWord,
 } from "@/lib/invoice-questions-view";
 import type { InvoiceQuestionRow, QuestionOption } from "@/lib/invoice-types";
 
@@ -108,13 +109,19 @@ describe("answer buttons", () => {
   });
   it("mentions a pack size other than one", () => {
     const v = describeOption({ id: "x", label: "Cans", ingredient_id: "ing-king", packs_per_unit: 24 }, look, "CTN");
-    expect(v.sub).toContain("each ctn holds 24");
+    expect(v.sub).toContain("each carton holds 24");
   });
   it("actions get plain or primary buttons, never colour alone", () => {
     expect(describeOption(opts[2], look)).toMatchObject({ label: "Ignore This Line", sub: null, variant: "plain" });
     expect(describeOption({ id: "a", label: "Approve This Price", action: "approve_change" }, look).variant).toBe("primary");
     expect(isMatchOption(opts[0])).toBe(true);
     expect(isMatchOption(opts[2])).toBe(false);
+  });
+  it("turns a printed unit into a word for a sentence", () => {
+    expect(unitWord("CTN")).toBe("carton");
+    expect(unitWord("EA")).toBe("unit");
+    expect(unitWord("KG")).toBe("kg");
+    expect(unitWord(null)).toBe("unit");
   });
   it("knows which questions offer a search and a pack helper", () => {
     expect(canSearchIngredients("unmatched_line")).toBe(true);
@@ -190,7 +197,7 @@ describe("the Saved toast", () => {
     expect(savedText(b, { action: "approve_change", label: "x" })).toContain("approved");
     expect(savedText(b, { action: "reject_change", label: "x" })).toContain("stays as it was");
     expect(savedText(b, { label: "Something else" })).toBe("Saved. Something else.");
-    expect(savedText(b, { label: "12 in each" }, null, 12)).toBe("Saved. One KG of Kingfish fillets skin on wing off per kg holds 12.");
+    expect(savedText(b, { label: "12 in each" }, null, 12)).toBe("Saved. One kg of Kingfish fillets skin on wing off per kg holds 12.");
     for (const a of ["ignore_line", "not_a_product", "approve_change", "reject_change", "confirm_venue", "wrong_venue", "reread", "ignore_document"] as const) {
       expect(savedText(b, { action: a, label: "x" }), a).not.toMatch(/undo|[–—]/i);
     }

@@ -109,7 +109,9 @@ export function InvoiceSettings() {
             }}
           />
         </div>
-        <SaveNote state={state} message={message} />
+        <div className="px-4 pt-1.5">
+          <SaveNote state={state} message={message} />
+        </div>
       </section>
 
       {loadError ? <Banner>{loadError}</Banner> : null}

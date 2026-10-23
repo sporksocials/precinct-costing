@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PACK_PRESETS, parsePacks } from "@/lib/invoice-questions-view";
+import { PACK_PRESETS, parsePacks, unitWord } from "@/lib/invoice-questions-view";
 import { cx } from "@/components/ui";
 import { TouchButton } from "@/components/ordering/touch";
 
@@ -12,7 +12,7 @@ import { TouchButton } from "@/components/ordering/touch";
 export function PackHelper({ unit, onSave, disabled }: { unit: string | null | undefined; onSave: (packs: number) => void; disabled?: boolean }) {
   const [text, setText] = useState("");
   const packs = parsePacks(text);
-  const word = unit?.trim() ? unit.trim().toLowerCase() : "unit";
+  const word = unitWord(unit);
   return (
     <div className="rounded-xl bg-surface-2 p-3">
       <p className="text-[15px] font-medium">How many are in one {word}?</p>

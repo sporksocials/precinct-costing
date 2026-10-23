@@ -110,6 +110,7 @@ export function QuestionCard({
 
       {views.length ? (
         <div className="mt-4 flex flex-col gap-2" role="group" aria-label="Answers">
+          {canSearchIngredients(q.kind) ? <p className="px-1 text-[13px] font-medium text-label-2">Or Choose One Of These</p> : null}
           {views.map(({ o, v }) => (
             <AnswerButton
               key={o.id}

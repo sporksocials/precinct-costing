@@ -231,7 +231,8 @@ export interface InvoiceItemMapRow {
   desc_key: string | null;
   ingredient_id: string | null;
   product_id: string | null;
-  packs_per_unit: number;
+  /** costing packs in one invoice unit as a person said it; null = not said, so the engine derives it or asks */
+  packs_per_unit: number | null;
   rejected: boolean;
 }
 

@@ -534,11 +534,23 @@ describe("invoice_item_map unique key (null venue and null code treated as value
     expect(await fails("insert into invoice_item_map (supplier_id, ingredient_id) values ($1,$2)", [s, u(1)])).toMatch(/invoice_item_map_key_chk|check/i);
   });
 
-  it("requires a positive packs_per_unit (default 1)", async () => {
+  it("requires a positive packs_per_unit when given, and leaves it null when nobody said", async () => {
     expect(await fails("insert into invoice_item_map (supplier_id, item_code, ingredient_id, packs_per_unit) values ($1,'P0',$2,0)", [s, u(1)])).toMatch(/check/i);
     expect(await fails("insert into invoice_item_map (supplier_id, item_code, ingredient_id, packs_per_unit) values ($1,'P-',$2,-1)", [s, u(1)])).toMatch(/check/i);
     await db.query("insert into invoice_item_map (supplier_id, item_code, ingredient_id) values ($1,'P1',$2)", [s, u(1)]);
-    expect(Number((await one("select packs_per_unit from invoice_item_map where item_code = 'P1' and supplier_id = $1", [s])).packs_per_unit)).toBe(1);
+    expect((await one("select packs_per_unit from invoice_item_map where item_code = 'P1' and supplier_id = $1", [s])).packs_per_unit).toBeNull();
+  });
+
+  it("allows one live price change per line and target, but a reverted one does not block a new one", async () => {
+    await db.query("insert into cost_venues (id, name, slug) values (9, 'V9', 'v9') on conflict do nothing");
+    await db.query("insert into invoice_files (id, venue_id, storage_path, sha256) values ($1, 9, 'p', 'h9')", [u(900)]);
+    await db.query("insert into invoice_documents (id, venue_id, file_id) values ($1, 9, $2)", [u(901), u(900)]);
+    await db.query("insert into invoice_lines (id, document_id, venue_id, line_no) values ($1, $2, 9, 1)", [u(902), u(901)]);
+    const ins = (status: string) => db.query("insert into invoice_price_changes (line_id, document_id, venue_id, target, target_id, kind, mode, status) values ($1,$2,9,'ingredient',$3,'price_change','approved',$4)", [u(902), u(901), u(1), status]);
+    await ins("applied");
+    expect(await fails("insert into invoice_price_changes (line_id, document_id, venue_id, target, target_id, kind, mode) values ($1,$2,9,'ingredient',$3,'price_confirmed','auto')", [u(902), u(901), u(1)])).toMatch(/duplicate key/);
+    await db.query("update invoice_price_changes set status = 'reverted' where line_id = $1", [u(902)]);
+    await ins("applied");
   });
 
   it("a rejected row and a confirmed row for the same code and ingredient COLLIDE (flip the flag on the one row instead)", async () => {

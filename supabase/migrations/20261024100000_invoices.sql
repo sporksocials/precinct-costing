@@ -154,7 +154,7 @@ create table if not exists public.invoice_item_map (
   desc_key text,                                    -- the description, lower case, letters and digits only
   ingredient_id uuid references public.cost_ingredients (id) on delete cascade,
   product_id uuid references public.ordering_products (id) on delete cascade,
-  packs_per_unit numeric(14, 4) not null default 1 check (packs_per_unit > 0),
+  packs_per_unit numeric(14, 4) check (packs_per_unit is null or packs_per_unit > 0),   -- null = the person did not say; the engine derives it or asks
   rejected boolean not null default false,          -- "this code / description is NOT that product"
   created_by text,
   created_at timestamptz not null default now(),
@@ -222,6 +222,8 @@ create table if not exists public.invoice_price_changes (
   revert_note text
 );
 create index if not exists invoice_price_changes_document_idx on public.invoice_price_changes (document_id);
+-- one live change per line and target: two people tapping at once cannot write (and log) the same change twice
+create unique index if not exists invoice_price_changes_applied_key on public.invoice_price_changes (line_id, target) where status = 'applied';
 create index if not exists invoice_price_changes_target_idx on public.invoice_price_changes (target, target_id, applied_at desc);
 create index if not exists invoice_price_changes_applied_idx on public.invoice_price_changes (applied_at desc);
 

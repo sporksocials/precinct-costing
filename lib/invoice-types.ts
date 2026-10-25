@@ -187,6 +187,10 @@ export interface InvoiceDocumentRow {
   mode: "learning" | "auto";
   duplicate_of: string | null;
   read_model: string | null;
+  /** the reader's validated reading, kept so the checks can be re-run without re-reading the PDF; absent on older rows */
+  extracted?: ExtractedInvoice | null;
+  /** ENGINE_VERSION when the stored analysis was made; 0 or absent = never stamped */
+  analysis_version?: number;
   created_at: string;
 }
 

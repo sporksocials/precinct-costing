@@ -2744,3 +2744,11 @@ create policy invoice_pdfs_select on storage.objects for select to authenticated
 comment on table public.invoice_documents is 'One invoice or credit note read from a scanned file: supplier, number, date, totals, the checks it passed, and its split PDF.';
 comment on table public.invoice_price_changes is 'Undo ledger: every price the invoice system wrote (or confirmed), with the values before, so it can be reversed.';
 comment on table public.ai_usage_log is 'Cost of every AI call (invoice reading). Readable only by ai_cost_viewers.';
+
+-- ============================================================ Invoice extracted reading (mirrors supabase/migrations/20261025100000_invoice_extracted.sql)
+-- Keep each invoice's raw reading and which version of the checks produced its current analysis, so improving the checks can re-analyse
+-- every stored invoice WITHOUT another (paid) read of the PDF.
+alter table public.invoice_documents add column if not exists extracted jsonb;
+alter table public.invoice_documents add column if not exists analysis_version integer not null default 0;
+comment on column public.invoice_documents.extracted is 'The reader''s validated reading of this invoice (ExtractedInvoice JSON), kept so the checks can be re-run without re-reading the PDF.';
+comment on column public.invoice_documents.analysis_version is 'ENGINE_VERSION in lib/invoice-engine.ts when the stored analysis was made; an older version is re-analysed from `extracted` when the app is idle.';

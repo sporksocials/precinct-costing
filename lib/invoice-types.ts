@@ -96,6 +96,12 @@ export interface ExtractedLine {
   gst: GstFlag;
   /** the reader's own guess at the class; the engine applies the charge rules on top */
   class_hint: LineClass | null;
+  /** a printed Discount column as a percent (20 means 20%); null when none is printed */
+  discount_pct?: number | null;
+  /** a printed discount in dollars for this line; null when none is printed */
+  discount_amount?: number | null;
+  /** whether the line TOTAL (the Amount column) includes GST; `basis` is about the unit price. Absent means the same as `basis`. */
+  total_basis?: "ex" | "inc" | null;
 }
 
 export interface ExtractedInvoice {

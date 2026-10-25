@@ -24,16 +24,12 @@ const targetOption = (t: MatchTarget): QuestionOption => ({
   product_id: t.product?.id ?? null,
 });
 
-/** How the supplier introduces the line in a sentence: "Daniel Street Fish Market sent 'Kingfish fillets' (code 15026)". */
-function sent(supplier: string, description: string, code: string | null): string {
-  return `${supplier} sent '${plain(description)}'${code ? ` (code ${plain(code)})` : ""}`;
-}
-
 export function unmatchedQuestion(args: { supplier: string; lineNo: number; description: string; code: string | null; suggestions: MatchTarget[] }): AnalysedQuestion {
   return {
     kind: "unmatched_line",
     line_no: args.lineNo,
-    prompt: `${sent(args.supplier, args.description, args.code)}. Which product is this?`,
+    // short on purpose: the Match Lines screen shows the code, size and price, and "which product" is its column heading
+    prompt: `${args.supplier} sent ${plain(args.description)}.`,
     options: [...args.suggestions.map(targetOption), OPT.notAProduct(), OPT.ignoreLine()],
   };
 }
@@ -42,7 +38,7 @@ export function ambiguousQuestion(args: { supplier: string; lineNo: number; desc
   return {
     kind: "ambiguous_match",
     line_no: args.lineNo,
-    prompt: `${sent(args.supplier, args.description, args.code)}. It could be more than one product. Which one is it?`,
+    prompt: `${args.supplier} sent ${plain(args.description)}. It could be more than one product.`,
     options: [...args.candidates.map(targetOption), OPT.ignoreLine()],
   };
 }

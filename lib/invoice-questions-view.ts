@@ -13,14 +13,15 @@
  */
 import { indexDoc, search, type IndexedDoc } from "./search";
 import { money, num, packLabel } from "./format";
-import type { InvoiceDocumentRow, InvoiceLineRow, InvoiceQuestionRow, QuestionKind, QuestionOption } from "./invoice-types";
+import type { GstFlag, InvoiceDocumentRow, InvoiceLineRow, InvoiceQuestionRow, QuestionKind, QuestionOption } from "./invoice-types";
+import { parseDescription, tidyIngredientName } from "./invoice-suggest";
 
 /* ---------------------------------------------------------------- shapes the screen works with */
 
 /** The document fields a card needs (a column subset, so the query stays small). */
 export type QDoc = Pick<InvoiceDocumentRow, "id" | "venue_id" | "supplier_id" | "supplier_name_read" | "invoice_number" | "invoice_date" | "page_pdf_path" | "status">;
 /** The line fields a card shows. */
-export type QLine = Pick<InvoiceLineRow, "id" | "line_no" | "page" | "item_code" | "description" | "qty" | "unit" | "unit_price_ex" | "line_total_ex" | "ingredient_id" | "product_id">;
+export type QLine = Pick<InvoiceLineRow, "id" | "line_no" | "page" | "item_code" | "description" | "qty" | "unit" | "unit_price_ex" | "line_total_ex" | "ingredient_id" | "product_id"> & { gst?: GstFlag };
 
 export interface QuestionBundle {
   q: InvoiceQuestionRow;
@@ -28,6 +29,8 @@ export interface QuestionBundle {
   line: QLine | null;
   /** the invoice supplier's name from invoice_suppliers, else null */
   supplierName: string | null;
+  /** the invoice supplier's linked costing supplier (cost_suppliers.id), when it has one */
+  costSupplierId?: number | null;
 }
 
 export interface QuestionGroup {
@@ -348,4 +351,206 @@ export function answeredLabel(q: Pick<InvoiceQuestionRow, "options" | "answer">,
 /** "Open (3)" style counts for the two tabs. A capped list reads "100+". */
 export function countLabel(label: string, n: number, cap?: number): string {
   return `${label} (${cap != null && n >= cap ? `${cap}+` : n})`;
+}
+
+/* ================================================================ Match Lines: one review per invoice (25 Oct 2026)
+ *
+ * The first real invoice raised twelve "which product is this?" cards, one at a time. The review screen shows ALL of an invoice's
+ * line questions together: each line gets an ingredient (a suggestion to accept, a search, or "Add As New Ingredient"), or
+ * "Not In The App". Nothing is saved until Save Matches sends every choice in one go (answerQuestionsBatch).
+ */
+
+/** Questions that are "which ingredient is this line?": the ones the Match Lines table is for. */
+export function isMatchKind(kind: QuestionKind): boolean {
+  return kind === "unmatched_line" || kind === "ambiguous_match";
+}
+
+/** One line's choice, held on the screen until Save Matches. */
+export type Decision =
+  | { t: "ingredient"; ingredientId: string; name: string; via: "pick" | "suggestion" | "new" }
+  | { t: "none" }
+  | { t: "option"; optionId: string; label: string; note?: string };
+
+export interface BatchAnswerLite {
+  questionId: string;
+  optionId: string;
+  note?: string;
+}
+
+/** Splits an invoice's open questions into the Match Lines rows and everything else (units, big changes, totals, supplier). */
+export function splitReview(bundles: readonly QuestionBundle[]): { match: QuestionBundle[]; other: QuestionBundle[] } {
+  const match: QuestionBundle[] = [];
+  const other: QuestionBundle[] = [];
+  for (const b of bundles) (isMatchKind(b.q.kind) && b.q.line_id ? match : other).push(b);
+  const lineNo = (b: QuestionBundle) => (b.line ? b.line.line_no : -1);
+  match.sort((a, c) => lineNo(a) - lineNo(c));
+  other.sort((a, c) => lineNo(a) - lineNo(c) || a.q.created_at.localeCompare(c.q.created_at));
+  return { match, other };
+}
+
+export interface RowSuggestion {
+  ingredientId: string;
+  source: "ai" | "local";
+  /** 0 to 1; null when the stored suggestion carries none */
+  score: number | null;
+  reason: string | null;
+}
+
+const AI_PREFIX = "suggest:";
+
+/**
+ * The suggestion for a line: the AI pass's (an option written onto the question) when there is one, else the local scorer's
+ * best candidate when it is strong enough to pre-set. Null when neither has anything worth showing.
+ */
+export function rowSuggestion(options: readonly QuestionOption[], local: readonly { ingredientId: string; score: number; why: string }[], presetScore: number): RowSuggestion | null {
+  const ai = options.find((o) => o.id.startsWith(AI_PREFIX) && o.ingredient_id) as (QuestionOption & { confidence?: unknown; reason?: unknown }) | undefined;
+  if (ai?.ingredient_id) {
+    return { ingredientId: ai.ingredient_id, source: "ai", score: typeof ai.confidence === "number" ? ai.confidence : null, reason: typeof ai.reason === "string" ? ai.reason : null };
+  }
+  const top = local[0];
+  if (top && top.score >= presetScore) return { ingredientId: top.ingredientId, source: "local", score: top.score, reason: top.why };
+  return null;
+}
+
+/** The answer a decision sends. Ingredient choices go as `custom:<id>` with the checked note; "Not In The App" is the standard not_a_product answer. */
+export function decisionAnswer(b: QuestionBundle, d: Decision): BatchAnswerLite {
+  if (d.t === "ingredient") {
+    const a = ingredientAnswer(d.ingredientId);
+    return { questionId: b.q.id, optionId: a.optionId, note: a.note };
+  }
+  if (d.t === "none") return { questionId: b.q.id, optionId: "not_a_product" };
+  return d.note !== undefined ? { questionId: b.q.id, optionId: d.optionId, note: d.note } : { questionId: b.q.id, optionId: d.optionId };
+}
+
+/** Everything chosen so far, in invoice order, as the answers Save Matches sends. A question with no choice is left open. */
+export function buildBatch(bundles: readonly QuestionBundle[], decisions: ReadonlyMap<string, Decision>): BatchAnswerLite[] {
+  const out: BatchAnswerLite[] = [];
+  for (const b of bundles) {
+    const d = decisions.get(b.q.id);
+    if (d) out.push(decisionAnswer(b, d));
+  }
+  return out;
+}
+
+export interface SuggestRow {
+  id: string;
+  suggestion: RowSuggestion | null;
+}
+
+/** Accept All Suggestions: every row with a suggestion and no choice yet takes its suggestion. `nameOf` is undefined for an ingredient that is gone. */
+export function acceptSuggestions(rows: readonly SuggestRow[], decisions: ReadonlyMap<string, Decision>, nameOf: (ingredientId: string) => string | undefined): Map<string, Decision> {
+  const next = new Map(decisions);
+  for (const r of rows) {
+    if (next.has(r.id) || !r.suggestion) continue;
+    const name = nameOf(r.suggestion.ingredientId);
+    if (name) next.set(r.id, { t: "ingredient", ingredientId: r.suggestion.ingredientId, name, via: "suggestion" });
+  }
+  return next;
+}
+
+/** How many rows Accept All Suggestions would take. */
+export function acceptableCount(rows: readonly SuggestRow[], decisions: ReadonlyMap<string, Decision>, nameOf: (ingredientId: string) => string | undefined): number {
+  return rows.filter((r) => !decisions.has(r.id) && r.suggestion && nameOf(r.suggestion.ingredientId)).length;
+}
+
+export type RowStatus = "matched" | "not_in_app" | "suggested" | "needs_choice";
+
+/** The status for a row, shown as a word with an icon (never colour alone). */
+export function rowStatus(decision: Decision | undefined, suggestion: RowSuggestion | null): RowStatus {
+  if (decision?.t === "ingredient") return "matched";
+  if (decision?.t === "none") return "not_in_app";
+  if (suggestion) return "suggested";
+  return "needs_choice";
+}
+
+export const STATUS_WORDS: Record<RowStatus, string> = { matched: "Matched", not_in_app: "Not In The App", suggested: "Suggested", needs_choice: "Needs A Choice" };
+
+/** SHOUTING scan text in Title Case, keeping sizes ("2kg") and brackets. Text already in mixed case is left alone. */
+export function readableCase(text: string | null | undefined): string {
+  const s = String(text ?? "").replace(/[\u2013\u2014]/g, "-").replace(/\s+/g, " ").trim();
+  // scans print sizes in lower case ("2kg", "6x2kg") inside shouting text: letters straight after a digit do not count
+  const letters = s.replace(/(\d)[a-z]+/g, "$1");
+  if (!s || letters !== letters.toUpperCase() || !/[A-Z]/.test(letters)) return s;
+  return s
+    .toLowerCase()
+    .replace(/(^|[\s(/-])([a-z])/g, (_m, pre: string, c: string) => `${pre}${c.toUpperCase()}`)
+    .replace(/(\d)(kg|gr|g|ml|l|lt|ltr)\b/gi, (_m, d: string, u: string) => `${d}${u.toLowerCase()}`);
+}
+
+/** The invoice line for a review row: the description in readable case, the supplier code, and one meta line (quantity, unit, unit price ex GST). */
+export function reviewLineText(line: QLine | null): { title: string; code: string | null; meta: string } {
+  if (!line) return { title: "(Line no longer on the invoice)", code: null, meta: "" };
+  const title = readableCase(line.description) || "(No description)";
+  const qty = line.qty != null ? `${trimQty(Number(line.qty))}${line.unit ? ` ${line.unit}` : ""}` : line.unit ?? "";
+  const price = line.unit_price_ex != null ? `${money(Number(line.unit_price_ex))} ex GST` : "";
+  const meta = qty && price ? `${qty} @ ${price}` : qty || price;
+  return { title, code: line.item_code?.trim() || null, meta };
+}
+
+/** The lines that fill the Not In The App confirmation: what will be ignored (and remembered for this supplier). */
+export function ignoreList(bundles: readonly QuestionBundle[]): { id: string; title: string; code: string | null }[] {
+  return bundles.map((b) => {
+    const t = reviewLineText(b.line);
+    return { id: b.q.id, title: t.title, code: t.code };
+  });
+}
+
+/** What Save Matches says on its button. */
+export function saveLabel(n: number): string {
+  return n === 0 ? "Save Matches" : `Save Matches (${n})`;
+}
+
+/* ---------------------------------------------------------------- Add As New Ingredient */
+
+export interface NewIngredientFields {
+  name: string;
+  supplier_id: number | null;
+  supplier_code: string | null;
+  pack_size: number;
+  pack_unit: "kg" | "L" | "each";
+  /** 0 when unsure: the sheet then shows a blank price */
+  pack_price: number;
+  price_inc_gst: boolean;
+  gst_free: boolean;
+  source: string;
+  notes: string | null;
+}
+
+/**
+ * The New Ingredient sheet's starting point for an invoice line. The person confirms it; nothing is created here.
+ * Invoice prices are stored ex GST, so the pack price is the line's unit price ex GST (the sheet's "Price Includes GST" stays off).
+ * A pack size comes from the description ("6x2kg" is 12 kg) or from a line sold by the kg or L; when neither says, the price is
+ * left blank rather than guessed.
+ */
+export function newIngredientFields(args: { line: QLine; costSupplierId: number | null; sourceLabel: string }): NewIngredientFields {
+  const { line } = args;
+  const parsed = parseDescription(line.description);
+  const sold = String(line.unit ?? "").trim().toLowerCase();
+  const price = line.unit_price_ex != null && Number(line.unit_price_ex) > 0 ? Math.round(Number(line.unit_price_ex) * 100) / 100 : 0;
+  let pack_size = 1;
+  let pack_unit: "kg" | "L" | "each" = "each";
+  let pack_price = 0;
+  let notes: string | null = "Pack size not read from the invoice. Please check it.";
+  if (sold === "kg" || sold === "l" || sold === "lt") {
+    pack_unit = sold === "kg" ? "kg" : "L";
+    pack_price = price;
+    notes = null;
+  } else if (parsed.pack) {
+    pack_size = parsed.pack.size;
+    pack_unit = parsed.pack.unit;
+    pack_price = price;
+    notes = null;
+  }
+  return {
+    name: tidyIngredientName(line.description),
+    supplier_id: args.costSupplierId,
+    supplier_code: line.item_code?.trim() || null,
+    pack_size,
+    pack_unit,
+    pack_price,
+    price_inc_gst: false,
+    gst_free: line.gst === "free",
+    source: args.sourceLabel,
+    notes,
+  };
 }

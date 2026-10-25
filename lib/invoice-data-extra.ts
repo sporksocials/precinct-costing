@@ -52,7 +52,7 @@ async function selectIn<T>(sb: SupabaseClient, table: string, columns: string, c
 /* ---------------------------------------------------------------- questions */
 
 const DOC_COLS = "id,venue_id,supplier_id,supplier_name_read,invoice_number,invoice_date,page_pdf_path,status";
-const LINE_COLS = "id,line_no,page,item_code,description,qty,unit,unit_price_ex,line_total_ex,ingredient_id,product_id";
+const LINE_COLS = "id,line_no,page,item_code,description,qty,unit,unit_price_ex,line_total_ex,ingredient_id,product_id,gst";
 
 export interface QuestionLoad {
   bundles: QuestionBundle[];
@@ -82,13 +82,20 @@ export async function loadQuestionBundles(sb: SupabaseClient, opts: { status: "o
     selectIn<QDoc>(sb, "invoice_documents", DOC_COLS, "id", uniq(qs.map((x) => x.document_id))),
     selectIn<QLine>(sb, "invoice_lines", LINE_COLS, "id", uniq(qs.map((x) => x.line_id))),
   ]);
-  const suppliers = await selectIn<Pick<InvoiceSupplierRow, "id" | "name">>(sb, "invoice_suppliers", "id,name", "id", uniq(docs.map((d) => d.supplier_id)));
+  const suppliers = await selectIn<Pick<InvoiceSupplierRow, "id" | "name" | "cost_supplier_id">>(sb, "invoice_suppliers", "id,name,cost_supplier_id", "id", uniq(docs.map((d) => d.supplier_id)));
   const docById = new Map(docs.map((d) => [d.id, d]));
   const lineById = new Map(lines.map((l) => [l.id, l]));
-  const supplierById = new Map(suppliers.map((s) => [s.id, s.name]));
+  const supplierById = new Map(suppliers.map((s) => [s.id, s]));
   const bundles = qs.map((row): QuestionBundle => {
     const doc = docById.get(row.document_id) ?? null;
-    return { q: { ...row, options: Array.isArray(row.options) ? row.options : [] }, doc, line: row.line_id ? lineById.get(row.line_id) ?? null : null, supplierName: doc?.supplier_id ? supplierById.get(doc.supplier_id) ?? null : null };
+    const sup = doc?.supplier_id ? supplierById.get(doc.supplier_id) : undefined;
+    return {
+      q: { ...row, options: Array.isArray(row.options) ? row.options : [] },
+      doc,
+      line: row.line_id ? lineById.get(row.line_id) ?? null : null,
+      supplierName: sup?.name ?? null,
+      costSupplierId: sup?.cost_supplier_id ?? null,
+    };
   });
   return { bundles, available: true };
 }

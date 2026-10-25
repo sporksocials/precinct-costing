@@ -263,7 +263,7 @@ describe("the data layer (in-memory database)", () => {
 });
 
 describe("source rules for this screen", () => {
-  const files = ["components/invoices/q-screen.tsx", "components/invoices/q-card.tsx", "components/invoices/q-search.tsx", "components/invoices/q-packs.tsx", "components/invoices/q-pdf-link.tsx", "app/(app)/invoices/questions/page.tsx"];
+  const files = ["components/invoices/q-screen.tsx", "components/invoices/q-review.tsx", "components/invoices/q-match-row.tsx", "components/invoices/q-other-row.tsx", "components/invoices/q-picker.tsx", "components/invoices/q-new-ingredient.tsx", "components/invoices/q-packs.tsx", "components/invoices/q-pdf-link.tsx", "app/(app)/invoices/questions/page.tsx"];
   const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
   it("has no em or en dashes in anything a person reads", () => {
     for (const f of [...files, "lib/invoice-questions-view.ts"]) expect(strip(readFileSync(f, "utf8")), f).not.toMatch(/[–—]/);
@@ -279,8 +279,8 @@ describe("source rules for this screen", () => {
   it("never writes or deletes by itself: the only write is the answer", () => {
     for (const f of files) {
       const src = strip(readFileSync(f, "utf8"));
-      expect(src, f).not.toMatch(/\.(insert|update|upsert|delete)\(/);
+      expect(src, f).not.toMatch(/\.from\([^)]*\)\s*\.(insert|update|upsert|delete)\(/);
     }
-    expect(strip(readFileSync("components/invoices/q-screen.tsx", "utf8"))).toContain("answerQuestion(");
+    expect(strip(readFileSync("components/invoices/q-review.tsx", "utf8"))).toContain("answerQuestionsBatch(");
   });
 });

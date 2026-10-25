@@ -187,7 +187,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                 ))}
                 <li>
                   <Link href={`/invoices/questions?doc=${doc.id}`} className="flex min-h-[48px] items-center px-4 text-[17px] font-semibold text-accent sm:text-[15px]">
-                    Answer These Questions
+                    Match Lines And Answer Questions
                   </Link>
                 </li>
               </ul>

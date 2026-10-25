@@ -174,6 +174,7 @@ async function reanalyse(sb: SupabaseClient, documentId: string, actor: string, 
 const MAX_PACKS = 10_000;
 const CUSTOM = "custom:";
 const CUSTOM_PACKS = "custom:packs";
+const NOT_A_PRODUCT = "not_a_product";
 
 /**
  * Finds the option a person chose. Most are on the question. The screens also send two answers the engine never lists:
@@ -188,6 +189,8 @@ async function resolveOption(
 ): Promise<{ option: QuestionOption } | { error: string }> {
   const listed = (q.options ?? []).find((o) => o.id === optionId);
   if (listed) return { option: listed };
+  // the review screen's "Not In The App" works on every line question, even one whose own list (an ambiguous match) never offered it
+  if (optionId === NOT_A_PRODUCT && (q.kind === "unmatched_line" || q.kind === "ambiguous_match")) return { option: { id: NOT_A_PRODUCT, label: "This is not a stock item", action: "not_a_product" } };
   if (!optionId.startsWith(CUSTOM)) return { error: "That is not one of the choices for this question." };
 
   let parsed: { ingredient_id?: unknown; packs_per_unit?: unknown } = {};
@@ -297,43 +300,36 @@ async function loadEngine(): Promise<AnalyseInvoice> {
   return mod.analyseInvoice;
 }
 
-export async function answerQuestion(
-  sb: SupabaseClient,
-  args: { questionId: string; optionId: string; actor: string; note?: string },
-  deps: AnswerDeps = {},
-): Promise<AnswerResult> {
-  const fail = (message: string, applied: ApplyResult[] = []): AnswerResult => ({ ok: false, message, applied });
-  try {
-    return await answerInner(sb, args, deps, fail);
-  } catch (e) {
-    return fail(`Nothing was saved. ${e instanceof Error ? e.message : "Something went wrong."}`);
-  }
-}
-// compile-time check that this matches the contract in lib/invoice-interfaces.ts (the optional third argument is ours)
-const contract: AnswerQuestion = answerQuestion;
-void contract;
+/** What one recorded answer was, for the words of a batch summary. */
+type AnswerClass = "match" | "ignored" | "approved" | "other";
 
-async function answerInner(
-  sb: SupabaseClient,
-  args: { questionId: string; optionId: string; actor: string; note?: string },
-  deps: AnswerDeps,
-  fail: (message: string, applied?: ApplyResult[]) => AnswerResult,
-): Promise<AnswerResult> {
+type Recorded =
+  | { ok: false; status: "already" | "failed"; message: string; applied: ApplyResult[] }
+  | { ok: true; parts: string[]; applied: ApplyResult[]; docId: string; lineNo: number | null; cls: AnswerClass; reanalyse: boolean; terminal: boolean };
+
+/**
+ * Records ONE answer and its direct effect (a learned match, an ignored line, an approved price) but does NOT look at the invoice
+ * again. `answerQuestion` re-analyses straight after; `answerQuestionsBatch` re-analyses each invoice once after all its answers.
+ * `terminal` means the answer ends the invoice's story (set aside, read again): nothing should be re-analysed after it.
+ */
+async function recordAnswer(sb: SupabaseClient, args: { questionId: string; optionId: string; actor: string; note?: string }): Promise<Recorded> {
+  const failed = (message: string, applied: ApplyResult[] = []): Recorded => ({ ok: false, status: "failed", message, applied });
   const { questionId, optionId, actor, note } = args;
   const q = check(await sb.from("invoice_questions").select("*").eq("id", questionId).maybeSingle(), "Could not read the question").data as InvoiceQuestionRow | null;
-  if (!q) return fail("That question no longer exists.");
-  if (q.status !== "open") return fail(q.status === "answered" ? "This question has already been answered." : "This question no longer needs an answer.");
+  if (!q) return failed("That question no longer exists.");
+  if (q.status !== "open") return q.status === "answered" ? { ok: false, status: "already", message: "This question has already been answered.", applied: [] } : failed("This question no longer needs an answer.");
   const resolved = await resolveOption(sb, q, optionId, note);
-  if ("error" in resolved) return fail(resolved.error);
+  if ("error" in resolved) return failed(resolved.error);
   const option = resolved.option;
   const doc = check(await sb.from("invoice_documents").select("*").eq("id", q.document_id).maybeSingle(), "Could not read the invoice").data as InvoiceDocumentRow | null;
-  if (!doc) return fail("The invoice for this question no longer exists.");
+  if (!doc) return failed("The invoice for this question no longer exists.");
   const line = q.line_id ? (check(await sb.from("invoice_lines").select("*").eq("id", q.line_id).maybeSingle(), "Could not read the line").data as InvoiceLineRow | null) : null;
 
   const parts: string[] = [];
   const applied: ApplyResult[] = [];
   let reanalyseAfter = true;
-  let autoUpdated = 0;
+  let terminal = false;
+  let cls: AnswerClass = "other";
   const needLine = () => {
     if (!line) throw new Error("This answer is about a line, but the line is no longer on the invoice.");
     return line;
@@ -346,7 +342,7 @@ async function answerInner(
     if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the rule cannot be saved.");
     const spread = answerId === "spread_charge";
     const saved = await saveChargeRule(sb, { supplierId: doc.supplier_id, line: l, spread });
-    if (typeof saved === "object") return fail(saved.refusal);
+    if (typeof saved === "object") return failed(saved.refusal);
     const made = saved;
     const who = (await supplierName(sb, doc)) ?? "This supplier";
     parts.push(spread ? `${who} "${l.description.trim()}" will be spread over the products as part of their cost.` : `${who} "${l.description.trim()}" will be left out of cost.`);
@@ -354,9 +350,10 @@ async function answerInner(
   } else switch (option.action) {
     case "approve_change": {
       const r = await applyLine(sb, { lineId: needLine().id, actor, mode: "approved" });
-      if (!r.ok) return fail(r.message, [r]);
+      if (!r.ok) return failed(r.message, [r]);
       applied.push(r);
       parts.push(r.message);
+      cls = "approved";
       break;
     }
     case "reject_change":
@@ -364,6 +361,7 @@ async function answerInner(
       const l = needLine();
       check(await sb.from("invoice_lines").update({ state: "ignored" }).eq("id", l.id), "Could not update the line");
       parts.push(option.action === "reject_change" ? `That price change for ${l.description} was left alone.` : `${l.description} will be ignored.`);
+      if (option.action === "ignore_line") cls = "ignored";
       break;
     }
     case "not_a_product": {
@@ -371,6 +369,7 @@ async function answerInner(
       if (doc.supplier_id) await learnMap(sb, { supplierId: doc.supplier_id, venueId: null, alsoClear: doc.venue_id, line: l, target: { ingredientId: null, productId: null }, packs: null, rejected: true, actor });
       check(await sb.from("invoice_lines").update({ state: "ignored", match_state: "ignored" }).eq("id", l.id), "Could not update the line");
       parts.push(`${l.description} is not a product, and it will be ignored from now on.`);
+      cls = "ignored";
       break;
     }
     case "confirm_venue": {
@@ -383,12 +382,14 @@ async function answerInner(
       check(await sb.from("invoice_documents").update({ status: "ignored", recon_notes: notes }).eq("id", doc.id), "Could not update the invoice");
       parts.push("This invoice is set aside because it is not for this venue.");
       reanalyseAfter = false;
+      terminal = true;
       break;
     }
     case "ignore_document": {
       check(await sb.from("invoice_documents").update({ status: "ignored" }).eq("id", doc.id), "Could not update the invoice");
       parts.push("This invoice is set aside.");
       reanalyseAfter = false;
+      terminal = true;
       break;
     }
     case "reread": {
@@ -399,6 +400,7 @@ async function answerInner(
       if (rereadable.length) check(await sb.from("invoice_documents").update({ read_model: null }).in("id", rereadable), "Could not clear the earlier reading");
       parts.push("This invoice will be read again.");
       reanalyseAfter = false;
+      terminal = true;
       break;
     }
     default: {
@@ -439,6 +441,7 @@ async function answerInner(
         const who = sup?.name ?? doc.supplier_name_read ?? "This supplier";
         const what = l.item_code?.trim() ? `code ${l.item_code.trim()}` : `"${l.description}"`;
         parts.push(`${who} ${what} is now ${await nameOf(sb, option)}.`);
+        cls = "match";
       } else {
         parts.push("Answer noted.");
       }
@@ -453,12 +456,41 @@ async function answerInner(
     .eq("status", "open")
     .select("id");
   if (marked.error) throw new Error(marked.error.message);
-  if (!marked.data || marked.data.length === 0) return fail("Someone else answered this question first.", applied);
+  if (!marked.data || marked.data.length === 0) return { ok: false, status: "already", message: "Someone else answered this question first.", applied };
+  return { ok: true, parts, applied, docId: doc.id, lineNo: line?.line_no ?? null, cls, reanalyse: reanalyseAfter, terminal };
+}
 
+export async function answerQuestion(
+  sb: SupabaseClient,
+  args: { questionId: string; optionId: string; actor: string; note?: string },
+  deps: AnswerDeps = {},
+): Promise<AnswerResult> {
+  const fail = (message: string, applied: ApplyResult[] = []): AnswerResult => ({ ok: false, message, applied });
+  try {
+    return await answerInner(sb, args, deps, fail);
+  } catch (e) {
+    return fail(`Nothing was saved. ${e instanceof Error ? e.message : "Something went wrong."}`);
+  }
+}
+// compile-time check that this matches the contract in lib/invoice-interfaces.ts (the optional third argument is ours)
+const contract: AnswerQuestion = answerQuestion;
+void contract;
+
+async function answerInner(
+  sb: SupabaseClient,
+  args: { questionId: string; optionId: string; actor: string; note?: string },
+  deps: AnswerDeps,
+  fail: (message: string, applied?: ApplyResult[]) => AnswerResult,
+): Promise<AnswerResult> {
+  const rec = await recordAnswer(sb, args);
+  if (!rec.ok) return fail(rec.message, rec.applied);
+  const parts = [...rec.parts];
+  const applied = [...rec.applied];
+  let autoUpdated = 0;
   // ---- look at the invoice again with what was just learned
-  if (reanalyseAfter) {
+  if (rec.reanalyse) {
     try {
-      const again = await reanalyse(sb, doc.id, actor, deps);
+      const again = await reanalyse(sb, rec.docId, args.actor, deps);
       applied.push(...again.applied);
       autoUpdated = again.applied.filter((a) => a.ok && a.changeIds.length > 0).length;
     } catch (e) {
@@ -467,4 +499,148 @@ async function answerInner(
   }
   if (autoUpdated > 0) parts.push(`${autoUpdated} more ${autoUpdated === 1 ? "line was" : "lines were"} applied automatically.`);
   return { ok: true, message: ["Saved.", ...parts].join(" "), applied };
+}
+
+// ---------------------------------------------------------------- many answers at once (the Match Lines review)
+
+export interface BatchAnswerInput {
+  questionId: string;
+  optionId: string;
+  note?: string;
+}
+
+export interface BatchAnswerResult {
+  questionId: string;
+  /** true for "saved" and for "already" (somebody answered it; nothing is left to do) */
+  ok: boolean;
+  status: "saved" | "already" | "failed";
+  message: string;
+}
+
+export interface BatchResult {
+  /** true when no answer failed */
+  ok: boolean;
+  /** "Saved 9 matches. 3 lines ignored. 2 prices ready to approve." */
+  message: string;
+  results: BatchAnswerResult[];
+  saved: number;
+  failed: number;
+  applied: ApplyResult[];
+}
+
+export interface BatchCounts {
+  matches: number;
+  ignored: number;
+  approved: number;
+  other: number;
+  already: number;
+  failed: number;
+  waiting: number;
+  autoApplied: number;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The one sentence a person reads after Save Matches. Only says what happened. */
+export function batchMessage(c: BatchCounts): string {
+  const out: string[] = [];
+  if (c.matches) out.push(`Saved ${plural(c.matches, "match", "matches")}.`);
+  if (c.ignored) out.push(`${plural(c.ignored, "line", "lines")} ignored.`);
+  if (c.approved) out.push(`${plural(c.approved, "price", "prices")} approved.`);
+  if (c.other) out.push(`${plural(c.other, "other answer", "other answers")} saved.`);
+  if (c.autoApplied) out.push(`${plural(c.autoApplied, "price", "prices")} applied automatically.`);
+  if (c.waiting) out.push(`${plural(c.waiting, "price", "prices")} ready to approve.`);
+  if (c.already) out.push(`${c.already === 1 ? "1 line was" : `${c.already} lines were`} already answered.`);
+  if (c.failed) out.push(`${plural(c.failed, "answer", "answers")} could not be saved.`);
+  return out.length ? out.join(" ") : "Nothing was saved.";
+}
+
+/**
+ * Records many answers, then looks at each affected invoice ONCE. This is the review screen's Save Matches: twelve unmatched
+ * lines used to mean twelve full re-analyses; now they are twelve answers and one re-analysis.
+ *
+ * Every answer is checked and learned exactly as `answerQuestion` does it (same validation of custom ids and notes, same map
+ * rows: ingredient matches shared across venues, ordering products per venue). Answers about the invoice itself (a new supplier)
+ * go first, so a match that needs the supplier finds it. One answer failing never stops the others; each gets its own result.
+ * Safe to run again: a question that is already answered is reported as "already", never as an error.
+ */
+export async function answerQuestionsBatch(
+  sb: SupabaseClient,
+  args: { answers: BatchAnswerInput[]; actor: string },
+  deps: AnswerDeps = {},
+): Promise<BatchResult> {
+  const results: BatchAnswerResult[] = [];
+  const applied: ApplyResult[] = [];
+  const counts: BatchCounts = { matches: 0, ignored: 0, approved: 0, other: 0, already: 0, failed: 0, waiting: 0, autoApplied: 0 };
+  const seen = new Set<string>();
+  const wanted = args.answers.filter((a) => {
+    if (seen.has(a.questionId)) return false;
+    seen.add(a.questionId);
+    return true;
+  });
+  if (wanted.length === 0) return { ok: true, message: "Nothing was saved.", results, saved: 0, failed: 0, applied };
+
+  // invoice-wide questions (no line) first
+  let lineless = new Set<string>();
+  try {
+    const rows = check(await sb.from("invoice_questions").select("id,line_id").in("id", wanted.map((a) => a.questionId)), "Could not read the questions").data as { id: string; line_id: string | null }[] | null;
+    lineless = new Set((rows ?? []).filter((r) => !r.line_id).map((r) => r.id));
+  } catch {
+    // the order is a nicety: each answer still reads its own question
+  }
+  const ordered = [...wanted.filter((a) => lineless.has(a.questionId)), ...wanted.filter((a) => !lineless.has(a.questionId))];
+
+  const docs = new Map<string, { reanalyse: boolean; terminal: boolean; matched: Set<number> }>();
+  for (const a of ordered) {
+    try {
+      const rec = await recordAnswer(sb, { questionId: a.questionId, optionId: a.optionId, actor: args.actor, note: a.note });
+      applied.push(...rec.applied);
+      if (!rec.ok) {
+        if (rec.status === "already") {
+          counts.already++;
+          results.push({ questionId: a.questionId, ok: true, status: "already", message: rec.message });
+        } else {
+          counts.failed++;
+          results.push({ questionId: a.questionId, ok: false, status: "failed", message: rec.message });
+        }
+        continue;
+      }
+      if (rec.cls === "match") counts.matches++;
+      else if (rec.cls === "ignored") counts.ignored++;
+      else if (rec.cls === "approved") counts.approved++;
+      else counts.other++;
+      const d = docs.get(rec.docId) ?? { reanalyse: false, terminal: false, matched: new Set<number>() };
+      d.reanalyse ||= rec.reanalyse;
+      d.terminal ||= rec.terminal;
+      if (rec.cls === "match" && rec.lineNo != null) d.matched.add(rec.lineNo);
+      docs.set(rec.docId, d);
+      results.push({ questionId: a.questionId, ok: true, status: "saved", message: ["Saved.", ...rec.parts].join(" ") });
+    } catch (e) {
+      counts.failed++;
+      results.push({ questionId: a.questionId, ok: false, status: "failed", message: `Nothing was saved. ${e instanceof Error ? e.message : "Something went wrong."}` });
+    }
+  }
+
+  // each invoice is looked at once, after all its answers
+  const tail: string[] = [];
+  for (const [docId, d] of docs) {
+    if (!d.reanalyse || d.terminal) continue;
+    try {
+      const again = await reanalyse(sb, docId, args.actor, deps);
+      applied.push(...again.applied);
+      counts.autoApplied += again.applied.filter((x) => x.ok && x.changeIds.length > 0).length;
+    } catch {
+      tail.push("The answers are saved, but an invoice could not be checked again just now.");
+    }
+    if (d.matched.size) {
+      try {
+        const lines = await fetchAll<{ line_no: number; decision: string; state: string }>(sb, "invoice_lines", "line_no,decision,state", (q) => q.eq("document_id", docId));
+        counts.waiting += lines.filter((l) => d.matched.has(l.line_no) && l.decision === "needs_approval" && l.state !== "ignored").length;
+      } catch {
+        // the count is a courtesy
+      }
+    }
+  }
+  const saved = results.filter((r) => r.status === "saved").length;
+  return { ok: counts.failed === 0, message: [batchMessage(counts), ...tail].join(" "), results, saved, failed: counts.failed, applied };
 }

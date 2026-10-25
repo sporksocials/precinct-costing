@@ -175,3 +175,71 @@ export function premixUseDisplay(u: PremixUse, bottle: number | null): PremixUse
 export function premixCountText(n: number): string {
   return `${n} ${n === 1 ? "pre-mix" : "pre-mixes"}`;
 }
+
+// ---------------------------------------------------------------- making several bottles at once
+// The bar makes pre-mixes in big batches, not one bottle at a time (Troy, 25 Oct 2026): a bottle counter on each card multiplies
+// the whole recipe, so the team reads one set of amounts instead of doing the sums. Display only: nothing is saved or costed.
+
+/** The most bottles one card can ask for. */
+export const MAX_BOTTLES = 40;
+
+/** A whole number of bottles from 1 to MAX_BOTTLES (anything else, including NaN, reads as 1). */
+export function clampBottles(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(MAX_BOTTLES, Math.max(1, Math.round(n)));
+}
+
+/** "1 bottle" / "4 bottles". */
+export function bottlesText(n: number): string {
+  const b = clampBottles(n);
+  return `${b} ${b === 1 ? "bottle" : "bottles"}`;
+}
+
+/** A volume in ml as the team would pour it: "560 ml" up to a litre, then litres ("1.4 L", "2.33 L", never more than two decimals). Rounded down. */
+export function volumeText(ml: number): string {
+  const whole = Math.floor(ml + 1e-6);
+  if (whole < 1000) return `${whole.toLocaleString("en-AU")} ml`;
+  const litres = Math.floor(whole / 10) / 100;
+  return `${litres.toLocaleString("en-AU", { maximumFractionDigits: 2 })} L`;
+}
+
+/**
+ * One ingredient line scaled to `bottles`. Volumes round DOWN after the multiply (116.67 ml x 3 is 350 ml, the same rule as one
+ * bottle) and read in litres from 1 L; other units keep their own style ("2 each").
+ */
+export function batchLineAmount(qty: number, unit: string, bottles: number): string {
+  const n = clampBottles(bottles);
+  const ml = toMl(qty * n, unit);
+  if (ml == null) return qtyText(qty * n, unit);
+  return volumeText(ml);
+}
+
+export interface BatchLineDisplay extends PremixLineDisplay {
+  /** "140 ml a bottle" when more than one bottle is being made (so the one-bottle amount is still readable), else null */
+  each: string | null;
+}
+
+export function batchLineDisplay(l: PremixLine, bottles: number): BatchLineDisplay {
+  const n = clampBottles(bottles);
+  const one = premixLineDisplay(l);
+  if (n === 1) return { ...one, each: null };
+  return { name: one.name, amount: batchLineAmount(l.qty, l.unit, n), shots: null, each: `${one.amount} a bottle` };
+}
+
+/** The whole batch: "4 bottles, 2.8 L" (a non-volume yield reads "4 bottles"). Null for one bottle, where the card already says its size. */
+export function batchTotalText(p: Pick<Premix, "yieldQty" | "yieldUnit">, bottles: number): string | null {
+  const n = clampBottles(bottles);
+  if (n === 1) return null;
+  const ml = bottleMl(p);
+  return ml == null ? bottlesText(n) : `${bottlesText(n)}, ${volumeText(ml * n)}`;
+}
+
+/** "36 serves from 4 bottles" for one drink's line (each bottle makes whole serves). Null for one bottle or when serves cannot be worked out. */
+export function batchServesText(bottle: number | null, u: PremixUse, bottles: number): string | null {
+  const n = clampBottles(bottles);
+  if (n === 1) return null;
+  const per = servesPerBottle(bottle, u.qty, u.unit);
+  if (per == null || per < 1) return null;
+  const total = per * n;
+  return `${total} ${total === 1 ? "serve" : "serves"} from ${bottlesText(n)}`;
+}

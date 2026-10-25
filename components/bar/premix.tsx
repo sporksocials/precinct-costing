@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { bottleMl, bottleSizeText, premixLineDisplay, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
+import { batchLineDisplay, batchServesText, batchTotalText, bottleMl, bottleSizeText, bottlesText, clampBottles, MAX_BOTTLES, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
 import { syncedLabel } from "@/lib/bar";
 import { cx } from "../ui";
 import { BottleIcon } from "./glass-icon";
 import { CARD, EmptyState, HEADING, IDLE_MS, REFRESH_MS, RETRY_MS, ROW, StaleBanner } from "./station";
 
 /**
- * Pre-Mix Bottles: the drink pre-mixes the bar makes before service, one card per 700 ml bottle. Opens from the "Pre-Mix Bottles"
+ * Pre-Mix Bottles: the drink pre-mixes the bar makes before service, one card per 700 ml bottle. Each card has a bottle counter
+ * ("Bottles To Make", minus and plus only) that multiplies the recipe, because the bar makes these in big batches. Opens from the "Pre-Mix Bottles"
  * row on the drinks station and works the same way: no login, refreshes in the background every 5 minutes, keeps the last good
  * copy when the Wi-Fi drops (the service worker holds the page and its data), and drops back to the station after 2 minutes untouched.
  */
@@ -133,9 +134,14 @@ function anchorId(p: Premix): string {
   return `premix-${p.id}`;
 }
 
+const STEP_BTN = "flex h-[56px] w-[56px] shrink-0 select-none items-center justify-center rounded-full border-[0.5px] border-white/[0.18] bg-[#1C1C1F] text-[32px] font-medium leading-none text-[#F5F3EE] active:bg-[#2A2A2E] disabled:opacity-30";
+
 function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
   const bottle = bottleMl(p);
   const size = bottleSizeText(p, slug);
+  // how many bottles the team is making right now; lives on the card only (nothing is saved), and a refresh keeps it because the card keeps its key
+  const [bottles, setBottles] = useState(1);
+  const total = batchTotalText(p, bottles);
   return (
     <section id={anchorId(p)} className={cx(CARD, "scroll-mt-4 px-5 py-5")}>
       <div className="flex items-start gap-4">
@@ -147,16 +153,40 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
       </div>
 
       {p.lines.length ? (
+        <div className="mt-4 rounded-xl bg-[#232327] px-4 py-3" role="group" aria-label={`Bottles to make: ${p.name}`}>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-3">
+            <div className="min-w-[150px] flex-1">
+              <h3 className={cx(HEADING, "uppercase")}>Bottles To Make</h3>
+              <p className="mt-[2px] text-[17px] leading-snug text-[#9B9890]" aria-live="polite">
+                {total ?? "Tap + to make more at once"}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" aria-label="One bottle fewer" disabled={bottles <= 1} onClick={() => setBottles((b) => clampBottles(b - 1))} className={STEP_BTN}>
+                &#8722;
+              </button>
+              <span className="min-w-[52px] text-center text-[40px] font-medium leading-none text-[#D9C3A0]" aria-label={bottlesText(bottles)}>
+                {bottles}
+              </span>
+              <button type="button" aria-label="One bottle more" disabled={bottles >= MAX_BOTTLES} onClick={() => setBottles((b) => clampBottles(b + 1))} className={STEP_BTN}>
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {p.lines.length ? (
         <div className="mt-4">
-          <h3 className={cx(HEADING, "mb-1 uppercase")}>Ingredients</h3>
+          <h3 className={cx(HEADING, "mb-1 uppercase")}>{bottles > 1 ? `Ingredients For ${bottlesText(bottles)}` : "Ingredients"}</h3>
           <ul>
             {p.lines.map((l, i) => {
-              const d = premixLineDisplay(l);
+              const d = batchLineDisplay(l, bottles);
               return (
                 <li key={i} className={cx(ROW, "flex items-start gap-[14px] py-[13px]")}>
                   <div className="w-[128px] shrink-0">
                     <p className="text-[30px] font-medium leading-[1.1] text-[#D9C3A0]">{d.amount}</p>
-                    {d.shots ? <p className="mt-[2px] text-[15px] text-[#9B9890]">{d.shots}</p> : null}
+                    {d.each ?? d.shots ? <p className="mt-[2px] text-[15px] text-[#9B9890]">{d.each ?? d.shots}</p> : null}
                   </div>
                   <p className="min-w-0 pt-[2px] text-[24px] leading-[1.2] [overflow-wrap:anywhere] sm:text-[27px]">{d.name}</p>
                 </li>
@@ -172,12 +202,13 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
           <ul>
             {p.usedIn.map((u, i) => {
               const d = premixUseDisplay(u, bottle);
+              const serves = batchServesText(bottle, u, bottles) ?? d.serves;
               return (
                 <li key={i} className={cx(ROW, "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-[13px]")}>
                   <p className="min-w-0 text-[26px] leading-[1.2]">{d.drink}</p>
                   <p className="ml-auto text-right">
                     <span className="text-[26px] font-medium text-[#D9C3A0]">{d.pour}</span>
-                    {d.serves ? <span className="block text-[15px] text-[#9B9890]">{d.serves}</span> : null}
+                    {serves ? <span className="block text-[15px] text-[#9B9890]">{serves}</span> : null}
                   </p>
                 </li>
               );

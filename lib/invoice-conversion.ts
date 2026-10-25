@@ -332,12 +332,69 @@ export function parsePacksText(text: string): number | null {
   return n > 0 && n <= MAX_PACKS_PER_UNIT ? n : null;
 }
 
+/* ---------------------------------------------------------------- the amount in one invoice unit (what the person types) */
+
+const NUM_TXT = "\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?";
+const AMOUNT_RE = new RegExp(`^(${NUM_TXT})(?:\\s*[x×*]\\s*(${NUM_TXT}))?$`);
+const AMOUNT_UNIT_RE = /\s*(kgs?|kilos?|gms?|gr|g|mls?|ltrs?|lt|litres?|liters?|l|ea|each)$/;
+const MAX_AMOUNT = 100_000;
+
+/** One typed number: thousands commas allowed, at most 4 decimals. */
+function amountPart(raw: string): number | null {
+  const t = raw.replace(/,/g, "");
+  if (!/^\d+(\.\d{1,4})?$/.test(t)) return null;
+  return Number(t);
+}
+
+/**
+ * What a person types for "how much is in one invoice unit", in the ingredient's base unit (kg, L or each): `12`, `2.5`,
+ * `6 x 2` (six bags of 2 kg), `12kg`, `500g` (0.5 kg), `3 x 250ml`. A unit word must match the base unit's dimension.
+ * Returns the total in kg, L or each, or null when it cannot be read.
+ */
+export function parseAmountText(text: string, dim: BaseUnit): number | null {
+  let t = text.trim().toLowerCase();
+  if (!t) return null;
+  let factor = 1;
+  const um = t.match(AMOUNT_UNIT_RE);
+  if (um) {
+    const w = um[1];
+    const unitDim: BaseUnit = w.startsWith("k") ? "kg" : w === "g" || w === "gr" || w.startsWith("gm") ? "kg" : w.startsWith("m") ? "L" : w === "ea" || w === "each" ? "each" : "L";
+    if (unitDim !== dim) return null;
+    if (w === "g" || w === "gr" || w.startsWith("gm") || w.startsWith("m")) factor = 0.001;
+    t = t.slice(0, t.length - um[0].length);
+  }
+  const m = t.match(AMOUNT_RE);
+  if (!m) return null;
+  const a = amountPart(m[1]);
+  const b = m[2] != null ? amountPart(m[2]) : 1;
+  if (a == null || b == null) return null;
+  const total = round4(a * b * factor);
+  return total > 0 && total <= MAX_AMOUNT ? total : null;
+}
+
+/** "6 x 2" gives ["6", "2"]; anything else is null (used by the breakdown fields). */
+export function splitProduct(text: string): [string, string] | null {
+  const m = text.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)$/);
+  return m ? [m[1], m[2]] : null;
+}
+
+/** "12 kg", "3 L", "24 each": an amount with its base unit. */
+export function amountWords(amount: number, dim: BaseUnit): string {
+  return `${plain(amount)} ${dim === "each" ? "each" : dim}`;
+}
+
 /* ---------------------------------------------------------------- the whole row, in one view */
 
 export interface ConversionView {
-  /** the number the row will send (typed, else derived), or null while it must be asked */
+  /** costing packs in one invoice unit (typed amount / the app's pack size, else derived), or null while it must be asked */
   packs: number | null;
-  /** what is in the box */
+  /** the amount in one invoice unit in the base unit (kg, L or each), or null while it must be asked */
+  amount: number | null;
+  /** the unit the amount is in */
+  base: BaseUnit;
+  /** the app's pack size in the base unit (0 when it has none) */
+  packSize: number;
+  /** what is in the box: an amount in the base unit, or a product such as "6 x 2" */
   boxText: string;
   /** the box holds something that cannot be used (typed rubbish, zero) */
   invalid: boolean;
@@ -352,12 +409,27 @@ export interface ConversionView {
   collapsed: boolean;
   /** why Save Matches holds this row back, in words; null when it is fine */
   blocker: string | null;
+  /** one-tap amounts (in the base unit) offered while the row asks */
   quick: number[];
 }
 
+/** The amounts offered as one-tap buttons while a row asks: the best guess, the app's own pack, then any size the description states. */
+export function quickAmounts(description: string | null | undefined, likely: number | null, packSize: number, dim: BaseUnit): number[] {
+  const out: number[] = [];
+  const add = (n: number | null | undefined) => {
+    if (n != null && n > 0 && !out.some((o) => Math.abs(o - n) / Math.max(o, 1e-9) < 0.001)) out.push(round4(n));
+  };
+  add(likely);
+  add(packSize);
+  for (const c of parseSizes(description)) if (c.dim === dim) add(c.amount);
+  return out.slice(0, 4);
+}
+
 /**
- * Everything the row shows. `typed` is what the person typed in the box (undefined = they have not touched it, so the derived
- * number shows). A conversion is settled only when `packs` is a real number.
+ * Everything the row shows. `typed` is what the person typed in the box: the AMOUNT in one invoice unit, in the ingredient's base
+ * unit (kg, L or each), as a number or a product such as "6 x 2" (undefined = they have not touched it, so the amount worked out
+ * from the invoice shows). The costing pack count is that amount divided by the app's pack size. A conversion is settled only
+ * when `packs` is a real number.
  */
 export function conversionView(input: {
   description: string | null | undefined;
@@ -369,17 +441,47 @@ export function conversionView(input: {
 }): ConversionView {
   const derivation = deriveConversion({ description: input.description, unit: input.unit, ingredient: input.ingredient });
   const unitLabel = readUnit(input.unit, input.description).label;
+  const base = baseUnitFor(input.ingredient.pack_unit) ?? "each";
+  const packSize = packBaseSize(input.ingredient) ?? 0;
   const touched = input.typed !== undefined;
-  const boxText = touched ? input.typed! : derivation.packs != null ? plain(derivation.packs) : "";
-  const parsed = touched ? parsePacksText(input.typed!) : derivation.packs;
-  const invalid = touched && input.typed!.trim() !== "" && parsed == null;
-  const packs = parsed;
+  const derivedAmount = derivation.unitSize?.amount ?? (derivation.packs != null && packSize > 0 ? round4(derivation.packs * packSize) : null);
+  const boxText = touched ? input.typed! : derivedAmount != null && derivation.packs != null ? plain(derivedAmount) : "";
+  let amount: number | null = null;
+  let packs: number | null = null;
+  if (touched) {
+    amount = parseAmountText(input.typed!, base);
+    if (amount != null && packSize > 0) {
+      const p = round4(amount / packSize);
+      packs = p > 0 && p <= MAX_PACKS_PER_UNIT ? p : null;
+      if (packs == null) amount = null;
+    } else amount = null;
+  } else if (derivation.packs != null) {
+    packs = derivation.packs;
+    amount = derivedAmount;
+  }
+  const invalid = touched && input.typed!.trim() !== "" && packs == null;
   const comparison = packs != null ? compareToApp({ packs, unitPriceEx: input.unitPriceEx, ingredient: input.ingredient, gstRate: input.gstRate }) : null;
   const note = comparison ? differenceNote(comparison) : null;
   const sentence = packs != null && comparison ? comparisonSentence(comparison, input.unitPriceEx ?? null, unitLabel) : null;
   const trivial = !touched && derivation.trivial && !note;
-  const blocker = packs == null ? (invalid ? "That number cannot be used. Type how many packs are in one " + unitLabel + "." : `Tell the app how much one ${unitLabel} is.`) : null;
-  return { packs, boxText, invalid, derivation, unitLabel, comparison, sentence, note, collapsed: trivial, blocker, quick: packs == null ? quickFactors(input.description, derivation.likelyPacks) : [] };
+  const ask = `Tell the app how many ${base === "each" ? "items" : base} are in one ${unitLabel}.`;
+  const blocker = packs == null ? (invalid ? `That cannot be used. Type how many ${base === "each" ? "items" : base} are in one ${unitLabel}, like 12 or 6 x 2.` : ask) : null;
+  return {
+    packs,
+    amount,
+    base,
+    packSize,
+    boxText,
+    invalid,
+    derivation,
+    unitLabel,
+    comparison,
+    sentence,
+    note,
+    collapsed: trivial,
+    blocker,
+    quick: packs == null ? quickAmounts(input.description, derivation.unitSize?.amount ?? null, packSize, base) : [],
+  };
 }
 
 /** "Sold per kg. Matches the app." for the collapsed state. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amountWords,
   collapsedSentence,
   compareToApp,
   comparisonSentence,
@@ -7,10 +8,12 @@ import {
   deriveConversion,
   describedSize,
   differenceNote,
+  parseAmountText,
   parsePacksText,
   parseSizes,
   quickFactors,
   readUnit,
+  splitProduct,
   stripSizes,
 } from "../lib/invoice-conversion";
 
@@ -218,18 +221,45 @@ describe("conversionView", () => {
     expect(v.blocker).toBeNull();
     expect(v.collapsed).toBe(false);
   });
-  it("a typed number wins and changes the comparison", () => {
+  it("a typed amount wins and changes the comparison", () => {
     const v = conversionView({ ...base, typed: "1" });
     expect(v.packs).toBe(1);
+    expect(v.amount).toBe(1);
     expect(v.note).toBe("The invoice is 150% above the app. Check the pack size or the app price.");
   });
-  it("unknown conversion: empty box, a blocker, and quick buttons that lead with the best guess", () => {
+  it("the box holds the amount in the base unit: the derived 2.5 kg for the bacon", () => {
+    const v = conversionView(base);
+    expect(v.amount).toBe(2.5);
+    expect(v.base).toBe("kg");
+  });
+  it("Troy's chips: a CTN with no size asks how many kg; 6 x 2 is 12 kg, one whole 12 kg pack", () => {
+    const chips = { description: "CHIPS 10MM SUPA CRUNCH ULTRAFAST", unit: "CTN", unitPriceEx: 51.7, ingredient: ing({ pack_size: 12, pack_price: 58.19, gst_free: false }), gstRate: 0.1 };
+    const ask = conversionView(chips);
+    expect(ask.packs).toBeNull();
+    expect(ask.blocker).toBe("Tell the app how many kg are in one CTN.");
+    expect(ask.quick).toEqual([12]);
+    const v = conversionView({ ...chips, typed: "6 x 2" });
+    expect(v.amount).toBe(12);
+    expect(v.packs).toBe(1);
+    expect(v.comparison?.invoicePerBase).toBeCloseTo(4.3083, 3);
+    expect(v.note).toBe("The invoice is 11% below the app. Check the pack size or the app price.");
+    expect(conversionView({ ...chips, typed: "12" }).packs).toBe(1);
+    expect(conversionView({ ...chips, typed: "24kg" }).packs).toBe(2);
+    expect(conversionView({ ...chips, typed: "6" }).packs).toBe(0.5);
+  });
+  it("unknown conversion: empty box, a blocker, and quick buttons in the base unit", () => {
     const v = conversionView({ ...base, description: "CHOCOLATE BUTTONS 5kg", unit: "CTN", ingredient: ing({ pack_size: 5 }) });
     expect(v.packs).toBeNull();
     expect(v.boxText).toBe("");
-    expect(v.blocker).toBe("Tell the app how much one CTN is.");
-    expect(v.quick[0]).toBe(1);
+    expect(v.blocker).toBe("Tell the app how many kg are in one CTN.");
+    expect(v.quick[0]).toBe(5);
     expect(v.sentence).toBeNull();
+  });
+  it("litres and eaches ask in their own words", () => {
+    const v = conversionView({ description: "SAUCE", unit: "CTN", unitPriceEx: 40, ingredient: ing({ pack_size: 1, pack_unit: "L" }), gstRate: 0.1 });
+    expect(v.blocker).toBe("Tell the app how many L are in one CTN.");
+    expect(conversionView({ description: "BEER", unit: "CTN", unitPriceEx: 40, ingredient: ing({ pack_size: 1, pack_unit: "each" }), gstRate: 0.1 }).blocker).toBe("Tell the app how many items are in one CTN.");
+    expect(conversionView({ description: "BEER", unit: "CTN", unitPriceEx: 40, ingredient: ing({ pack_size: 1, pack_unit: "each" }), gstRate: 0.1, typed: "24" }).packs).toBe(24);
   });
   it("rubbish or zero typed counts as not settled", () => {
     for (const t of ["", "0", "-2", "abc", "1.23456", "10001"]) {
@@ -258,6 +288,24 @@ describe("small helpers", () => {
     expect(parsePacksText(" 1,200 ")).toBe(1200);
     expect(parsePacksText("0")).toBeNull();
     expect(parsePacksText("2,5")).toBeNull();
+  });
+  it("parseAmountText reads numbers, products and units, in the base unit's dimension", () => {
+    expect(parseAmountText("12", "kg")).toBe(12);
+    expect(parseAmountText("6 x 2", "kg")).toBe(12);
+    expect(parseAmountText("6x2.5", "kg")).toBe(15);
+    expect(parseAmountText("6 × 2kg", "kg")).toBe(12);
+    expect(parseAmountText("500g", "kg")).toBe(0.5);
+    expect(parseAmountText("12 x 250ml", "L")).toBe(3);
+    expect(parseAmountText("1,200", "kg")).toBe(1200);
+    expect(parseAmountText("24", "each")).toBe(24);
+    for (const bad of ["", "0", "-2", "abc", "1.23456", "6 x", "12L", "6 x 2 x 3", "200000"]) expect(parseAmountText(bad, "kg"), bad).toBeNull();
+    expect(parseAmountText("12kg", "L")).toBeNull();
+  });
+  it("splitProduct and amountWords", () => {
+    expect(splitProduct("6 x 2")).toEqual(["6", "2"]);
+    expect(splitProduct("12")).toBeNull();
+    expect(amountWords(12, "kg")).toBe("12 kg");
+    expect(amountWords(24, "each")).toBe("24 each");
   });
   it("quickFactors puts the guess first and stays short", () => {
     expect(quickFactors("CHIPS 6x2kg", 2.5)).toEqual([2.5, 6, 1, 12, 24]);

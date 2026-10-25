@@ -118,8 +118,8 @@ describe("buildDetails: the conversion and the new name per chosen row", () => {
     expect(needsPackText(1)).toBe("1 item needs a pack size before it can be saved.");
     expect(needsPackText(3)).toBe("3 items need a pack size before they can be saved.");
     expect(needsPackText(0)).toBeNull();
-    // typing the number settles it and it goes out in the note
-    const typed = buildDetails(groups, dec, ctx({ typedPacks: new Map([[mystery.key, "0.5"]]) }));
+    // typing the kg in one unit settles it (6 kg against the 12 kg pack is half a pack) and it goes out in the note
+    const typed = buildDetails(groups, dec, ctx({ typedPacks: new Map([[mystery.key, "6"]]) }));
     expect(rowSettled(dec.get(mystery.key), typed.get(mystery.key))).toBe(true);
     const built = buildItemAnswers(groups, dec, packsMap(typed));
     expect(parseAnswerNote(built[0].answer.note)).toEqual({ ingredient_id: "chips", packs_per_unit: 0.5 });
@@ -392,7 +392,7 @@ describe("source rules for the new files", () => {
     expect(d).toContain('role="switch"');
     expect(d).toContain("Keep Current Name");
     expect(d).toContain("App name will become");
-    expect(d).toContain("Tell the app how much one");
+    expect(d).toContain("Work It Out From Packs");
   });
   it("writes only through the store, the ordering data layer and answerItemGroups, never a raw insert or update", () => {
     for (const f of files) expect(strip(read(f)), f).not.toMatch(/\.(insert|upsert)\(|\.from\([^)]*\)\s*\.(update|delete)\(/);

@@ -243,25 +243,18 @@ describe("POST and GET /api/invoices/digest", () => {
     }
   });
 
-  it("with the right secret and no webhook returns { sent: false, text } and records nothing", async () => {
-    const res = await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": SECRET }, { documentIds: [D1, D2] }));
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.sent).toBe(false);
-    expect(json.text).toContain("*Drift: 2 invoices processed.*");
+  it("per-run Slack messages are switched off: POST sends nothing, with or without a webhook", async () => {
+    const none = await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": SECRET }, { documentIds: [D1, D2] }));
+    expect(none.status).toBe(200);
+    expect(await none.json()).toMatchObject({ sent: false, text: null, messages: [] });
     expect(current.upserts).toHaveLength(0);
-  });
-
-  it("with a webhook set it posts once and the second call is a no-op", async () => {
     vi.stubEnv("INVOICE_SLACK_WEBHOOK_URL", "https://hooks.example/abc");
     const f = okFetch();
     vi.stubGlobal("fetch", f);
-    const first = await (await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": SECRET }, { documentIds: [D1, D2] }))).json();
-    expect(first.sent).toBe(true);
-    const second = await (await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": SECRET }, { documentIds: [D1, D2] }))).json();
-    expect(second.sent).toBe(false);
-    expect(second.text).toBeNull();
-    expect(f).toHaveBeenCalledTimes(1);
+    const again = await (await digestRoute.POST(req("POST", "/api/invoices/digest", { "x-invoice-secret": SECRET }, { documentIds: [D1, D2] }))).json();
+    expect(again.sent).toBe(false);
+    expect(f).not.toHaveBeenCalled();
+    expect(current.upserts).toHaveLength(0);
     vi.unstubAllGlobals();
   });
 

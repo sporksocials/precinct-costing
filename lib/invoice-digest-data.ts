@@ -11,18 +11,30 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceClient as baseServiceClient, insertRow } from "./supabase/service";
 import { MIN_SECRET_LENGTH } from "./invoice-auth";
 import { INVOICE_ENV, INVOICE_SETTING_KEYS, DEFAULT_INVOICE_SETTINGS } from "./invoice-types";
+import { SAME_PRICE_EPS } from "./invoice-guards";
+import { descKey, normCode } from "./invoice-names";
+import { loadDiscountGroups } from "./invoice-discount-data";
+import type { DiscountGroup } from "./invoice-discounts";
 import {
   DEFAULT_APP_ORIGIN,
+  WEEKLY_REVIEW_DAYS,
+  WEEKLY_REVIEW_REPEAT_DAYS,
+  brisbaneParts,
   buildSlackDigest,
+  buildWeeklyReview,
+  isWeeklyReviewBody,
   planWeekly,
   shortSupplier,
   withoutAttachments,
   type AttentionItem,
+  type DiscountNote,
   type SlackDigestData,
   type VenueIn,
   type WeeklyDocIn,
   type WeeklyPlan,
   type WeeklyQuestionIn,
+  type WeeklyReviewData,
+  type WeeklyVenueData,
 } from "./invoice-digest";
 
 const BUCKET = "invoice-pdfs";
@@ -435,4 +447,323 @@ export async function markQuestionsEmailed(sb: SupabaseClient, questionIds: stri
   });
   if (error) console.warn("invoice digest: could not record the weekly email");
   return { marked: questionIds.length };
+}
+
+// ---------------------------------------------------------------- the weekly Slack review: assembly (pure)
+/*
+ * Definitions (they match the To Do screens, which count the same way):
+ *   items to match   distinct (supplier, item code else description) among the lines of OPEN unmatched_line and ambiguous_match
+ *                    questions on documents that are not duplicate, failed or ignored
+ *   prices to approve  open product lines with decision needs_approval or apply whose new price differs from the old
+ *   to check         open questions of kind unit_unclear, totals_mismatch, credit_unclear, other, and new_supplier ones that
+ *                    mention an ABN mismatch
+ *   invoices read    invoices and credit notes created in the period that have been read (a read_model, or a status other than
+ *                    needs_review), not duplicate, failed or ignored
+ *   prices updated / confirmed   invoice_price_changes applied in the period, kind price_change / price_confirmed
+ *   still being read documents in needs_review with no read_model
+ */
+const DEAD_DOC = new Set(["duplicate", "failed", "ignored"]);
+const CHECK_KINDS = new Set(["unit_unclear", "totals_mismatch", "credit_unclear", "other"]);
+const MATCH_KINDS = new Set(["unmatched_line", "ambiguous_match"]);
+const READ_DOC_TYPES = new Set(["invoice", "credit_note"]);
+
+export interface WeeklyRawDoc {
+  id: string;
+  venue_id: number;
+  supplier_id: string | null;
+  supplier_name_read: string | null;
+  doc_type: string;
+  status: string;
+  read_model: string | null;
+  created_at: string;
+}
+export interface WeeklyRawQuestion {
+  id: string;
+  venue_id: number;
+  document_id: string;
+  line_id: string | null;
+  kind: string;
+  prompt: string;
+}
+export interface WeeklyRawLine extends SlackRawLine {
+  id: string;
+  venue_id: number;
+  item_code: string | null;
+}
+export interface WeeklyRaw {
+  now: Date;
+  venues: VenueIn[];
+  /** every document any of the lists below points at (duplicates are deduplicated by id) */
+  docs: WeeklyRawDoc[];
+  /** open questions, any age */
+  questions: WeeklyRawQuestion[];
+  /** the lines the open questions point at (for the item code and description) */
+  questionLines: { id: string; document_id: string; item_code: string | null; description: string }[];
+  /** open product lines whose decision is needs_approval or apply */
+  openLines: WeeklyRawLine[];
+  /** the product lines of the documents created in the period */
+  periodLines: WeeklyRawLine[];
+  /** price changes applied in the period */
+  changes: { venue_id: number; kind: string }[];
+  supplierNames: Map<string, string>;
+  /** supplier discounts by venue id */
+  discounts: Map<number, DiscountGroup[]>;
+}
+
+const finiteNum = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
+/** The "prices to approve" test: a pack or ordering product price pair where the new price is not the old one. */
+export function priceDiffers(l: Pick<SlackRawLine, "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price">): boolean {
+  const pair = (oldP: unknown, newP: unknown): boolean => {
+    const n = finiteNum(newP);
+    if (n == null) return false;
+    const o = finiteNum(oldP);
+    return o == null || Math.abs(n - o) >= SAME_PRICE_EPS;
+  };
+  return pair(l.old_pack_price, l.new_pack_price) || pair(l.old_product_price, l.new_product_price);
+}
+
+/** yyyy-mm-dd in Brisbane. */
+export function brisbaneDay(d: Date): string {
+  const p = brisbaneParts(d);
+  return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/** The review period: the 7 days up to the run. */
+export function reviewPeriod(now: Date): { from: Date; to: Date; fromDay: string; toDay: string } {
+  const from = new Date(now.getTime() - WEEKLY_REVIEW_DAYS * 24 * 3600 * 1000);
+  return { from, to: now, fromDay: brisbaneDay(from), toDay: brisbaneDay(now) };
+}
+
+function toDiscountNote(g: DiscountGroup): DiscountNote {
+  return {
+    supplier: g.supplier,
+    item: g.item,
+    status: g.status,
+    pctMean: g.pct.mean,
+    pctMin: g.pct.min,
+    pctMax: g.pct.max,
+    perUnit: g.perBase ? g.perBase.mean : null,
+    unit: g.baseUnit,
+  };
+}
+
+/** One WeeklyVenueData for every venue, counted by the definitions above. Pure: no database, no clock. */
+export function assembleWeeklyData(raw: WeeklyRaw, origin: string): WeeklyReviewData {
+  const { from, to, fromDay, toDay } = reviewPeriod(raw.now);
+  const docById = new Map(raw.docs.map((d) => [d.id, d]));
+  const live = (id: string): WeeklyRawDoc | null => {
+    const d = docById.get(id);
+    return d && !DEAD_DOC.has(d.status) ? d : null;
+  };
+  const supplierOf = (d: WeeklyRawDoc): string => shortSupplier((d.supplier_id && raw.supplierNames.get(d.supplier_id)) || d.supplier_name_read);
+  const supplierKey = (d: WeeklyRawDoc): string => d.supplier_id ?? `name:${descKey(d.supplier_name_read)}`;
+
+  const venues = new Map<number, WeeklyVenueData>();
+  const get = (id: number): WeeklyVenueData => {
+    let v = venues.get(id);
+    if (!v) {
+      const info = raw.venues.find((x) => x.id === id);
+      v = { venueName: info?.name ?? "Venue", venueSlug: info?.slug ?? "", invoicesRead: 0, pricesUpdated: 0, pricesConfirmed: 0, moves: [], discounts: [], toMatch: 0, toApprove: 0, toCheck: 0, stillReading: 0 };
+      venues.set(id, v);
+    }
+    return v;
+  };
+  for (const info of raw.venues) get(info.id);
+
+  // invoices read, and the ones still being read
+  const readIds = new Set<string>();
+  for (const d of raw.docs) {
+    if (DEAD_DOC.has(d.status)) continue;
+    if (d.status === "needs_review" && !d.read_model) {
+      get(d.venue_id).stillReading++;
+      continue;
+    }
+    const t = Date.parse(d.created_at);
+    if (!READ_DOC_TYPES.has(d.doc_type) || Number.isNaN(t) || t < from.getTime() || t > to.getTime()) continue;
+    get(d.venue_id).invoicesRead++;
+    readIds.add(d.id);
+  }
+
+  for (const c of raw.changes) {
+    if (c.kind === "price_change") get(c.venue_id).pricesUpdated++;
+    else if (c.kind === "price_confirmed") get(c.venue_id).pricesConfirmed++;
+  }
+
+  // price moves: this week's read invoices, lines that changed a price (applied, or waiting for a tap)
+  for (const l of raw.periodLines) {
+    const doc = readIds.has(l.document_id) ? live(l.document_id) : null;
+    if (!doc || l.line_class !== "product") continue;
+    if (l.decision !== "apply" && l.decision !== "needs_approval") continue;
+    if (l.state !== "open" && l.state !== "applied") continue;
+    const pct = finiteNum(l.change_pct);
+    if (pct == null || pct <= -1 || Math.round(Math.abs(pct) * 1000) === 0) continue;
+    const item = toAttentionItem(l, supplierOf(doc));
+    if (item.oldPrice == null || item.newPrice == null || item.oldPrice === item.newPrice) continue;
+    get(doc.venue_id).moves.push(item);
+  }
+
+  // still to do
+  const lineById = new Map(raw.questionLines.map((l) => [l.id, l]));
+  const matchKeys = new Set<string>();
+  for (const q of raw.questions) {
+    const doc = live(q.document_id);
+    if (!doc) continue;
+    if (MATCH_KINDS.has(q.kind)) {
+      const line = q.line_id ? lineById.get(q.line_id) : undefined;
+      const what = line ? (normCode(line.item_code) ? `code:${normCode(line.item_code)}` : `desc:${descKey(line.description)}`) : `question:${q.id}`;
+      const key = `${q.venue_id}|${supplierKey(doc)}|${what}`;
+      if (!matchKeys.has(key)) {
+        matchKeys.add(key);
+        get(q.venue_id).toMatch++;
+      }
+    } else if (CHECK_KINDS.has(q.kind) || (q.kind === "new_supplier" && /\bABN\b/i.test(q.prompt))) {
+      get(q.venue_id).toCheck++;
+    }
+  }
+  for (const l of raw.openLines) {
+    if (!live(l.document_id) || l.line_class !== "product" || l.state !== "open") continue;
+    if (l.decision !== "needs_approval" && l.decision !== "apply") continue;
+    if (priceDiffers(l)) get(l.venue_id).toApprove++;
+  }
+
+  // supplier discounts whose latest invoice is new this week
+  for (const [venueId, groups] of raw.discounts) {
+    const v = get(venueId);
+    for (const g of groups) {
+      const day = g.latest?.date;
+      if (day && day > fromDay && day <= toDay) v.discounts.push(toDiscountNote(g));
+    }
+  }
+
+  const order = (id: number) => raw.venues.find((x) => x.id === id)?.sort ?? 0;
+  const sorted = [...venues.entries()].sort((a, b) => order(a[0]) - order(b[0]) || a[0] - b[0]).map(([, v]) => v);
+  return { now: raw.now, origin, venues: sorted };
+}
+
+// ---------------------------------------------------------------- the weekly Slack review: queries
+const PAGE = 1000;
+
+/** Reads every row of a query, a page at a time (the database returns at most 1000 rows per request). */
+async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>, what: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 0; page < 30; page++) {
+    const { data, error } = await build(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) throw new Error(`Could not read ${what}.`);
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+const DOC_COLUMNS = "id, venue_id, supplier_id, supplier_name_read, doc_type, status, read_model, created_at";
+const LINE_COLUMNS =
+  "id, document_id, venue_id, line_no, line_class, item_code, description, unit, unit_price_ex, change_pct, old_pack_price, new_pack_price, old_product_price, new_product_price, decision, state";
+
+/** Everything the weekly review needs, read once. Any failure throws a plain message (nothing is posted on a failed read). */
+export async function loadWeeklyRaw(sb: SupabaseClient, now: Date): Promise<WeeklyRaw> {
+  const { from } = reviewPeriod(now);
+  const fromIso = from.toISOString();
+  const venues = await loadVenues(sb);
+
+  const periodDocs = await pageAll<WeeklyRawDoc>((a, b) => sb.from("invoice_documents").select(DOC_COLUMNS).gte("created_at", fromIso).order("id").range(a, b), "documents");
+  const unreadDocs = await pageAll<WeeklyRawDoc>((a, b) => sb.from("invoice_documents").select(DOC_COLUMNS).eq("status", "needs_review").is("read_model", null).order("id").range(a, b), "documents");
+  const questions = await pageAll<WeeklyRawQuestion>((a, b) => sb.from("invoice_questions").select("id, venue_id, document_id, line_id, kind, prompt").eq("status", "open").order("id").range(a, b), "questions");
+  const openLines = await pageAll<WeeklyRawLine>(
+    (a, b) => sb.from("invoice_lines").select(LINE_COLUMNS).eq("state", "open").eq("line_class", "product").in("decision", ["needs_approval", "apply"]).order("id").range(a, b),
+    "invoice lines",
+  );
+  const changes = await pageAll<{ venue_id: number; kind: string }>(
+    (a, b) => sb.from("invoice_price_changes").select("id, venue_id, kind").eq("status", "applied").gte("applied_at", fromIso).order("id").range(a, b),
+    "price changes",
+  );
+
+  // the lines behind the "match" questions, and the documents anything above points at that we do not have yet
+  const lineIds = [...new Set(questions.filter((q) => MATCH_KINDS.has(q.kind) && q.line_id).map((q) => q.line_id as string))];
+  const questionLines: WeeklyRaw["questionLines"] = [];
+  for (const part of chunks(lineIds, 100)) {
+    questionLines.push(...(await all<WeeklyRaw["questionLines"][number]>(sb.from("invoice_lines").select("id, document_id, item_code, description").in("id", part), "invoice lines")));
+  }
+
+  const docs = new Map<string, WeeklyRawDoc>();
+  for (const d of [...periodDocs, ...unreadDocs]) docs.set(d.id, d);
+  const need = new Set<string>([...questions.map((q) => q.document_id), ...openLines.map((l) => l.document_id)]);
+  const missing = [...need].filter((id) => !docs.has(id));
+  for (const part of chunks(missing, 100)) {
+    for (const d of await all<WeeklyRawDoc>(sb.from("invoice_documents").select(DOC_COLUMNS).in("id", part), "documents")) docs.set(d.id, d);
+  }
+
+  // lines of this week's read invoices, for the price moves
+  const periodLines: WeeklyRawLine[] = [];
+  const readPeriodIds = periodDocs.filter((d) => READ_DOC_TYPES.has(d.doc_type) && !DEAD_DOC.has(d.status) && !(d.status === "needs_review" && !d.read_model)).map((d) => d.id);
+  for (const part of chunks(readPeriodIds, 50)) {
+    periodLines.push(...(await pageAll<WeeklyRawLine>((a, b) => sb.from("invoice_lines").select(LINE_COLUMNS).in("document_id", part).eq("line_class", "product").order("id").range(a, b), "invoice lines")));
+  }
+
+  const supplierNames = await loadSupplierNames(sb, [...docs.values()].map((d) => d.supplier_id).filter((s): s is string => !!s));
+  const discounts = new Map<number, DiscountGroup[]>();
+  for (const v of venues) discounts.set(v.id, (await loadDiscountGroups(sb, { venueId: v.id })).groups);
+
+  return { now, venues, docs: [...docs.values()], questions, questionLines, openLines, periodLines, changes, supplierNames, discounts };
+}
+
+// ---------------------------------------------------------------- the weekly Slack review: send
+export interface WeeklySendOptions {
+  origin?: string;
+  /** defaults to INVOICE_SLACK_WEBHOOK_URL; null or empty means "no Slack": nothing is posted or recorded */
+  webhookUrl?: string | null;
+  fetchImpl?: typeof fetch;
+  now?: Date;
+  /** build the text only: post nothing, record nothing, and skip the "already sent" check */
+  dryRun?: boolean;
+}
+
+export interface WeeklySendResult {
+  sent: boolean;
+  /** the review text; null only when it was not built because this week's review already went out */
+  text: string | null;
+  note?: string;
+}
+
+/** True when a weekly review was recorded as sent in the last few days. */
+export async function weeklyAlreadySent(sb: SupabaseClient, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - WEEKLY_REVIEW_REPEAT_DAYS * 24 * 3600 * 1000).toISOString();
+  const rows = await all<{ document_ids: string[] | null; body: string | null }>(sb.from("invoice_digests").select("document_ids, body").eq("kind", "slack").gte("sent_at", since), "earlier digests");
+  return rows.some((r) => (r.document_ids ?? []).length === 0 && isWeeklyReviewBody(r.body));
+}
+
+/** The weekly review text for the week to `now`, read from the database. Posts nothing. */
+export async function buildWeeklyReviewText(sb: SupabaseClient, now: Date, origin: string): Promise<string> {
+  return buildWeeklyReview(assembleWeeklyData(await loadWeeklyRaw(sb, now), origin));
+}
+
+/**
+ * Builds the weekly review and, when a webhook is set, posts it to Slack and records ONE invoice_digests row. Answers
+ * "Already sent this week." (and posts nothing) when a weekly review was recorded in the last 5 days, so a double trigger can
+ * never send twice. With no webhook the text comes back and nothing is recorded; a post Slack refuses is not recorded either.
+ */
+export async function sendWeeklyReview(sb: SupabaseClient, opts: WeeklySendOptions = {}): Promise<WeeklySendResult> {
+  const now = opts.now ?? new Date();
+  if (!opts.dryRun && (await weeklyAlreadySent(sb, now))) return { sent: false, text: null, note: "Already sent this week." };
+
+  const text = await buildWeeklyReviewText(sb, now, opts.origin ?? appOrigin());
+  if (opts.dryRun) return { sent: false, text };
+  const webhook = opts.webhookUrl === undefined ? process.env[INVOICE_ENV.slackWebhook]?.trim() : opts.webhookUrl?.trim();
+  if (!webhook) return { sent: false, text, note: "No Slack address is set up." };
+
+  if (!(await postToSlack(webhook, text, opts.fetchImpl))) return { sent: false, text, note: "Slack did not accept the message." };
+  const { from } = reviewPeriod(now);
+  const { error } = await insertRow(sb, "invoice_digests", {
+    id: randomUUID(),
+    kind: "slack",
+    period_from: from.toISOString(),
+    period_to: now.toISOString(),
+    document_ids: [],
+    question_ids: [],
+    body: text,
+    sent_at: now.toISOString(),
+  });
+  if (error) console.warn("invoice digest: could not record the weekly review");
+  return { sent: true, text };
 }

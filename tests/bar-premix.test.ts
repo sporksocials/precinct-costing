@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { shotsFor } from "@/lib/bar";
-import { bottleLineAmount, bottleMl, bottleSizeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
+import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
 import { stationWorkerSource } from "@/lib/sw-source";
 
 const NOW = "2026-10-04T08:00:00.000Z";
@@ -178,5 +178,66 @@ describe("pre-mix page wiring", () => {
     const { isBarPath } = await import("@/lib/bar");
     expect(isBarPath("/bar/drift/premix")).toBe(true);
     expect(isBarPath("/api/bar/drift/premix")).toBe(true);
+  });
+});
+
+describe("making several bottles at once", () => {
+  it("clamps the bottle count to whole numbers from 1 to the maximum", () => {
+    expect(clampBottles(4)).toBe(4);
+    expect(clampBottles(0)).toBe(1);
+    expect(clampBottles(-3)).toBe(1);
+    expect(clampBottles(2.6)).toBe(3);
+    expect(clampBottles(Number.NaN)).toBe(1);
+    expect(clampBottles(1000)).toBe(MAX_BOTTLES);
+    expect(bottlesText(1)).toBe("1 bottle");
+    expect(bottlesText(4)).toBe("4 bottles");
+  });
+
+  it("reads volumes in ml up to a litre and in litres after, rounded down", () => {
+    expect(volumeText(560)).toBe("560 ml");
+    expect(volumeText(999.9)).toBe("999 ml");
+    expect(volumeText(1000)).toBe("1 L");
+    expect(volumeText(1400)).toBe("1.4 L");
+    expect(volumeText(2333)).toBe("2.33 L");
+    expect(volumeText(9000)).toBe("9 L");
+  });
+
+  it("multiplies a line, rounding down after the multiply", () => {
+    expect(batchLineAmount(140, "ml", 1)).toBe("140 ml");
+    expect(batchLineAmount(140, "ml", 4)).toBe("560 ml");
+    expect(batchLineAmount(140, "ml", 10)).toBe("1.4 L");
+    expect(batchLineAmount(116.6667, "ml", 3)).toBe("350 ml");
+    expect(batchLineAmount(0.15, "L", 4)).toBe("600 ml");
+    expect(batchLineAmount(2, "each", 3)).toBe("6 each");
+    expect(batchLineAmount(140, "ml", 500)).toBe(batchLineAmount(140, "ml", MAX_BOTTLES));
+  });
+
+  it("keeps the one-bottle amount beside a scaled line, and the shots hint only for one bottle", () => {
+    const line = { name: "Vodka (700ml)", qty: 150, unit: "ml", sort: 1 };
+    expect(batchLineDisplay(line, 1)).toEqual({ name: "Vodka", amount: "150 ml", shots: "5 shots", each: null });
+    expect(batchLineDisplay(line, 4)).toEqual({ name: "Vodka", amount: "600 ml", shots: null, each: "150 ml a bottle" });
+  });
+
+  it("totals the batch and the serves it makes", () => {
+    const drift = { yieldQty: 0.7, yieldUnit: "L" };
+    expect(batchTotalText(drift, 1)).toBeNull();
+    expect(batchTotalText(drift, 4)).toBe("4 bottles, 2.8 L");
+    expect(batchTotalText({ yieldQty: 0.9, yieldUnit: "L" }, 10)).toBe("10 bottles, 9 L");
+    expect(batchTotalText({ yieldQty: 2, yieldUnit: "kg" }, 3)).toBe("3 bottles");
+    const use = { drink: "Long Island Iced Tea", qty: 75, unit: "ml" };
+    expect(batchServesText(700, use, 1)).toBeNull();
+    expect(batchServesText(700, use, 4)).toBe("36 serves from 4 bottles");
+    expect(batchServesText(null, use, 4)).toBeNull();
+  });
+
+  it("is wired into the card: a counter with 44px+ targets, quick picks, and no write anywhere", () => {
+    const src = readFileSync("components/bar/premix.tsx", "utf8");
+    expect(src).toContain("Bottles To Make");
+    expect(src).toContain("batchLineDisplay(l, bottles)");
+    expect(src).toContain("batchServesText(bottle, u, bottles)");
+    expect(src).toMatch(/h-\[56px\] w-\[56px\]/);
+    expect(src).toMatch(/min-h-\[48px\]/);
+    expect(src).not.toMatch(/localStorage|sessionStorage|fetch\(.*method|supabase/i);
+    expect(src).not.toMatch(/[\u2013\u2014]/);
   });
 });

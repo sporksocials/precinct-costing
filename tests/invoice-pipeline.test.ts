@@ -895,3 +895,58 @@ describe("venue attribution with the real engine", () => {
     expect(w.saves[1].analysis.duplicate_of).toBe("d1");
   });
 });
+
+// ---------------------------------------------------------------- match suggestions
+describe("match suggestions", () => {
+  const withQuestion = (): PipelineDeps["analyse"] => (ex, ctx) => ({
+    ...w.analyse(ex, ctx),
+    questions: [{ kind: "unmatched_line", line_no: 1, prompt: "Bidfood sent POTATO WEDGES SEASONED (MCCAIN) 2kg.", options: [] }],
+  });
+
+  it("asks for suggestions once per document that has questions, right after it is saved", async () => {
+    const asked: string[] = [];
+    w.addFile();
+    const mk = () => w.deps({ analyse: withQuestion(), suggest: async (id) => void asked.push(id) });
+    await drain(mk);
+    expect(asked).toEqual(["d1", "d2", "d3"]);
+    expect(w.saves.map((s) => s.documentId)).toEqual(["d1", "d2", "d3"]);
+  });
+
+  it("does not ask when the invoice has no questions", async () => {
+    const asked: string[] = [];
+    w.addFile();
+    await drain(() => w.deps({ suggest: async (id) => void asked.push(id) }));
+    expect(asked).toEqual([]);
+  });
+
+  it("skips suggestions when the step has too little time left, and the invoice is still saved", async () => {
+    const asked: string[] = [];
+    w.addFile();
+    await runStep(w.deps()); // the sort
+    w.callMs = 40_000; // the read uses 40 s of the 50 s budget
+    const r = await runStep(w.deps({ analyse: withQuestion(), suggest: async (id) => void asked.push(id) }));
+    expect(r.stage).toBe("read");
+    expect(w.saves).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+
+  it("a failing suggestion call never fails the invoice or the file", async () => {
+    w.addFile();
+    const { documents } = await drain(() => w.deps({ analyse: withQuestion(), suggest: async () => { throw new Error("model down"); } }));
+    expect(documents).toHaveLength(3);
+    expect(w.files[0].status).toBe("done");
+  });
+
+  it("uses an idle step to add suggestions to an older document, and goes idle when there is nothing left", async () => {
+    let left = 2;
+    const mk = () => w.deps({ suggestNext: async () => left-- > 0 });
+    expect(await runStep(mk())).toMatchObject({ idle: false, stage: "read", documents: [] });
+    expect(await runStep(mk())).toMatchObject({ idle: false, stage: "read" });
+    expect(await runStep(mk())).toMatchObject({ idle: true, stage: "idle" });
+  });
+
+  it("a failing backfill is swallowed and the step reads as idle", async () => {
+    const r = await runStep(w.deps({ suggestNext: async () => { throw new Error("db down"); } }));
+    expect(r.idle).toBe(true);
+  });
+});

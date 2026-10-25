@@ -48,6 +48,8 @@ export const INVOICE_BUCKET = "invoice-pdfs";
 export const STEP_BUDGET_MS = 50_000;
 /** a document is not started with less than this left (a read plus the save and the apply need room) */
 export const READ_MIN_REMAINING_MS = 25_000;
+/** match suggestions are one cheap call: only asked for with at least this long left in the step */
+export const SUGGEST_MIN_REMAINING_MS = 12_000;
 /** a model call ends at least this long before the budget does, so the save after it still fits */
 export const CALL_MARGIN_MS = 5_000;
 /** a model call is never started with less than this to run */
@@ -131,6 +133,10 @@ export interface PipelineDeps {
   save: SaveAnalysis;
   autoApply: ApplyDocumentAuto;
   notify?: (event: NotifyEvent) => Promise<void>;
+  /** adds match suggestions to a document's open unmatched-line questions (never throws; one cheap model call) */
+  suggest?: (documentId: string) => Promise<void>;
+  /** when nothing is waiting to be read: finds ONE older document whose questions never got suggestions and adds them; true when it did */
+  suggestNext?: () => Promise<boolean>;
   clock: PipelineClock;
   /** defaults come from the environment (INVOICE_SORT_MODEL, INVOICE_READ_MODEL) */
   models?: { sort: string; read: string };
@@ -298,7 +304,17 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
   const { repo, storage } = deps;
 
   const file = await repo.claimFile({ stalledBefore: new Date(start - STALLED_AFTER_MS).toISOString(), nowIso: new Date(start).toISOString() });
-  if (!file) return idleResult();
+  if (!file) {
+    // Nothing to read: use the quiet moment to add suggestions to older documents (the ones read before suggestions existed).
+    if (deps.suggestNext) {
+      try {
+        if (await deps.suggestNext()) return { idle: false, fileId: null, stage: "read", documents: [], message: "Added match suggestions to an earlier invoice." };
+      } catch (e) {
+        console.warn(`Invoice suggestion backfill failed: ${safeError(e)}`);
+      }
+    }
+    return idleResult();
+  }
 
   const finished: Finished[] = [];
   try {
@@ -476,6 +492,15 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
     } catch (e) {
       // the invoice is saved and waits for a tap like any other; nothing was half-applied that the undo ledger does not hold
       console.warn(`Invoice auto-apply failed for a document: ${safeError(e)}`);
+    }
+  }
+  // Match suggestions for the lines nobody could match: only with time to spare (a later quiet step adds them otherwise), and a failure
+  // here never touches the invoice.
+  if (analysis.questions.length > 0 && deps.suggest && remainingMs(deps, start) >= SUGGEST_MIN_REMAINING_MS) {
+    try {
+      await deps.suggest(saved.documentId);
+    } catch (e) {
+      console.warn(`Invoice suggestions failed for a document: ${safeError(e)}`);
     }
   }
   // the document's venue (not the folder's) is the one that gets the digest and the answer

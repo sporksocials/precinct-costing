@@ -325,11 +325,13 @@ describe("guards end to end (one invoice line, one broken thing at a time)", () 
     expect(keg(a).decision_reason).toBe("This supplier is not set to apply prices by itself yet.");
   });
 
-  it("a zero quantity line is never applied", () => {
+  it("a zero quantity line is not a product on this invoice: skipped quietly, never applied, never asked about", () => {
     const a = run({ edit: (d) => { d.lines[0].qty = 0; d.lines[0].line_total = 0; d.subtotal_ex = 0; d.gst_total = 0; d.total_inc = 0; } });
-    expect(keg(a).decision).toBe("needs_approval");
-    expect(keg(a).decision_reason).toBe("Nothing was delivered on this line (quantity 0).");
+    expect(keg(a).decision).toBe("none");
+    expect(keg(a).match_state).toBe("ignored");
+    expect(keg(a).decision_reason).toBe("Not supplied on this invoice.");
     expect(keg(a).landed_unit_ex).toBeNull();
+    expect(a.questions.filter((q) => q.line_no === keg(a).line_no)).toHaveLength(0);
   });
 
   it("a line whose maths cannot be checked (no quantity) is not applied", () => {

@@ -25,7 +25,7 @@ import type {
   ReconNote,
 } from "./invoice-types";
 import { baseUnitFor, baseQuantity, resolvePacks, type PackResolution } from "./invoice-units";
-import { documentPriceBasis, lineAmounts, reconcile, type LineAmounts, type ReconLine } from "./invoice-recon";
+import { documentPriceBasis, isNotSupplied, lineAmounts, reconcile, settleGst, type LineAmounts, type ReconLine } from "./invoice-recon";
 import { classifyLine, isChargeClass, type Classified } from "./invoice-classify";
 import { buildMatcher, checkVenue, findDuplicate, matchSupplier, type LineMatch } from "./invoice-match";
 import { allocateLanded, attachDiscounts, type LandedLineResult, type LandedProduct, type LandedCredit } from "./invoice-landed";
@@ -58,6 +58,13 @@ interface Work {
   pack: PackResolution | null;
   baseQty: number | null;
   baseUnit: string | null;
+  /** the line was not supplied (ordered, not delivered): not a product on this invoice, left out of every check */
+  skip: boolean;
+  /**
+   * The discount printed on (or inferred for) the line itself, in dollars ex GST: qty x list price less the net line total. The
+   * line total is already NET of it; landed cost and the discount columns add it back as gross and as a discount.
+   */
+  printedDiscEx: number;
 }
 
 /** One price the invoice would set: the ingredient's pack price, or the ordering product's price. */
@@ -170,7 +177,10 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   const invoiceLike = extracted.doc_type === "invoice" || extracted.doc_type === "credit_note";
 
   // ---------------------------------------------------------------- 2 amounts and classes
-  const work: Work[] = extracted.lines.map((line, i) => {
+  // GST that the invoice itself settles: a printed GST total of 0.00 makes every line GST free; a discount or credit line with no GST
+  // status takes the status of the product it belongs to (see settleGst)
+  const settledLines = settleGst(extracted.lines, extracted);
+  const work: Work[] = settledLines.map((line, i) => {
     const amounts = lineAmounts(line, ctx.gstRate);
     let cls = classifyLine(
       { description: line.description, item_code: line.item_code, class_hint: line.class_hint, total_ex: amounts.line_total_ex },
@@ -178,7 +188,8 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
       supplierId,
     );
     if (extracted.doc_type === "credit_note" && cls.line_class === "product") cls = { ...cls, line_class: "credit" };
-    return { i, line, amounts, cls, mathOk: null, match: null, pack: null, baseQty: null, baseUnit: null };
+    const skip = cls.line_class === "product" && isNotSupplied(line);
+    return { i, line, amounts, cls, mathOk: null, match: null, pack: null, baseQty: null, baseUnit: null, skip, printedDiscEx: 0 };
   });
 
   const priceBasis = documentPriceBasis(extracted.lines);
@@ -195,7 +206,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   // ---------------------------------------------------------------- 3 matching and units
   const matcher = buildMatcher(ctx, supplier, extracted.supplier_name);
   for (const w of work) {
-    if (w.cls.line_class !== "product") continue;
+    if (w.cls.line_class !== "product" || w.skip) continue;
     w.match = matcher.match({ item_code: w.line.item_code, description: w.line.description });
     if (w.match.state === "matched") {
       w.pack = resolvePacks({ mapPacks: w.match.mapPacks, product: w.match.product, ingredient: w.match.ingredient, invoiceUnit: w.line.unit });
@@ -210,9 +221,26 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   const reconLines: ReconLine[] = work.map((w) => ({
     index: w.i, line_class: w.cls.line_class, description: w.line.description, qty: w.line.qty, unit_price: w.line.unit_price,
     line_total: w.line.line_total, basis: w.line.basis, gst: w.line.gst, amounts: w.amounts,
+    total_basis: w.line.total_basis, discount_pct: w.line.discount_pct, discount_amount: w.line.discount_amount, skip: w.skip,
   }));
   const recon = reconcile({ lines: reconLines, gstRate: ctx.gstRate, subtotal_ex: extracted.subtotal_ex, gst_total: extracted.gst_total, total_inc: extracted.total_inc });
   for (const w of work) w.mathOk = recon.mathOk.get(w.i) ?? null;
+  // a line that only added up under an inference the invoice's own totals confirmed (an Amount that includes GST, an unlabelled
+  // clean-percent discount) is read that way from here on
+  for (const [idx, inf] of recon.inferred) {
+    const w = work[idx];
+    w.line = { ...w.line, ...inf.patch };
+    w.amounts = lineAmounts(w.line, ctx.gstRate);
+  }
+  // the discount printed (or inferred) on a line: list price x qty less the net total
+  for (const w of work) {
+    const declared = (w.line.discount_pct ?? 0) !== 0 || (w.line.discount_amount ?? 0) !== 0;
+    const unit = w.amounts.unit_price_ex;
+    const net = w.amounts.line_total_ex;
+    if (!declared || w.mathOk !== true || w.skip || w.line.qty == null || unit == null || net == null) continue;
+    const d = round4(w.line.qty * unit - net);
+    w.printedDiscEx = d >= 0.005 ? d : 0;
+  }
   const reread = ctx.hintedReread === true;
   const reconciled = recon.reconciled && !reread;
   const rereadNote: ReconNote | null = reread
@@ -220,7 +248,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     : null;
 
   // ---------------------------------------------------------------- 5 landed cost
-  const products = work.filter((w) => w.cls.line_class === "product");
+  const products = work.filter((w) => w.cls.line_class === "product" && !w.skip);
 
   // A negative line that shares a product's item code (or its description once "discount" words are dropped) is a standing supplier
   // DISCOUNT on that product, not a goods credit, unless it plainly returns goods (see isGoodsReturn). It is netted off the product
@@ -244,8 +272,10 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
 
   const credits = work.filter((w) => w.cls.line_class === "credit");
   const landedProducts: LandedProduct[] = products.map((w) => ({
-    index: w.i, itemCode: w.line.item_code, description: w.line.description, unit: w.line.unit, qty: w.line.qty, baseQty: w.baseQty, totalEx: w.amounts.line_total_ex,
-    discountEx: round4(discountOfProduct.get(w.i) ?? 0),
+    index: w.i, itemCode: w.line.item_code, description: w.line.description, unit: w.line.unit, qty: w.line.qty, baseQty: w.baseQty,
+    // gross of a discount printed on the line itself, so the spread weights and the landed total use the NET value (gross less discounts)
+    totalEx: w.amounts.line_total_ex == null ? null : round4(w.amounts.line_total_ex + w.printedDiscEx),
+    discountEx: round4((discountOfProduct.get(w.i) ?? 0) + w.printedDiscEx),
   }));
   const landedCredits: LandedCredit[] = credits.map((w) => ({
     index: w.i, itemCode: w.line.item_code, description: w.line.description, unit: w.line.unit, qty: w.line.qty, totalEx: w.amounts.line_total_ex,
@@ -314,8 +344,9 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     }
 
     // the supplier discount taken off this line (positive dollars ex GST), as the three columns the screens read
-    const discEx = discountOfProduct.get(w.i) ?? 0;
-    const grossEx = w.amounts.line_total_ex;
+    // = a same-code negative line (taken off the gross line) plus any discount printed on the line itself (the total is already net)
+    const discEx = (discountOfProduct.get(w.i) ?? 0) + w.printedDiscEx;
+    const grossEx = w.amounts.line_total_ex == null ? null : w.amounts.line_total_ex + w.printedDiscEx;
     const discountFields = discEx > 0.004
       ? {
           line_discount_ex: round4(discEx),
@@ -323,6 +354,12 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
           ...(w.baseQty != null && w.baseQty > 0 ? { discount_per_base: round4(discEx / w.baseQty) } : {}),
         }
       : {};
+
+    if (w.skip) {
+      // ordered but not delivered: not a product on this invoice, so no match, no question and no price
+      outLines.push({ ...base, ...blank, decision_reason: "Not supplied on this invoice." });
+      continue;
+    }
 
     if (m.state === "ignored") {
       // a person already said this is not a stock item: no match, no question, no price

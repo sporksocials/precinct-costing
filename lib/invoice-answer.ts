@@ -57,19 +57,39 @@ export function extractedFromStored(doc: InvoiceDocumentRow, lines: InvoiceLineR
     subtotal_ex: numOrNull(doc.subtotal_ex),
     gst_total: numOrNull(doc.gst_total),
     total_inc: numOrNull(doc.total_inc),
-    lines: sorted.map((l): ExtractedLine => ({
-      line_no: l.line_no,
-      page: l.page ?? 1,
-      item_code: l.item_code,
-      description: l.description,
-      qty: numOrNull(l.qty),
-      unit: l.unit,
-      unit_price: numOrNull(l.unit_price_ex),
-      line_total: numOrNull(l.line_total_ex),
-      basis: "ex",
-      gst: l.gst,
-      class_hint: l.line_class,
-    })),
+    lines: sorted.map((l): ExtractedLine => {
+      const qty = numOrNull(l.qty);
+      const unit = numOrNull(l.unit_price_ex);
+      const total = numOrNull(l.line_total_ex);
+      const line: ExtractedLine = {
+        line_no: l.line_no,
+        page: l.page ?? 1,
+        item_code: l.item_code,
+        description: l.description,
+        qty,
+        unit: l.unit,
+        unit_price: unit,
+        line_total: total,
+        basis: "ex",
+        gst: l.gst,
+        class_hint: l.line_class,
+      };
+      // A discount printed on the line itself is stored as the LIST price in unit_price_ex, the NET amount in line_total_ex and the
+      // dollars off in line_discount_ex (a same-code negative line also fills line_discount_ex, but then the line total is still
+      // gross). So the printed part is the gap between qty x list price and the net total, and only a gap the stored discount can
+      // explain counts: a line whose maths already failed (math_ok false) or whose gap is bigger than the discount stays unexplained
+      // and fails again. The tolerance is the reconciliation's own (max(2c, qty x half a cent + 1c)).
+      const disc = numOrNull(l.line_discount_ex);
+      if (l.line_class === "product" && l.math_ok !== false && disc != null && disc > 0 && qty != null && qty !== 0 && unit != null && total != null) {
+        const tol = Math.max(0.02, Math.abs(qty) * 0.005 + 0.01);
+        const gap = qty * unit - total;
+        if (gap > tol && gap <= disc + tol) {
+          line.discount_amount = Math.round(gap * 100) / 100;
+          line.total_basis = "ex";
+        }
+      }
+      return line;
+    }),
     notes: [],
   };
 }

@@ -63,21 +63,18 @@ describe("Home data", () => {
     const boom = { from: () => { throw new Error("offline"); } } as unknown as SupabaseClient;
     expect(await loadInvoiceHome(boom, "2026-10-24")).toBeNull();
   });
-  it("empty tables mean no data yet, not an error", async () => {
-    const { sb } = fake({ invoice_documents: { data: [], count: 0 }, invoice_price_changes: { data: [] }, invoice_questions: { data: [] }, invoice_lines: { data: [] } });
-    const d = await loadInvoiceHome(sb, "2026-10-24");
-    expect(d).toEqual({ docs: [], changes: [], waiting: [], totalDocs: 0 });
+  it("empty tables mean no data yet, not an error", () => {
+    return (async () => {
+      const { sb } = fake({ invoice_documents: { data: [], count: 0 }, invoice_price_changes: { data: [] } });
+      const d = await loadInvoiceHome(sb, "2026-10-24");
+      expect(d).toEqual({ docs: [], changes: [], totalDocs: 0 });
+    })();
   });
-  it("counts what waits with each document's status", async () => {
-    const { sb } = fake({
-      invoice_documents: (q) => (q.filters.some(([c]) => c === "id") ? { data: [{ id: "d1", status: "needs_review" }, { id: "d2", status: "ignored" }] } : { data: [{ id: "d1", status: "needs_review", created_at: "2026-10-21T01:00:00Z" }], count: 4 }),
-      invoice_price_changes: { data: [{ kind: "price_change", status: "applied", applied_at: "2026-10-21T01:00:00Z" }] },
-      invoice_questions: { data: [{ id: "q1", document_id: "d1" }] },
-      invoice_lines: { data: [{ id: "l1", document_id: "d1" }, { id: "l2", document_id: "d2" }] },
-    });
+  it("does not read what waits on a person: the card uses the same count hooks as the page", async () => {
+    const { sb, calls } = fake({ invoice_documents: { data: [{ id: "d1", status: "needs_review", created_at: "2026-10-21T01:00:00Z" }], count: 4 }, invoice_price_changes: { data: [] } });
     const d = await loadInvoiceHome(sb, "2026-10-24");
     expect(d?.totalDocs).toBe(4);
-    expect(d?.waiting.map((w) => w.status)).toEqual(["needs_review", "needs_review", "ignored"]);
+    expect(calls.map((c) => c.table).sort()).toEqual(["invoice_documents", "invoice_documents", "invoice_price_changes"]);
   });
 });
 
@@ -87,6 +84,19 @@ describe("List and detail data", () => {
     const l = await loadInvoiceList(sb);
     expect(l.missing).toBe(true);
     expect(l.documents).toEqual([]);
+  });
+  it("the list carries the slim line columns and open question kinds the outcome words need", async () => {
+    const { sb, calls } = fake({
+      invoice_documents: { data: [{ id: "d1", venue_id: 1, total_inc: "216.5" }] },
+      invoice_suppliers: { data: [{ id: "s1", name: "Daniel Street Fish Market" }] },
+      invoice_lines: { data: [{ document_id: "d1", line_class: "product", match_state: "unmatched", decision: "none", state: "open" }] },
+      invoice_questions: { data: [{ id: "q1", document_id: "d1", kind: "totals_mismatch" }] },
+      invoice_price_changes: { data: [] },
+    });
+    const l = await loadInvoiceList(sb);
+    expect(l.lines).toHaveLength(1);
+    expect(l.questions).toEqual([{ id: "q1", document_id: "d1", kind: "totals_mismatch" }]);
+    expect(calls.find((c) => c.table === "invoice_questions")?.filters).toContainEqual(["status", "open"]);
   });
   it("the list rethrows a real failure so the screen can say so", async () => {
     const { sb } = fake({ invoice_documents: { data: null, error: { message: "permission denied for table invoice_documents", code: "42501" } }, invoice_suppliers: { data: [] }, invoice_questions: { data: [] }, invoice_lines: { data: [] }, invoice_price_changes: { data: [] } });
@@ -176,7 +186,8 @@ const src = (f: string) => strip(readFileSync(f, "utf8"));
 describe("the invoice screens obey Troy's rules", () => {
   it("covers the files it should", () => {
     expect(MY_FILES.length).toBeGreaterThanOrEqual(11);
-    for (const f of ["inv-list.tsx", "inv-detail.tsx", "inv-line.tsx", "inv-tabs.tsx", "inv-undo.tsx", "home-card.tsx"]) expect(MY_FILES.some((x) => x.endsWith(f)), f).toBe(true);
+    for (const f of ["inv-list.tsx", "inv-all.tsx", "inv-changes.tsx", "inv-detail.tsx", "inv-line.tsx", "inv-undo.tsx", "home-card.tsx"]) expect(MY_FILES.some((x) => x.endsWith(f)), f).toBe(true);
+    expect(MY_FILES.some((x) => x.endsWith("inv-tabs.tsx"))).toBe(false);
   });
   it("never deletes anything", () => {
     for (const f of MY_FILES) expect(src(f), f).not.toMatch(/\.delete\(/);
@@ -227,8 +238,12 @@ describe("the invoice screens obey Troy's rules", () => {
   it("the Home card hides itself when the data cannot be read", () => {
     const s = src("components/invoices/home-card.tsx");
     expect(s).toMatch(/if \(!data \|\| !counts\) return null/);
-    expect(s).toContain("No invoices yet. Scan one and it appears here.");
-    expect(s).toContain('href="/invoices"');
+    expect(s).toContain("FIRST_RUN_TEXT");
+    expect(s).toContain('"/invoices?tab=todo"');
+    expect(s).toContain("All Caught Up");
+    // what waits comes from the same two hooks as the page
+    expect(s).toContain("useMatchCounts");
+    expect(s).toContain("useApproveCounts");
     expect(s).not.toMatch(/text-good|bg-good/); // green is never used on this card
     expect(s).toMatch(/Target/);
   });
@@ -238,10 +253,42 @@ describe("the invoice screens obey Troy's rules", () => {
     expect(dash.indexOf('aria-labelledby="home-venues"')).toBeLessThan(dash.indexOf("<InvoicesHomeCard />"));
     expect(dash.indexOf("<InvoicesHomeCard />")).toBeLessThan(dash.indexOf('aria-labelledby="needs-attention"'));
   });
-  it("Supplier Prices gets only the tabs row", () => {
-    const s = readFileSync(path.join("app", "(app)", "portal-prices", "page.tsx"), "utf8");
-    expect(s).toContain('<InvoiceTabs active="prices" />');
-    expect(readFileSync("components/invoices/inv-list.tsx", "utf8")).toContain('<InvoiceTabs active="invoices" />');
+  it("the tab pair is gone from both pages", () => {
+    expect(readFileSync(path.join("app", "(app)", "portal-prices", "page.tsx"), "utf8")).not.toMatch(/InvoiceTabs|inv-tabs/);
+    for (const f of MY_FILES) expect(readFileSync(f, "utf8"), f).not.toMatch(/InvoiceTabs|inv-tabs/);
+  });
+  it("the Invoices page is the title, one sentence, one four-way control, venue chips and the body: nothing else", () => {
+    const s = src("components/invoices/inv-list.tsx");
+    expect(s).toContain('<PageHeader title="Invoices" />');
+    for (const label of ['"Changes"', '"Discounts"', '"All Invoices"', "todoLabel(todoN)"]) expect(s).toContain(label);
+    expect(s).toContain('useUrlState("tab", "todo")');
+    expect(s).toContain("<VenueChips");
+    // the removed controls
+    expect(s).not.toMatch(/PERIOD|STATUS_FILTERS|TouchChips|VenueFilter|subtitle/);
+    // the three jobs, in order
+    const order = ["<MatchItemsSection", "<ApprovePricesSection", "<ChecksSection"].map((x) => s.indexOf(x));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(s).toContain("All Caught Up");
+    expect(s).toContain("Nothing needs you. New invoices appear here when they arrive.");
+  });
+  it("the list keeps duplicates and unread documents out of sight and never shows a dash for a total", () => {
+    const s = src("components/invoices/inv-all.tsx");
+    expect(s).toContain("hiddenKind");
+    expect(s).toContain("hiddenSentence");
+    expect(s).toMatch(/hasTotal\(d\) \? /);
+    expect(s).toContain("Search supplier or invoice number");
+  });
+  it("the invoice page keeps its technical wording under one collapsed Details and out of sight", () => {
+    const s = src("components/invoices/inv-detail.tsx");
+    expect(s).toContain('<Disclosure title="Details"');
+    expect(s.indexOf('<Disclosure title="Details"')).toBeGreaterThan(s.indexOf('aria-labelledby="inv-lines"'));
+    for (const f of MY_FILES.filter((x) => x.endsWith(".tsx") && !x.includes("inv-undo"))) {
+      const visible = [...(src(f).match(/>[^<>{}=]*[A-Za-z][^<>{}=]*</g) ?? []), ...(src(f).match(/"[^"\n]* [^"\n]*"/g) ?? [])];
+      for (const t of visible) expect(t, `${f}: ${t}`).not.toMatch(/\b(decision|guard|reconciled)\b/i);
+    }
+    // a line that needs matching goes to its supplier's Match Items screen
+    expect(s).toContain("/invoices/match/");
   });
   it("no control shrinks below 44px at any breakpoint", () => {
     const bad: string[] = [];
@@ -262,8 +309,10 @@ describe("the invoice screens obey Troy's rules", () => {
   it("has no Claude reference a client or venue could see", () => {
     for (const f of MY_FILES) expect(strip(readFileSync(f, "utf8")), f).not.toMatch(/claude\.ai|Claude/i);
   });
-  it("the whole of Invoices belongs to Supplier Prices in the navigation", () => {
+  it("Invoices is its own area in the navigation", () => {
     const nav = readFileSync("lib/nav.ts", "utf8");
     expect(nav).toContain("inInvoices");
+    expect(nav).toContain('href === "/invoices"');
+    expect(nav).not.toMatch(/href === "\/portal-prices"\) return .*inInvoices/);
   });
 });

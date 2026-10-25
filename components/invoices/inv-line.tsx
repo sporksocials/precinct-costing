@@ -1,30 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { BadgePercent, ChevronDown } from "lucide-react";
+import { BadgePercent } from "lucide-react";
 import { money, packLabel } from "@/lib/format";
 import { brisbaneStamp } from "@/lib/ordering-orders-ui";
-import {
-  approveLabel,
-  canApprove,
-  canSkip,
-  chargeTreatment,
-  CLASS_WORD,
-  decisionText,
-  feeShareText,
-  landedText,
-  LANDED_EXPLAIN,
-  lineStateView,
-  priceCompares,
-  qtyPriceText,
-} from "@/lib/invoice-view";
+import { approveLabel, canApprove, canSkip, chargeTreatment, CLASS_WORD, lineStatus, priceCompares, qtyPriceText } from "@/lib/invoice-view";
 import { lineDiscountText, lineNetPerBase, perUnitText } from "@/lib/invoice-discounts";
-import type { InvoiceChargeRuleRow, InvoiceDocumentRow, InvoiceLineRow, InvoicePriceChangeRow, LineClass } from "@/lib/invoice-types";
+import type { InvoiceChargeRuleRow, InvoiceDocumentRow, InvoiceLineRow, InvoicePriceChangeRow } from "@/lib/invoice-types";
 import type { Ingredient } from "@/lib/types";
 import { TouchButton } from "@/components/ordering/touch";
-import { cx } from "@/components/ui";
-import { MoveLabel, NeedsTag } from "./inv-parts";
+import { StatusLabel } from "./inv-parts";
 
 export interface LineHandlers {
   onApprove: (l: InvoiceLineRow) => void;
@@ -34,13 +19,17 @@ export interface LineHandlers {
   busyId: string | null;
 }
 
-/** One product line: what was bought, what it cost landed, what it matched, how it compares with the app, what was decided and what a person can do. */
+/**
+ * One product line, quietly: what the invoice called it and what it cost, what it is in the app (with the app's price now), and ONE plain
+ * status. Landed cost, the reasons and the other technical detail live under the page's Details. A line that needs matching links to its
+ * supplier's Match Items screen.
+ */
 export function InvLine({
   line,
   ingredient,
   productName,
   venueSlug,
-  poolClasses,
+  matchHref,
   changes,
   nameOf,
   h,
@@ -49,105 +38,61 @@ export function InvLine({
   ingredient: Ingredient | null;
   productName: string | null;
   venueSlug: string | null;
-  poolClasses: readonly LineClass[];
+  /** the supplier's Match Items screen, when the invoice has a supplier */
+  matchHref: string | null;
   changes: InvoicePriceChangeRow[];
   nameOf: (email: string | null | undefined) => string | null;
   h: LineHandlers;
 }) {
-  const [open, setOpen] = useState(false);
-  const state = lineStateView(line);
-  const landed = landedText(line);
-  const share = feeShareText(line, poolClasses);
-  const compares = priceCompares(line);
+  const status = lineStatus(line);
   const busy = h.busyId === line.id;
-  const total = line.line_total_ex;
-  // a standing supplier discount netted off this line (a same-code negative line on the invoice)
+  const compare = priceCompares(line)[0] ?? null;
   const discount = lineDiscountText(line);
   const netPerBase = lineNetPerBase(line);
+  const qtyText = qtyPriceText(line);
+  const appPrice = compare?.now ?? null;
   return (
-    <li className="space-y-2.5 px-4 py-3.5">
-      <div className="flex items-start justify-between gap-3">
+    <li className="px-4 py-3.5">
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         <div className="min-w-0">
           <p className="text-[17px] font-semibold leading-snug">{line.description}</p>
-          <p className="mt-0.5 text-[15px] text-label-2 sm:text-[13px]">{[line.item_code ? `Code ${line.item_code}` : null, qtyPriceText(line) || null].filter(Boolean).join(" · ")}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[17px] font-semibold tnum sm:text-[15px]">{money(total)}</p>
-          <p className="text-[13px] text-label-2">ex GST</p>
-        </div>
-      </div>
-
-      {landed ? (
-        share ? (
-          <div>
-            <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg text-[15px] font-medium text-accent sm:text-[13px]">
-              {landed}
-              <ChevronDown aria-hidden className={cx("h-4 w-4 transition-transform motion-reduce:transition-none", open && "rotate-180")} strokeWidth={2.5} />
-            </button>
-            {open ? (
-              <p className="rounded-xl bg-fill px-3 py-2 text-[15px] text-label-2 sm:text-[13px]">
-                <span className="font-semibold text-label">{share}.</span> {LANDED_EXPLAIN}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-[15px] font-medium text-label-2 sm:text-[13px]">{landed}</p>
-        )
-      ) : null}
-
-      {discount ? (
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-medium text-label sm:text-[13px]">
-          <BadgePercent aria-hidden className="h-4 w-4 shrink-0 text-label-2" strokeWidth={2.5} />
-          <span>{discount}</span>
-          {netPerBase != null ? <span className="text-label-2">{`Net ${perUnitText(netPerBase, line.base_unit)}`}</span> : null}
-        </p>
-      ) : null}
-
-      <div className="text-[15px] sm:text-[13px]">
-        {line.ingredient_id && ingredient ? (
-          <p>
-            <span className="text-label-2">Matches </span>
-            <Link href={`/ingredients/${ingredient.id}`} className="inline-flex min-h-[44px] items-center font-medium text-accent">
-              {ingredient.name}
-            </Link>
+          <p className="mt-0.5 text-[15px] text-label-2 sm:text-[13px]">
+            {[line.item_code ? `Code ${line.item_code}` : null, qtyText || null, line.line_total_ex != null ? `${money(line.line_total_ex)} ex GST` : null].filter(Boolean).join(" · ")}
           </p>
-        ) : line.product_id && productName ? (
-          <p>
-            <span className="text-label-2">Matches </span>
-            {venueSlug ? (
+          {discount ? (
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-medium text-label sm:text-[13px]">
+              <BadgePercent aria-hidden className="h-4 w-4 shrink-0 text-label-2" strokeWidth={2.5} />
+              <span>{discount}</span>
+              {netPerBase != null ? <span className="text-label-2">{`Net ${perUnitText(netPerBase, line.base_unit)}`}</span> : null}
+            </p>
+          ) : null}
+        </div>
+        <div className="min-w-0 text-[15px] sm:text-[13px]">
+          <p className="text-[13px] text-label-3">In the app as</p>
+          {line.ingredient_id && ingredient ? (
+            <Link href={`/ingredients/${ingredient.id}`} className="inline-flex min-h-[44px] flex-wrap items-center gap-x-2 font-medium text-accent">
+              <span>{ingredient.name}</span>
+              {appPrice != null ? <span className="font-normal text-label-2">{`${money(appPrice)} per ${packLabel(ingredient.pack_size, ingredient.pack_unit)}`}</span> : null}
+            </Link>
+          ) : line.product_id && productName ? (
+            venueSlug ? (
               <Link href={`/ordering/${venueSlug}/setup/products/${line.product_id}`} className="inline-flex min-h-[44px] items-center font-medium text-accent">
                 {productName}
               </Link>
             ) : (
-              <span className="font-medium">{productName}</span>
-            )}
+              <span className="inline-flex min-h-[44px] items-center font-medium">{productName}</span>
+            )
+          ) : (
+            <p className="inline-flex min-h-[44px] items-center text-label-2">{status.kind !== "needs_matching" ? "Not in the app" : matchHref ? <Link href={matchHref} className="inline-flex min-h-[44px] items-center font-medium text-accent">Match this item</Link> : "Not matched yet"}</p>
+          )}
+          <p>
+            <StatusLabel view={status} />
           </p>
-        ) : (
-          <p className="text-label-2">{line.match_state === "ignored" ? "Ignored. Not costed." : "Not matched to an ingredient or product yet."}</p>
-        )}
-      </div>
-
-      {compares.map((c) => (
-        <div key={c.what} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-surface-2 px-3 py-2 text-[15px] sm:text-[13px]">
-          <span className="text-label-2">
-            {c.what === "ingredient" ? "App price" : "Ordering price"} <span className="tnum font-medium text-label">{money(c.now)}</span>
-            {c.what === "ingredient" && ingredient ? ` per ${packLabel(ingredient.pack_size, ingredient.pack_unit)}` : ""}
-          </span>
-          <span className="text-label-2">
-            Invoice <span className="tnum font-medium text-label">{money(c.invoice)}</span>
-          </span>
-          <MoveLabel move={c.move} />
         </div>
-      ))}
-
-      <p className="text-[15px] text-label-2 sm:text-[13px]">{decisionText(line)}</p>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {state.tone === "warn" ? <NeedsTag>{state.word}</NeedsTag> : <span className="rounded-md bg-fill px-2 py-0.5 text-[13px] font-semibold text-label-2">{state.word}</span>}
       </div>
 
       {changes.map((c) => (
-        <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-1.5">
+        <div key={c.id} className="mt-2 flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-1.5">
           <p className="min-w-0 text-[15px] text-label-2 sm:text-[13px]">
             {c.kind === "price_confirmed" ? `Price confirmed at ${money(c.new_price)}` : `Price ${c.status === "reverted" ? "was set to" : "set to"} ${money(c.new_price)} from ${money(c.old_price)}`}
             {". "}
@@ -162,7 +107,7 @@ export function InvLine({
       ))}
 
       {canApprove(line) || canSkip(line) || line.state === "approved_skip" ? (
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="mt-2 flex flex-wrap gap-2">
           {canApprove(line) ? (
             <TouchButton variant="primary" disabled={busy} onClick={() => h.onApprove(line)}>
               {approveLabel(line)}

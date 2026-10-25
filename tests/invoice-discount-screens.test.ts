@@ -140,12 +140,12 @@ describe("the discount screens obey Troy's rules", () => {
     expect(s.match(/store\.addDeal\(/g)).toHaveLength(1);
   });
 
-  it("is a third view in the existing Invoices control, with its own address", () => {
+  it("is one of the four segments of the Invoices control, with its own address", () => {
     const s = src("components/invoices/inv-list.tsx");
-    expect(s).toContain('{ value: "discounts", label: "Discounts We Found" }');
-    expect(s).toContain('viewRaw === "discounts"');
+    expect(s).toContain('{ value: "discounts", label: "Discounts" }');
+    expect(s).toContain('tab === "discounts"');
     expect(s).toContain("<DiscountsView");
-    // no new sidebar or More entry
+    // the discounts view has no sidebar or More entry of its own
     const nav = readFileSync("lib/nav.ts", "utf8");
     expect(nav).not.toMatch(/discounts/i);
   });

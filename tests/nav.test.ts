@@ -53,6 +53,9 @@ describe("phone tab bar", () => {
     ["/invoices", "more"],
     ["/invoices/abc", "more"],
     ["/invoices/questions", "more"],
+    ["/invoices/match/abc", "more"],
+    ["/invoices/approve", "more"],
+    ["/invoices/check", "more"],
     ["/data-health", "more"],
     ["/change-log", "more"],
     ["/trash", "more"],
@@ -73,17 +76,31 @@ describe("phone tab bar", () => {
   });
 });
 
-describe("Invoices share Supplier Prices' home", () => {
-  it("highlights Supplier Prices in the sidebar and keeps the tab bar on every invoice screen", () => {
-    for (const p of ["/invoices", "/invoices/abc", "/invoices/questions", "/portal-prices"]) expect(isActive(p, "/portal-prices"), p).toBe(true);
-    for (const p of ["/invoices", "/invoices/abc", "/invoices/questions"]) {
-      expect(hidesTabBar(p), p).toBe(false);
+describe("Invoices is its own work area", () => {
+  const screens = ["/invoices", "/invoices/abc", "/invoices/questions", "/invoices/match/abc", "/invoices/approve", "/invoices/check"];
+  it("highlights Invoices in the sidebar on every invoice screen, and nothing else", () => {
+    for (const p of screens) {
+      expect(isActive(p, "/invoices"), p).toBe(true);
+      expect(isActive(p, "/portal-prices"), p).toBe(false);
       expect(isActive(p, "/"), p).toBe(false);
       expect(isActive(p, "/ingredients"), p).toBe(false);
+      expect(isActive(p, "/ordering"), p).toBe(false);
+      expect(hidesTabBar(p), p).toBe(false);
     }
   });
+  it("Supplier Prices highlights only itself", () => {
+    expect(isActive("/portal-prices", "/portal-prices")).toBe(true);
+    expect(isActive("/portal-prices", "/invoices")).toBe(false);
+  });
+  it("is a desktop sidebar row after Ordering and before the More group, not a phone tab", () => {
+    const shell = read("components/app-shell.tsx");
+    expect(shell).toContain('label: "Invoices"');
+    expect(shell.indexOf('label: "Ordering"')).toBeLessThan(shell.indexOf('label: "Invoices"'));
+    expect(shell.indexOf('label: "Invoices"')).toBeLessThan(shell.indexOf("const MORE = ["));
+    expect(PHONE_TABS.some((t) => /invoice/i.test(t.label))).toBe(false);
+  });
   it("does not capture lookalike paths", () => {
-    expect(isActive("/invoicesx", "/portal-prices")).toBe(false);
+    expect(isActive("/invoicesx", "/invoices")).toBe(false);
     expect(phoneTab("/invoicesx")).toBe(null);
   });
 });
@@ -112,16 +129,17 @@ describe("the desktop sidebar is unchanged", () => {
 
 describe("More page", () => {
   const src = read("app/(app)/more/page.tsx");
-  it("opens with Search, with its sub line", () => {
+  it("opens with Invoices, then Search with its sub line", () => {
     const rows = [...src.matchAll(/<Row\s+href="([^"]+)"/g)].map((m) => m[1]);
-    expect(rows[0]).toBe("/search");
+    expect(rows[0]).toBe("/invoices");
+    expect(rows[1]).toBe("/search");
     expect(src).toContain('title="Search" sub="Find a dish, ingredient or prep"');
   });
   it("no longer lists Ordering (it is a tab)", () => {
     expect(src).not.toMatch(/href="\/ordering"/);
   });
   it("keeps Specials, Allergens and the rest", () => {
-    for (const h of ["/specials", "/matrix", "/research-notes", "/portal-prices", "/data-health", "/change-log", "/trash", "/settings"]) expect(src).toContain(`href="${h}"`);
+    for (const h of ["/invoices", "/specials", "/matrix", "/research-notes", "/portal-prices", "/data-health", "/change-log", "/trash", "/settings"]) expect(src).toContain(`href="${h}"`);
   });
 });
 

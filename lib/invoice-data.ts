@@ -22,7 +22,7 @@ import type {
   InvoiceQuestionRow,
 } from "./invoice-types";
 import { recomputeDocumentStatus } from "./invoice-store";
-import { last30Range, type ChangeLite, type DocLite } from "./invoice-view";
+import { last30Range, type ChangeLite, type DocLite, type LineLite } from "./invoice-view";
 
 const PAGE_SIZE = 1000;
 const CHUNK = 80;
@@ -97,39 +97,25 @@ export const readChange = (r: unknown): InvoicePriceChangeRow => numRow(r as Inv
 export interface HomeData {
   docs: DocLite[];
   changes: ChangeLite[];
-  /** one entry per open question and per line waiting for approval, with its document's status */
-  waiting: { status: DocStatus }[];
   /** every document ever filed (a head count), so "no data at all" is known without loading them */
   totalDocs: number;
 }
 
-/** What waits on a person, from the two tables, with each item's document status. */
-async function loadWaiting(sb: SupabaseClient): Promise<{ questions: { id: string; document_id: string }[]; lines: { id: string; document_id: string }[]; status: Map<string, DocStatus> }> {
-  const [questions, lines] = await Promise.all([
-    pageAll<{ id: string; document_id: string }>("invoice_questions", (a, b) => sb.from("invoice_questions").select("id,document_id").eq("status", "open").range(a, b)),
-    pageAll<{ id: string; document_id: string }>("invoice_lines", (a, b) => sb.from("invoice_lines").select("id,document_id").eq("decision", "needs_approval").eq("state", "open").range(a, b)),
-  ]);
-  const ids = [...questions.map((q) => q.document_id), ...lines.map((l) => l.document_id)];
-  const docs = await inChunks<{ id: string; status: DocStatus }>("invoice_documents", ids, (c) => sb.from("invoice_documents").select("id,status").in("id", c));
-  return { questions, lines, status: new Map(docs.map((d) => [d.id, d.status])) };
-}
-
 /**
  * The Home card's data. Returns null when it cannot be read for ANY reason (the tables are not applied yet, no network, no
- * permission): the card then hides itself rather than showing zeros or an error on the Home screen.
+ * permission): the card then hides itself rather than showing zeros or an error on the Home screen. What waits on a person is NOT
+ * loaded here: the card reads the same To Do count hooks as the Invoices page.
  */
 export async function loadInvoiceHome(sb: SupabaseClient, today: string): Promise<HomeData | null> {
   try {
     const since = `${last30Range(today).from}T00:00:00+10:00`;
-    const [docs, changes, total, waiting] = await Promise.all([
+    const [docs, changes, total] = await Promise.all([
       pageAll<DocLite>("invoice_documents", (a, b) => sb.from("invoice_documents").select("id,status,created_at,read_model").gte("created_at", since).order("created_at", { ascending: false }).range(a, b)),
       pageAll<ChangeLite>("invoice_price_changes", (a, b) => sb.from("invoice_price_changes").select("kind,status,applied_at").gte("applied_at", since).order("applied_at", { ascending: false }).range(a, b)),
       (async () => (await sb.from("invoice_documents").select("id", { count: "exact", head: true })) as unknown as Res)(),
-      loadWaiting(sb),
     ]);
     if (total.error) return null;
-    const waits = [...waiting.questions, ...waiting.lines].map((w) => ({ status: waiting.status.get(w.document_id) ?? ("needs_review" as DocStatus) }));
-    return { docs, changes, waiting: waits, totalDocs: total.count ?? docs.length };
+    return { docs, changes, totalDocs: total.count ?? docs.length };
   } catch {
     return null;
   }
@@ -142,26 +128,29 @@ export interface ListData {
   missing: boolean;
   documents: InvoiceDocumentRow[];
   supplierNames: Map<string, string>;
-  questions: { id: string; document_id: string }[];
-  approvalLines: { id: string; document_id: string }[];
+  /** the few columns of every line the list needs to word each invoice's outcome */
+  lines: LineLite[];
+  /** open questions with their kind (matching questions are told apart from the odd ones) */
+  questions: { id: string; document_id: string; kind: string }[];
   changes: InvoicePriceChangeRow[];
 }
-const EMPTY_LIST: ListData = { missing: false, documents: [], supplierNames: new Map(), questions: [], approvalLines: [], changes: [] };
+const EMPTY_LIST: ListData = { missing: false, documents: [], supplierNames: new Map(), lines: [], questions: [], changes: [] };
 
 export async function loadInvoiceList(sb: SupabaseClient): Promise<ListData> {
   try {
-    const [documents, suppliers, waiting, changes] = await Promise.all([
+    const [documents, suppliers, lines, questions, changes] = await Promise.all([
       pageAll<unknown>("invoice_documents", (a, b) => sb.from("invoice_documents").select("*").order("created_at", { ascending: false }).range(a, b)),
       pageAll<{ id: string; name: string }>("invoice_suppliers", (a, b) => sb.from("invoice_suppliers").select("id,name").range(a, b)),
-      loadWaiting(sb),
+      pageAll<LineLite>("invoice_lines", (a, b) => sb.from("invoice_lines").select("document_id,line_class,match_state,decision,state").order("id", { ascending: true }).range(a, b)),
+      pageAll<{ id: string; document_id: string; kind: string }>("invoice_questions", (a, b) => sb.from("invoice_questions").select("id,document_id,kind").eq("status", "open").order("id", { ascending: true }).range(a, b)),
       pageAll<unknown>("invoice_price_changes", (a, b) => sb.from("invoice_price_changes").select("*").order("applied_at", { ascending: false }).range(a, b)),
     ]);
     return {
       missing: false,
       documents: documents.map(readDoc),
       supplierNames: new Map(suppliers.map((s) => [s.id, s.name])),
-      questions: waiting.questions,
-      approvalLines: waiting.lines,
+      lines,
+      questions,
       changes: changes.map(readChange),
     };
   } catch (e) {
@@ -169,6 +158,7 @@ export async function loadInvoiceList(sb: SupabaseClient): Promise<ListData> {
     throw e;
   }
 }
+
 
 export interface ChangeLookups {
   lines: Map<string, { description: string; item_code: string | null }>;

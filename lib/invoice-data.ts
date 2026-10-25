@@ -122,7 +122,7 @@ export async function loadInvoiceHome(sb: SupabaseClient, today: string): Promis
   try {
     const since = `${last30Range(today).from}T00:00:00+10:00`;
     const [docs, changes, total, waiting] = await Promise.all([
-      pageAll<DocLite>("invoice_documents", (a, b) => sb.from("invoice_documents").select("id,status,created_at").gte("created_at", since).order("created_at", { ascending: false }).range(a, b)),
+      pageAll<DocLite>("invoice_documents", (a, b) => sb.from("invoice_documents").select("id,status,created_at,read_model").gte("created_at", since).order("created_at", { ascending: false }).range(a, b)),
       pageAll<ChangeLite>("invoice_price_changes", (a, b) => sb.from("invoice_price_changes").select("kind,status,applied_at").gte("applied_at", since).order("applied_at", { ascending: false }).range(a, b)),
       (async () => (await sb.from("invoice_documents").select("id", { count: "exact", head: true })) as unknown as Res)(),
       loadWaiting(sb),

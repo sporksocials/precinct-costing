@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { ChevronRight, Target } from "lucide-react";
+import { ChevronRight, Clock, Target } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useInvoiceHome } from "@/lib/invoice-data";
 import { homeCounts, invoicesWord, needYouText, pricesWord, weekRange } from "@/lib/invoice-view";
@@ -27,7 +27,7 @@ export function InvoicesHomeCard() {
 
   const label = counts.firstRun
     ? "Invoices. No invoices yet."
-    : `Invoices this week: ${counts.processed} ${invoicesWord(counts.processed).toLowerCase()}, ${counts.updated} ${pricesWord(counts.updated).toLowerCase()}${counts.needYou ? `, ${needYouText(counts.needYou)}` : ""}. View all`;
+    : `Invoices this week: ${counts.processed} ${invoicesWord(counts.processed).toLowerCase()}, ${counts.updated} ${pricesWord(counts.updated).toLowerCase()}${counts.reading ? `, ${counts.reading} still being read` : ""}${counts.needYou ? `, ${needYouText(counts.needYou)}` : ""}. View all`;
 
   return (
     <section aria-labelledby="home-invoices">
@@ -59,6 +59,12 @@ export function InvoicesHomeCard() {
                 <span className="mt-1 block text-[15px] text-label-2 sm:text-[13px]">{pricesWord(counts.updated)}</span>
               </span>
             </span>
+            {counts.reading > 0 ? (
+              <span className="mx-4 mb-2 flex items-center gap-1.5 text-[15px] text-label-2 sm:text-[13px]">
+                <Clock aria-hidden className="h-[16px] w-[16px]" strokeWidth={2.25} />
+                {counts.reading} Still Being Read
+              </span>
+            ) : null}
             {counts.needYou > 0 ? (
               <span className="mx-4 mb-3 flex items-center gap-1.5 text-[17px] font-semibold text-warn sm:text-[15px]">
                 <Target aria-hidden className="h-[18px] w-[18px]" strokeWidth={2.75} />

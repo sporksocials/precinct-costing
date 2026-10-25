@@ -20,7 +20,7 @@ import {
   splitLines,
   statsFor,
   statusView,
-  totalsStrip,
+  totalsStrip, isUnread,
 } from "@/lib/invoice-view";
 import type { InvoiceLineRow, InvoicePriceChangeRow, LineClass } from "@/lib/invoice-types";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
@@ -80,7 +80,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const doc = d.doc;
   const venue = store.venueById.get(doc.venue_id);
   const venueName = venue ? (VENUE_SHORT[venue.slug] ?? venue.name) : null;
-  const status = statusView(doc.status, stats);
+  const status = statusView(doc.status, stats, isUnread(doc));
   const checks = checkItems(doc);
   const totals = totalsStrip(doc);
   const title = docTitle(doc, d.supplierName);

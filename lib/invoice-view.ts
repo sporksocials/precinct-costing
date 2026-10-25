@@ -95,6 +95,17 @@ export interface DocLite {
   id: string;
   status: DocStatus;
   created_at: string;
+  /** null until the reader has read the invoice: the scan is split into placeholder documents first */
+  read_model?: string | null;
+}
+
+/**
+ * A document the reader has found in a scan but not read yet: when a PDF is sorted, every invoice in it gets a placeholder
+ * (needs_review, no read_model) and they are read one per step. Statements and other non-invoices are finished without a read,
+ * so they are not "unread": their status is already something other than needs_review.
+ */
+export function isUnread(d: { status: DocStatus; read_model?: string | null }): boolean {
+  return d.status === "needs_review" && !d.read_model;
 }
 export interface ChangeLite {
   kind: InvoicePriceChangeRow["kind"];
@@ -145,6 +156,8 @@ export interface HomeCounts {
   processed: number;
   updated: number;
   needYou: number;
+  /** invoices found in scans but not read yet (they are not in `processed`) */
+  reading: number;
   /** nothing has ever been filed and nothing waits */
   firstRun: boolean;
 }
@@ -162,10 +175,12 @@ export function homeCounts(input: {
   waiting: readonly { status: DocStatus }[];
   totalDocs: number;
 }): HomeCounts {
-  const processed = input.docs.filter((d) => !NOT_COUNTED.includes(d.status) && inRange(brisbaneDate(d.created_at), input.range)).length;
+  // an invoice counts as processed once it has been READ, not when its placeholder is made
+  const processed = input.docs.filter((d) => !NOT_COUNTED.includes(d.status) && !isUnread(d) && inRange(brisbaneDate(d.created_at), input.range)).length;
+  const reading = input.docs.filter((d) => !NOT_COUNTED.includes(d.status) && isUnread(d)).length;
   const updated = input.changes.filter((c) => c.kind === "price_change" && c.status === "applied" && inRange(brisbaneDate(c.applied_at), input.range)).length;
   const needYou = input.waiting.filter((w) => !NOT_COUNTED.includes(w.status)).length;
-  return { processed, updated, needYou, firstRun: input.totalDocs === 0 && needYou === 0 };
+  return { processed, updated, needYou, reading, firstRun: input.totalDocs === 0 && needYou === 0 && reading === 0 };
 }
 
 export function invoicesWord(n: number): string {
@@ -191,8 +206,9 @@ export const STATUS_FILTERS: { value: StatusFilterId; label: string }[] = [
 export function readStatusFilter(v: string | null | undefined): StatusFilterId {
   return STATUS_FILTERS.some((s) => s.value === v) ? (v as StatusFilterId) : "all";
 }
-export function matchesStatus(filter: StatusFilterId, status: DocStatus, stats: DocStats): boolean {
+export function matchesStatus(filter: StatusFilterId, status: DocStatus, stats: DocStats, unread = false): boolean {
   if (filter === "all") return true;
+  if (unread) return false; // not read yet: nothing waits on a person
   if (filter === "needs") return !NOT_COUNTED.includes(status) && (status === "needs_review" || stats.needYou > 0);
   if (filter === "applied") return status === "applied" || status === "partly_applied";
   return status === "nothing_to_apply";
@@ -207,7 +223,8 @@ export interface StatusView {
 }
 const plural = (n: number, one: string, many: string) => (n === 1 ? `${n} ${one}` : `${n} ${many}`);
 
-export function statusView(status: DocStatus, s: DocStats): StatusView {
+export function statusView(status: DocStatus, s: DocStats, unread = false): StatusView {
+  if (unread) return { word: "Waiting To Be Read", tone: "neutral", icon: "dash" };
   switch (status) {
     case "needs_review":
       return { word: s.needYou > 0 ? `Needs You: ${s.needYou}` : "Needs Review", tone: "warn", icon: "alert" };
@@ -244,7 +261,7 @@ export function sortDocs<T extends Pick<InvoiceDocumentRow, "invoice_date" | "cr
   return [...docs].sort((a, b) => (b.invoice_date ?? "").localeCompare(a.invoice_date ?? "") || b.created_at.localeCompare(a.created_at));
 }
 
-export function filterDocs<T extends Pick<InvoiceDocumentRow, "id" | "venue_id" | "status" | "created_at" | "invoice_date">>(
+export function filterDocs<T extends Pick<InvoiceDocumentRow, "id" | "venue_id" | "status" | "created_at" | "invoice_date"> & { read_model?: string | null }>(
   docs: readonly T[],
   f: { venueId: number | null; range: DateRange; status: StatusFilterId },
   stats: Map<string, DocStats>,
@@ -254,7 +271,7 @@ export function filterDocs<T extends Pick<InvoiceDocumentRow, "id" | "venue_id" 
     if (f.range.from || f.range.to) {
       if (!inRange(brisbaneDate(d.created_at), f.range)) return false;
     }
-    return matchesStatus(f.status, d.status, statsFor(stats, d.id));
+    return matchesStatus(f.status, d.status, statsFor(stats, d.id), isUnread(d));
   });
 }
 

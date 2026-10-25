@@ -13,6 +13,7 @@ import {
   feeShareText,
   filterDocs,
   homeCounts,
+  isUnread,
   inRange,
   invoiceSourceLabel,
   invoicesWord,
@@ -160,7 +161,7 @@ describe("Home counts follow Troy's rules", () => {
   const range = weekRange("2026-10-24");
   const docs = [
     { id: "a", status: "applied" as const, created_at: "2026-10-20T01:00:00Z" },
-    { id: "b", status: "needs_review" as const, created_at: "2026-10-22T01:00:00Z" },
+    { id: "b", status: "needs_review" as const, created_at: "2026-10-22T01:00:00Z", read_model: "claude-sonnet-5-5" },
     { id: "c", status: "duplicate" as const, created_at: "2026-10-22T02:00:00Z" },
     { id: "d", status: "failed" as const, created_at: "2026-10-22T03:00:00Z" },
     { id: "e", status: "ignored" as const, created_at: "2026-10-22T04:00:00Z" },
@@ -175,7 +176,7 @@ describe("Home counts follow Troy's rules", () => {
   ];
   it("counts processed, updated and need you", () => {
     const c = homeCounts({ docs, changes, range, waiting: [{ status: "needs_review" }, { status: "needs_review" }, { status: "partly_applied" }, { status: "ignored" }, { status: "duplicate" }], totalDocs: 6 });
-    expect(c).toEqual({ processed: 2, updated: 2, needYou: 3, firstRun: false });
+    expect(c).toEqual({ processed: 2, updated: 2, needYou: 3, reading: 0, firstRun: false });
   });
   it("a document filed late Sunday night Brisbane belongs to Sunday's week", () => {
     const sun = [{ id: "x", status: "applied" as const, created_at: "2026-10-25T13:59:00Z" }]; // Sun 23:59 Brisbane
@@ -187,6 +188,29 @@ describe("Home counts follow Troy's rules", () => {
     expect(homeCounts({ docs: [], changes: [], range, waiting: [], totalDocs: 0 }).firstRun).toBe(true);
     expect(homeCounts({ docs: [], changes: [], range, waiting: [], totalDocs: 5 }).firstRun).toBe(false);
     expect(homeCounts({ docs: [], changes: [], range, waiting: [{ status: "needs_review" }], totalDocs: 0 }).firstRun).toBe(false);
+  });
+  it("an invoice only counts as processed once it has been read; placeholders are counted as still being read", () => {
+    const placeholders = [
+      { id: "p1", status: "needs_review" as const, created_at: "2026-10-22T01:00:00Z", read_model: null },
+      { id: "p2", status: "needs_review" as const, created_at: "2026-10-22T01:00:00Z" },
+      { id: "r1", status: "needs_review" as const, created_at: "2026-10-22T01:00:00Z", read_model: "claude-sonnet-5-5" },
+      { id: "s1", status: "nothing_to_apply" as const, created_at: "2026-10-22T01:00:00Z", read_model: null }, // a statement: finished without a read
+      { id: "dup", status: "duplicate" as const, created_at: "2026-10-22T01:00:00Z", read_model: null },
+    ];
+    const c = homeCounts({ docs: placeholders, changes: [], range, waiting: [], totalDocs: 5 });
+    expect(c.processed).toBe(2); // the read one and the statement
+    expect(c.reading).toBe(2);
+    // placeholders alone are not "first run" and not zero
+    expect(homeCounts({ docs: placeholders.slice(0, 2), changes: [], range, waiting: [], totalDocs: 0 }).firstRun).toBe(false);
+  });
+  it("isUnread, its status word, and the Needs You filter leave placeholders alone", () => {
+    expect(isUnread({ status: "needs_review", read_model: null })).toBe(true);
+    expect(isUnread({ status: "needs_review", read_model: "m" })).toBe(false);
+    expect(isUnread({ status: "applied", read_model: null })).toBe(false);
+    const none = { changed: 0, confirmed: 0, questions: 0, approvals: 0, needYou: 0 };
+    expect(statusView("needs_review", none, true)).toEqual({ word: "Waiting To Be Read", tone: "neutral", icon: "dash" });
+    expect(matchesStatus("needs", "needs_review", none, true)).toBe(false);
+    expect(matchesStatus("all", "needs_review", none, true)).toBe(true);
   });
   it("words", () => {
     expect(invoicesWord(1)).toBe("Invoice Processed");

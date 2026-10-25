@@ -28,7 +28,7 @@ import {
   type ChangeView,
   type DocStats,
   type PeriodId,
-  type StatusFilterId,
+  type StatusFilterId, isUnread,
 } from "@/lib/invoice-view";
 import { loadChangeLookups, useInvoiceList, type ChangeLookups } from "@/lib/invoice-data";
 import type { InvoiceDocumentRow, InvoicePriceChangeRow } from "@/lib/invoice-types";
@@ -179,7 +179,7 @@ function DocsView({
       ? [{ key: "venue", label: "Venue", render: (d: InvoiceDocumentRow) => <VenueTag slug={venueOf(d)?.slug} name={VENUE_SHORT[venueOf(d)?.slug ?? ""] ?? venueOf(d)?.name ?? ""} size={16} /> } satisfies Column<InvoiceDocumentRow>]
       : []),
     { key: "total", label: "Total Inc GST", align: "right", render: (d) => <span className="text-label">{money(d.total_inc)}</span>, sort: (d) => d.total_inc },
-    { key: "status", label: "Status", render: (d) => <StatusLabel view={statusView(d.status, statsFor(stats, d.id))} /> },
+    { key: "status", label: "Status", render: (d) => <StatusLabel view={statusView(d.status, statsFor(stats, d.id), isUnread(d))} /> },
   ];
   return (
     <>
@@ -205,7 +205,7 @@ function DocsView({
                     </>
                   ) : null}
                 </span>
-                <StatusLabel view={statusView(d.status, statsFor(stats, d.id))} />
+                <StatusLabel view={statusView(d.status, statsFor(stats, d.id), isUnread(d))} />
               </Link>
             </li>
           );

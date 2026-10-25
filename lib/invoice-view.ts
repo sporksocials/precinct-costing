@@ -293,8 +293,8 @@ export interface CheckItem {
   detail: string | null;
 }
 
-/** The checks, in words. Reasons come from the stored recon notes, which are written for a person. */
-export function checkItems(doc: Pick<InvoiceDocumentRow, "reconciled" | "recon_notes" | "venue_check" | "duplicate_of" | "status">, venueName?: string | null): CheckItem[] {
+/** The checks, in words. Reasons come from the stored recon notes, which are written for a person. The venue is not a check: prices are shared across venues. (Old stored venue notes are skipped.) */
+export function checkItems(doc: Pick<InvoiceDocumentRow, "reconciled" | "recon_notes" | "duplicate_of" | "status">): CheckItem[] {
   const notes: ReconNote[] = Array.isArray(doc.recon_notes) ? doc.recon_notes : [];
   const math = notes.filter((n) => n.check !== "venue" && n.check !== "duplicate");
   const failing = math.filter((n) => !n.ok);
@@ -303,14 +303,6 @@ export function checkItems(doc: Pick<InvoiceDocumentRow, "reconciled" | "recon_n
     doc.reconciled && failing.length === 0
       ? { key: "adds", ok: true, label: "Adds up", detail: null }
       : { key: "adds", ok: false, label: "Does not add up", detail: failing.length ? failing.map((n) => n.message).join(" ") : "The lines, subtotal, GST and total do not agree." },
-  );
-  const venueNote = notes.find((n) => n.check === "venue");
-  out.push(
-    doc.venue_check === "ok"
-      ? { key: "venue", ok: true, label: "Venue matches", detail: venueName ? `Made out to ${venueName}.` : null }
-      : doc.venue_check === "mismatch"
-        ? { key: "venue", ok: false, label: "Venue does not match", detail: venueNote && !venueNote.ok ? venueNote.message : "The invoice looks like it was made out to a different venue." }
-        : { key: "venue", ok: null, label: "Venue not confirmed", detail: venueNote && !venueNote.ok ? venueNote.message : "The invoice does not say which venue it is for." },
   );
   out.push(doc.duplicate_of || doc.status === "duplicate" ? { key: "dup", ok: false, label: "Possible duplicate", detail: "This invoice number has been filed before." } : { key: "dup", ok: true, label: "Not a duplicate", detail: null });
   return out;

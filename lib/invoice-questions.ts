@@ -108,30 +108,6 @@ export function totalsQuestion(args: { supplier: string; invoiceNumber: string |
   };
 }
 
-export function venueQuestion(args: { supplier: string; invoiceNumber: string | null; folderVenue: string; named: string[]; billTo: string | null; shipTo: string | null }): AnalysedQuestion {
-  const which = args.invoiceNumber ? `Invoice ${plain(args.invoiceNumber)} from ${args.supplier}` : `An invoice from ${args.supplier}`;
-  const others = args.named.filter((n) => n !== args.folderVenue);
-  let prompt: string;
-  if (args.named.length === 0) {
-    const addr = plain([args.billTo, args.shipTo].filter(Boolean).join(" / "));
-    prompt = `${which} does not say which venue it is for${addr ? ` (it reads: ${addr})` : ""}. Is it for ${args.folderVenue}?`;
-  } else if (others.length > 0 && !args.named.includes(args.folderVenue)) {
-    prompt = `${which} is addressed to ${others.join(" and ")}, but it arrived in the ${args.folderVenue} folder. Is it for ${args.folderVenue}?`;
-  } else {
-    prompt = `${which} names more than one venue (${args.named.join(" and ")}). Is it for ${args.folderVenue}?`;
-  }
-  return {
-    kind: "venue_mismatch",
-    line_no: null,
-    prompt,
-    options: [
-      { id: "confirm_venue", label: `Yes, it is for ${args.folderVenue}`, action: "confirm_venue" },
-      { id: "wrong_venue", label: "No, it belongs to another venue", action: "wrong_venue" },
-      OPT.ignoreDoc(),
-    ],
-  };
-}
-
 export function newSupplierQuestion(args: { name: string; abn: string | null; candidates: { id: string; name: string }[] }): AnalysedQuestion {
   if (args.candidates.length > 0) {
     return {

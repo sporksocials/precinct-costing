@@ -43,8 +43,12 @@ describe("loadAnalyseContext", () => {
     expect(ctx.venueNames.find((v) => v.id === 4)!.aliases).toContain("gelato rumba");
     expect(ctx.suppliers).toHaveLength(1);
     expect(ctx.suppliers[0]).toMatchObject({ id: IDS.supplier, auto_apply: true });
-    // the date and total travel with each filed invoice so the engine can recognise a repeat that was filed under another number
-    expect(ctx.existingDocs).toEqual([{ id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied", invoice_date: "2026-10-14", total_inc: 216.5 }]);
+    // the date and total travel with each filed invoice so the engine can recognise a repeat that was filed under another number;
+    // every venue's invoices are loaded, because the same invoice scanned into two piles is one invoice
+    expect(ctx.existingDocs).toEqual([
+      { id: "d1", venue_id: 1, supplier_id: IDS.supplier, invoice_number: "51329", status: "applied", invoice_date: "2026-10-14", total_inc: 216.5 },
+      { id: "d2", venue_id: 2, supplier_id: IDS.supplier, invoice_number: "777", status: "needs_review", invoice_date: null, total_inc: null },
+    ]);
   });
 
   it("keeps maps for this venue and for every venue, and only active charge rules", async () => {

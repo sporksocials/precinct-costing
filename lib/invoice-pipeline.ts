@@ -20,6 +20,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AnalyseInvoice, ApplyDocumentAuto, LoadAnalyseContext, ProcessStep, ProcessStepResult, SaveAnalysis } from "./invoice-interfaces";
 import { DEFAULT_READ_MODEL, DEFAULT_SORT_MODEL, INVOICE_ENV, type DocStatus, type ExtractedInvoice, type InvoiceAnalysis, type InvoiceDocType, type InvoiceFileRow, type SortedPage } from "./invoice-types";
 import { AiError, type ClaudeFn } from "./invoice-ai";
+import { venueFromInvoice } from "./invoice-match";
 import { PdfError, countPages, splitPages, toBase64 } from "./invoice-pdf";
 import {
   READABLE_DOC_TYPES,
@@ -395,12 +396,20 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
   const path = buildPdfPath({ venueSlug, date: extracted.invoice_date ?? fallbackDate, supplier: extracted.supplier_name ?? doc.supplier_name_read, invoiceNumber: extracted.invoice_number ?? doc.invoice_number, firstPage: doc.pages[0] });
   await storage.upload(INVOICE_BUCKET, path, pdf, "application/pdf");
 
+  // Which venue the document belongs to: the one its bill-to / ship-to names when it names exactly one of ours, else the folder it
+  // arrived in. Prices are shared across venues, so this never blocks or asks anything; it only decides where the invoice is filed
+  // and whose ordering products it looks at. The context is loaded for the folder venue first (it carries the venue names), and
+  // again for the named venue only when that is a different one.
   const analyseWith = async (ex: ExtractedInvoice, hinted = false) => {
-    const ctx = await deps.loadContext(deps.sb, { venueId: file.venue_id, folderVenueId: file.venue_id, today: deps.clock.today() });
+    const today = deps.clock.today();
+    const folderCtx = await deps.loadContext(deps.sb, { venueId: file.venue_id, folderVenueId: file.venue_id, today });
+    const venueId = venueFromInvoice(ex, folderCtx.venueNames ?? []) ?? file.venue_id;
+    const ctx = venueId === file.venue_id ? folderCtx : await deps.loadContext(deps.sb, { venueId, folderVenueId: file.venue_id, today });
     // hintedReread (the engine's AnalyseConfirmations): the reader was told which checks failed, so no line of it may apply itself
-    return deps.analyse(ex, hinted ? ({ ...ctx, hintedReread: true } as typeof ctx & { hintedReread: true }) : ctx);
+    const analysis = deps.analyse(ex, hinted ? ({ ...ctx, hintedReread: true } as typeof ctx & { hintedReread: true }) : ctx);
+    return { analysis, venueId };
   };
-  let analysis = await analyseWith(extracted);
+  let { analysis, venueId: docVenueId } = await analyseWith(extracted);
 
   // not reconciled: read it once more with the next stronger model and keep whichever reading passes more checks
   if (!analysis.reconciled) {
@@ -409,11 +418,11 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
       try {
         const failedChecks = analysis.recon_notes.filter((n) => !n.ok).map((n) => n.message);
         const second = await readPages(deps, file, doc, pdf, stronger, start, failedChecks.length ? failedChecks : ["The totals did not add up."]);
-        const secondAnalysis = await analyseWith(second);
+        const secondAnalysis = (await analyseWith(second)).analysis;
         if ((secondAnalysis.reconciled && !analysis.reconciled) || passing(secondAnalysis) > passing(analysis)) {
           extracted = second;
           // the kept reading came from a hinted re-read: analyse it again with that flag so none of its lines is automatic
-          analysis = await analyseWith(second, true);
+          ({ analysis, venueId: docVenueId } = await analyseWith(second, true));
           readModel = stronger;
         }
       } catch {
@@ -422,7 +431,7 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
     }
   }
 
-  const saved = await deps.save(deps.sb, { fileId: file.id, venueId: file.venue_id, extracted, analysis, pagePdfPath: path, readModel, documentId: doc.id });
+  const saved = await deps.save(deps.sb, { fileId: file.id, venueId: docVenueId, extracted, analysis, pagePdfPath: path, readModel, documentId: doc.id });
   // Always asked, in learning mode too: the apply layer itself refuses real price changes while learning mode is on and only
   // confirms prices that are the same as today's. A failure is logged short and never fails the file.
   if (saved.status !== "duplicate" && saved.status !== "failed" && saved.status !== "ignored") {
@@ -433,9 +442,11 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
       console.warn(`Invoice auto-apply failed for a document: ${safeError(e)}`);
     }
   }
+  // the document's venue (not the folder's) is the one that gets the digest and the answer
+  const docVenueSlug = docVenueId === file.venue_id ? venueSlug : await deps.repo.venueSlug(docVenueId);
   if (deps.notify) {
     try {
-      await deps.notify({ type: "document_done", fileId: file.id, documentId: saved.documentId, venueId: file.venue_id, venueSlug, status: saved.status, supplier: extracted.supplier_name, invoiceNumber: extracted.invoice_number, analysis });
+      await deps.notify({ type: "document_done", fileId: file.id, documentId: saved.documentId, venueId: docVenueId, venueSlug: docVenueSlug, status: saved.status, supplier: extracted.supplier_name, invoiceNumber: extracted.invoice_number, analysis });
     } catch {
       // a Slack hiccup never fails a document
     }
@@ -447,7 +458,7 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
     supplier: extracted.supplier_name,
     invoiceNumber: extracted.invoice_number,
     invoiceDate: extracted.invoice_date,
-    venueSlug,
+    venueSlug: docVenueSlug,
     fileName: buildDownloadName({ date, supplier: extracted.supplier_name, invoiceNumber: extracted.invoice_number }),
     downloadUrl: await link(path),
     status: saved.status,

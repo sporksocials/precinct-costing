@@ -81,7 +81,7 @@ export function InvoiceDetail({ id }: { id: string }) {
   const venue = store.venueById.get(doc.venue_id);
   const venueName = venue ? (VENUE_SHORT[venue.slug] ?? venue.name) : null;
   const status = statusView(doc.status, stats);
-  const checks = checkItems(doc, venueName);
+  const checks = checkItems(doc);
   const totals = totalsStrip(doc);
   const title = docTitle(doc, d.supplierName);
   const applied = d.changes.filter((c) => c.status === "applied");

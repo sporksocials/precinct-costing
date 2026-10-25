@@ -3,7 +3,7 @@
  * can run in the browser, on the server and in tests. It decides nothing about the database: it says what each line IS and what
  * should happen to its price, and why.
  *
- *   1  supplier, venue check, duplicate                      (invoice-match)
+ *   1  supplier, venue check (informational), duplicate                     (invoice-match)
  *   2  ex GST amounts, line classes, charge rules             (invoice-recon, invoice-classify)
  *   3  match each product line, unit and pack conversion      (invoice-match, invoice-units)
  *   4  reconciliation: does the invoice add up?               (invoice-recon)
@@ -46,7 +46,6 @@ import {
   unitQuestion,
   unmatchedQuestion,
   unreadableSupplierQuestion,
-  venueQuestion,
 } from "./invoice-questions";
 
 interface Work {
@@ -141,7 +140,7 @@ function passiveLine(w: Work, extracted: ExtractedInvoice, ctx: AnalyseContext):
  * extra properties on the context. Absent means "not confirmed", which is the safe default.
  */
 export interface AnalyseConfirmations {
-  /** a person said the invoice is for the folder venue: the venue check counts as ok */
+  /** kept so old callers compile: the venue is no longer a check, so nothing reads this */
   venueConfirmed?: boolean;
   /** a person said the supplier with a different ABN is the same supplier */
   supplierConfirmed?: boolean;
@@ -162,10 +161,10 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   const supplierId = supplier?.id ?? null;
   const readName = plain(extracted.supplier_name);
   const supplierLabel = plain(supplier?.name) || readName || "The supplier";
-  const venueRead = checkVenue(extracted, ctx.venueNames, ctx.folderVenueId);
-  const venue = ctx.venueConfirmed === true ? { ...venueRead, check: "ok" as const } : venueRead;
-  const folderVenueName = ctx.venueNames.find((v) => v.id === ctx.folderVenueId)?.name ?? "this venue";
-  const duplicateOf = supplier ? findDuplicate(extracted.invoice_number, ctx.venueId, supplierId, ctx.existingDocs, extracted.invoice_date, extracted.total_inc) : null;
+  // informational only (stored on the document, nothing reads it to block): the venue is attributed before the analysis, from the
+  // invoice's own bill-to and ship-to, and prices are shared across venues, so which venue it is for never stops or asks anything
+  const venue = checkVenue(extracted, ctx.venueNames, ctx.venueId);
+  const duplicateOf = supplier ? findDuplicate(extracted.invoice_number, supplierId, ctx.existingDocs, extracted.invoice_date, extracted.total_inc) : null;
   const isDuplicate = duplicateOf != null;
   const invoiceLike = extracted.doc_type === "invoice" || extracted.doc_type === "credit_note";
 
@@ -364,7 +363,6 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     const input: DecideInput = {
       duplicate: isDuplicate,
       supplierKnown: supplierSure,
-      venueCheck: venue.check,
       reconciled,
       lineClass: cls,
       mathOk: w.mathOk,
@@ -423,9 +421,6 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     else if (sm.status === "abn_mismatch" && supplier && !supplierSure) docQuestions.push(supplierAbnQuestion({ name: supplier.name, readAbn: plain(extracted.supplier_abn), knownAbn: plain(supplier.abn) }));
     else if (sm.status === "unreadable") docQuestions.push(unreadableSupplierQuestion(extracted.invoice_number));
 
-    if (venue.check !== "ok") {
-      docQuestions.push(venueQuestion({ supplier: supplierLabel, invoiceNumber: extracted.invoice_number, folderVenue: folderVenueName, named: venue.named.map((v) => v.name), billTo: extracted.bill_to, shipTo: extracted.ship_to }));
-    }
     if (!reconciled) {
       docQuestions.push(totalsQuestion({ supplier: supplierLabel, invoiceNumber: extracted.invoice_number, problems: [...recon.notes, ...(rereadNote ? [rereadNote] : [])].filter((n) => !n.ok).map((n) => n.message) }));
     }
@@ -441,11 +436,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   }
 
   const reconNotes: ReconNote[] = [...recon.notes, ...(rereadNote ? [rereadNote] : [])];
-  if (ctx.venueConfirmed === true && venueRead.check !== "ok") reconNotes.push({ check: "venue", ok: true, message: `A person confirmed the invoice is for ${folderVenueName}.` });
-  else if (venue.check === "ok") reconNotes.push({ check: "venue", ok: true, message: `The invoice is addressed to ${venue.named[0].name}.` });
-  else if (venue.check === "mismatch") reconNotes.push({ check: "venue", ok: false, message: `The invoice names ${venue.named.map((v) => v.name).join(" and ")}, not ${folderVenueName}.` });
-  else reconNotes.push({ check: "venue", ok: false, message: venue.named.length === 0 ? "The invoice does not name a venue." : `The invoice names more than one venue (${venue.named.map((v) => v.name).join(" and ")}).` });
-  if (isDuplicate) reconNotes.push({ check: "duplicate", ok: false, message: "This invoice number is already filed for this supplier and venue." });
+  if (isDuplicate) reconNotes.push({ check: "duplicate", ok: false, message: "This invoice is already filed for this supplier." });
 
   // ----- status and summary
   const productLines = outLines.filter((l) => l.line_class === "product");

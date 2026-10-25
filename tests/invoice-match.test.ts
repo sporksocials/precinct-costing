@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { abnDigits, descKey, dollars, nameTokens, normCode, plain, supplierNameKeys, tidyLabel, tokenOverlap } from "../lib/invoice-names";
-import { buildMatcher, checkVenue, findDuplicate, matchSupplier } from "../lib/invoice-match";
+import { buildMatcher, checkVenue, findDuplicate, matchSupplier, venueFromInvoice } from "../lib/invoice-match";
 import { classifyLine, findChargeRule } from "../lib/invoice-classify";
 import { baseQuantity, canonicalUnit, deriveSafePacks, inferPackCounts, plausibleFactors, resolvePacks, unitsMatch } from "../lib/invoice-units";
 import {
@@ -92,22 +92,42 @@ describe("checkVenue", () => {
   });
 });
 
+describe("venueFromInvoice", () => {
+  const venues = baseCtx().venueNames;
+  it("is the venue's id when the invoice names exactly one of ours, whatever folder it came from", () => {
+    expect(venueFromInvoice({ bill_to: "DRIFT BAR AND DINING", ship_to: null }, venues)).toBe(DRIFT);
+    expect(venueFromInvoice({ bill_to: "Caloundra Food Precinct", ship_to: "chiobu, bulcock st" }, venues)).toBe(CHIOBU);
+    expect(venueFromInvoice({ bill_to: null, ship_to: "Greedy Gringos" }, venues)).toBe(3);
+  });
+  it("is null when it names none of our venues, or more than one", () => {
+    expect(venueFromInvoice({ bill_to: "Some Pty Ltd", ship_to: null }, venues)).toBeNull();
+    expect(venueFromInvoice({ bill_to: null, ship_to: null }, venues)).toBeNull();
+    expect(venueFromInvoice({ bill_to: "Drift and Chiobu", ship_to: null }, venues)).toBeNull();
+    expect(venueFromInvoice({ bill_to: "Drift", ship_to: "Chiobu" }, venues)).toBeNull();
+  });
+  it("does not match part of a longer word", () => {
+    expect(venueFromInvoice({ bill_to: "Driftwood Cafe", ship_to: null }, venues)).toBeNull();
+  });
+});
+
 describe("findDuplicate", () => {
   const existing = [{ id: "d1", venue_id: DRIFT, supplier_id: SUP_DS, invoice_number: "51329", status: "applied" as const }];
-  it("same venue, supplier and number", () => {
-    expect(findDuplicate("51329", DRIFT, SUP_DS, existing)).toBe("d1");
-    expect(findDuplicate(" #51329 ", DRIFT, SUP_DS, existing)).toBe("d1");
+  it("same supplier and number", () => {
+    expect(findDuplicate("51329", SUP_DS, existing)).toBe("d1");
+    expect(findDuplicate(" #51329 ", SUP_DS, existing)).toBe("d1");
   });
-  it("a different venue, supplier or number is not a repeat", () => {
-    expect(findDuplicate("51329", CHIOBU, SUP_DS, existing)).toBeNull();
-    expect(findDuplicate("51329", DRIFT, SUP_DIABLO, existing)).toBeNull();
-    expect(findDuplicate("51330", DRIFT, SUP_DS, existing)).toBeNull();
-    expect(findDuplicate(null, DRIFT, SUP_DS, existing)).toBeNull();
-    expect(findDuplicate("51329", DRIFT, null, existing)).toBeNull();
+  it("the same invoice filed in another venue's pile is still a repeat", () => {
+    expect(findDuplicate("51329", SUP_DS, [{ ...existing[0], venue_id: CHIOBU }])).toBe("d1");
+  });
+  it("a different supplier or number is not a repeat", () => {
+    expect(findDuplicate("51329", SUP_DIABLO, existing)).toBeNull();
+    expect(findDuplicate("51330", SUP_DS, existing)).toBeNull();
+    expect(findDuplicate(null, SUP_DS, existing)).toBeNull();
+    expect(findDuplicate("51329", null, existing)).toBeNull();
   });
   it("earlier duplicates and failed reads do not count", () => {
-    expect(findDuplicate("51329", DRIFT, SUP_DS, [{ ...existing[0], status: "duplicate" as const }])).toBeNull();
-    expect(findDuplicate("51329", DRIFT, SUP_DS, [{ ...existing[0], status: "failed" as const }])).toBeNull();
+    expect(findDuplicate("51329", SUP_DS, [{ ...existing[0], status: "duplicate" as const }])).toBeNull();
+    expect(findDuplicate("51329", SUP_DS, [{ ...existing[0], status: "failed" as const }])).toBeNull();
   });
 });
 

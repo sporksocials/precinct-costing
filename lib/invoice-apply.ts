@@ -139,7 +139,6 @@ async function applyLineInner(
   if (!doc) return refuse("The invoice for this line no longer exists.");
   if (doc.status === "ignored" || doc.status === "duplicate" || doc.status === "failed") return refuse(`This invoice is marked ${doc.status}, so its prices are not applied.`);
   if (mode === "auto") {
-    if (doc.venue_check !== "ok") return refuse("The venue on this invoice has not been confirmed, so the price waits for a tap.");
     if (!doc.reconciled) return refuse("This invoice does not add up, so the price waits for a tap.");
     if (line.decision === "apply" && doc.mode !== "auto") return refuse("This invoice is not set to apply itself, so the price waits for a tap.");
   }

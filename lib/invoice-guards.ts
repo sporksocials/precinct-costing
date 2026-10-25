@@ -3,20 +3,19 @@
  * the screens can show the same checklist the engine used. A price applies itself only when EVERY guard passes; the first guard
  * that fails gives the one plain-words reason the line waits for a person.
  *
- *   duplicate, supplier, venue, reconciled, math, match, costed_supplier, units, price, delivered, credit, deal, date, age, change,
+ *   duplicate, supplier, reconciled, math, match, costed_supplier, units, price, delivered, credit, deal, date, age, change,
  *   learning, supplier_trust
  *
  * The substantive problems come before the two policy switches (learning mode, supplier trust), so a line that is both risky and in
  * learning mode tells people about the risk. A price that equals the current price ("price confirmed") only needs the guards that
  * make the invoice trustworthy; learning mode and supplier trust never stop it.
  */
-import type { LineClass, LineDecision, MatchMethod, MatchState, VenueCheck } from "./invoice-types";
+import type { LineClass, LineDecision, MatchMethod, MatchState } from "./invoice-types";
 import { dollars, limitText, pctText, round6 } from "./invoice-names";
 
 export type GuardId =
   | "duplicate"
   | "supplier"
-  | "venue"
   | "reconciled"
   | "math"
   | "match"
@@ -46,7 +45,6 @@ export interface GuardInput {
   duplicate: boolean;
   /** the supplier is one we know and its ABN is not in doubt */
   supplierKnown: boolean;
-  venueCheck: VenueCheck;
   reconciled: boolean;
   lineClass: LineClass;
   mathOk: boolean | null;
@@ -116,11 +114,6 @@ export function evaluateGuards(i: GuardInput, purpose: GuardPurpose = "apply"): 
   const g: GuardResult[] = [];
   g.push(i.duplicate ? stop("duplicate", "Not a repeat", "This invoice is a copy of one already filed.") : pass("duplicate", "Not a repeat"));
   g.push(i.supplierKnown ? pass("supplier", "Supplier known") : stop("supplier", "Supplier known", "The supplier is new or not confirmed yet."));
-  g.push(
-    i.venueCheck === "ok"
-      ? pass("venue", "Venue confirmed")
-      : stop("venue", "Venue confirmed", i.venueCheck === "mismatch" ? "The invoice looks like it belongs to another venue." : "The venue on the invoice is not confirmed."),
-  );
   g.push(i.reconciled ? pass("reconciled", "Invoice adds up") : stop("reconciled", "Invoice adds up", "Invoice does not add up."));
   g.push(
     i.mathOk === true

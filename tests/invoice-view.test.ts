@@ -262,23 +262,24 @@ describe("statuses and filters", () => {
 
 describe("checks in words", () => {
   it("a clean invoice", () => {
-    const c = checkItems(doc(), "Drift");
-    expect(c.map((x) => [x.label, x.ok])).toEqual([["Adds up", true], ["Venue matches", true], ["Not a duplicate", true]]);
+    const c = checkItems(doc());
+    expect(c.map((x) => [x.label, x.ok])).toEqual([["Adds up", true], ["Not a duplicate", true]]);
   });
   it("the barramundi line that does not add up gives its reason", () => {
     const c = checkItems(
       doc({ reconciled: false, recon_notes: [{ check: "line_math", ok: false, message: "Line 2: 2.39 kg at $41.54 is $99.28, not $98.98." }] }),
-      "Drift",
     );
     expect(c[0]).toMatchObject({ label: "Does not add up", ok: false });
     expect(c[0].detail).toContain("$99.28");
   });
-  it("a venue mismatch and an unknown venue are different words", () => {
-    expect(checkItems(doc({ venue_check: "mismatch" }))[1]).toMatchObject({ label: "Venue does not match", ok: false });
-    expect(checkItems(doc({ venue_check: "unknown" }))[1]).toMatchObject({ label: "Venue not confirmed", ok: null });
+  it("the venue is not a check: no line whatever the stored venue check says, and old venue notes are skipped", () => {
+    for (const venue_check of ["ok", "mismatch", "unknown"] as const) {
+      const c = checkItems(doc({ venue_check, recon_notes: [{ check: "venue", ok: false, message: "The invoice does not name a venue." }] }));
+      expect(c.map((x) => x.label)).toEqual(["Adds up", "Not a duplicate"]);
+    }
   });
   it("a duplicate", () => {
-    expect(checkItems(doc({ duplicate_of: "d0", status: "duplicate" }))[2]).toMatchObject({ label: "Possible duplicate", ok: false });
+    expect(checkItems(doc({ duplicate_of: "d0", status: "duplicate" }))[1]).toMatchObject({ label: "Possible duplicate", ok: false });
   });
   it("tolerates missing notes", () => {
     expect(() => checkItems({ ...doc(), recon_notes: null as never })).not.toThrow();

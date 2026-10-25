@@ -6,7 +6,6 @@ import type { DecideInput, GuardId } from "../lib/invoice-guards";
 const good = (over: Partial<DecideInput> = {}): DecideInput => ({
   duplicate: false,
   supplierKnown: true,
-  venueCheck: "ok",
   reconciled: true,
   lineClass: "product",
   mathOk: true,
@@ -43,8 +42,6 @@ describe("decideLine: the auto-apply guards", () => {
   // one row per guard: the input that breaks only that guard, the guard that must stop it, and the words a person reads
   const blocks: [string, Partial<DecideInput>, GuardId, string][] = [
     ["supplier unknown", { supplierKnown: false }, "supplier", "The supplier is new or not confirmed yet."],
-    ["venue mismatch", { venueCheck: "mismatch" }, "venue", "The invoice looks like it belongs to another venue."],
-    ["venue unknown", { venueCheck: "unknown" }, "venue", "The venue on the invoice is not confirmed."],
     ["not reconciled", { reconciled: false }, "reconciled", "Invoice does not add up."],
     ["line maths wrong", { mathOk: false }, "math", "The line's quantity times price does not match its total."],
     ["line maths unchecked", { mathOk: null }, "math", "The line's maths could not be checked."],
@@ -122,8 +119,6 @@ describe("decideLine: a price that equals the current price is confirmed", () =>
   it("is not confirmed from an invoice that cannot be trusted, and is not asked about", () => {
     const cases: [Partial<DecideInput>, GuardId][] = [
       [{ reconciled: false }, "reconciled"],
-      [{ venueCheck: "mismatch" }, "venue"],
-      [{ venueCheck: "unknown" }, "venue"],
       [{ mathOk: false }, "math"],
       [{ supplierKnown: false }, "supplier"],
       [{ unitsKnown: false }, "units"],
@@ -146,9 +141,9 @@ describe("decideLine: a price that equals the current price is confirmed", () =>
 describe("guards as a checklist", () => {
   it("lists every guard in order for an apply, and a shorter list for a confirm", () => {
     const ids = evaluateGuards(good(), "apply").map((g) => g.id);
-    expect(ids).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "costed_supplier", "units", "price", "delivered", "credit", "deal", "date", "age", "change", "learning", "supplier_trust"]);
+    expect(ids).toEqual(["duplicate", "supplier", "reconciled", "math", "match", "costed_supplier", "units", "price", "delivered", "credit", "deal", "date", "age", "change", "learning", "supplier_trust"]);
     const confirm = evaluateGuards(good(), "confirm").map((g) => g.id);
-    expect(confirm).toEqual(["duplicate", "supplier", "venue", "reconciled", "math", "match", "costed_supplier", "units", "price", "date", "age"]);
+    expect(confirm).toEqual(["duplicate", "supplier", "reconciled", "math", "match", "costed_supplier", "units", "price", "date", "age"]);
   });
 
   it("every result carries a label and a reason for a screen to show", () => {

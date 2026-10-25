@@ -136,40 +136,52 @@ describe("Diablo ENV-23585 (no item codes, matched by description)", () => {
     expect(byNo(analyseInvoice(diabloEnv23585(), ctx).lines, 1).new_pack_price).toBe(359);
   });
 
-  it("the Chiobu invoice found in Drift's folder is a venue mismatch: nothing applies and a question asks", () => {
+  it("the Chiobu invoice analysed against Drift is informational only: nothing is blocked and nothing is asked", () => {
     const ctx = diabloCtx({ venueId: DRIFT, folderVenueId: DRIFT });
     const a = analyseInvoice(diabloEnv23585(), ctx);
     expect(a.venue_check).toBe("mismatch");
-    expect(kinds(a)).toContain("venue_mismatch");
-    expect(a.questions.find((q) => q.kind === "venue_mismatch")?.prompt).toBe(
-      "Invoice ENV-23585 from Diablo Co is addressed to Chiobu, but it arrived in the Drift folder. Is it for Drift?",
-    );
-    for (const l of a.lines) expect(l.decision).toBe("needs_approval");
-    expect(byNo(a.lines, 1).decision_reason).toBe("The invoice looks like it belongs to another venue.");
+    expect(kinds(a)).not.toContain("venue_mismatch");
+    expect(a.recon_notes.some((n) => n.check === "venue")).toBe(false);
+    expect(a.reconciled).toBe(true);
+    expect(byNo(a.lines, 1).decision).toBe("apply");
+    expect(byNo(a.lines, 2).decision).toBe("apply");
+    expect(a.status).toBe("needs_review");
   });
 });
 
-describe("venue check", () => {
-  it("an invoice that names no venue is unknown: nothing applies and a question asks to confirm", () => {
+describe("venue check (informational only)", () => {
+  it("an invoice that names no venue is unknown, can still apply and raises no question", () => {
     const d = danielStreet51329Fixed();
     d.bill_to = "Some Company Pty Ltd";
+    d.ship_to = null;
     const a = analyseInvoice(d, baseCtx());
     expect(a.venue_check).toBe("unknown");
-    expect(a.questions.find((q) => q.kind === "venue_mismatch")?.prompt).toContain("does not say which venue it is for");
-    expect(byNo(a.lines, 1).decision).toBe("needs_approval");
-    expect(byNo(a.lines, 1).decision_reason).toBe("The venue on the invoice is not confirmed.");
+    expect(kinds(a)).not.toContain("venue_mismatch");
+    expect(byNo(a.lines, 1).decision).toBe("apply");
+    expect(byNo(a.lines, 1).decision_reason).toBeNull();
+  });
+
+  it("an invoice that names two venues is unknown, can still apply and raises no question", () => {
+    const d = danielStreet51329Fixed();
+    d.bill_to = "Drift Bar and Dining";
+    d.ship_to = "Chiobu";
+    const a = analyseInvoice(d, baseCtx());
+    expect(a.venue_check).toBe("unknown");
+    expect(kinds(a)).not.toContain("venue_mismatch");
+    expect(byNo(a.lines, 1).decision).toBe("apply");
   });
 });
 
 describe("answers a caller passes back in", () => {
-  it("a person-confirmed venue lets an unknown venue apply, and no venue question is raised", () => {
+  it("venueConfirmed is still accepted but changes nothing: the venue is never a guard", () => {
     const d = danielStreet51329Fixed();
     d.bill_to = "Some Company Pty Ltd";
-    const a = analyseInvoice(d, { ...baseCtx(), venueConfirmed: true } as AnalyseContext);
-    expect(a.venue_check).toBe("ok");
-    expect(a.questions.some((q) => q.kind === "venue_mismatch")).toBe(false);
-    expect(a.recon_notes.find((n) => n.check === "venue")?.message).toBe("A person confirmed the invoice is for Drift.");
-    expect(byNo(a.lines, 1).decision).toBe("apply");
+    d.ship_to = null;
+    const plain = analyseInvoice(d, baseCtx());
+    const confirmed = analyseInvoice(d, { ...baseCtx(), venueConfirmed: true } as AnalyseContext);
+    expect(confirmed).toEqual(plain);
+    expect(confirmed.questions.some((q) => q.kind === "venue_mismatch")).toBe(false);
+    expect(byNo(confirmed.lines, 1).decision).toBe("apply");
   });
 
   it("a confirmed supplier with a different ABN stops the question and counts as known", () => {
@@ -195,9 +207,30 @@ describe("duplicates", () => {
     expect(a.recon_notes.some((n) => n.check === "duplicate" && !n.ok)).toBe(true);
   });
 
-  it("the same number at another venue or from another supplier is not a repeat", () => {
-    const other = baseCtx({ existingDocs: [{ id: "d", venue_id: CHIOBU, supplier_id: SUP_DS, invoice_number: "51329", status: "applied" }] });
+  it("the same number from another supplier is not a repeat", () => {
+    const other = baseCtx({ existingDocs: [{ id: "d", venue_id: DRIFT, supplier_id: SUP_DIABLO, invoice_number: "51329", status: "applied" }] });
     expect(analyseInvoice(danielStreet51329(), other).status).not.toBe("duplicate");
+  });
+
+  it("the same invoice filed from another venue's pile is a repeat (the venue does not matter)", () => {
+    const filedAtChiobu = baseCtx({ existingDocs: [{ id: "d", venue_id: CHIOBU, supplier_id: SUP_DS, invoice_number: "51329", status: "applied" }] });
+    const a = analyseInvoice(danielStreet51329(), filedAtChiobu);
+    expect(a.status).toBe("duplicate");
+    expect(a.duplicate_of).toBe("d");
+    expect(a.questions).toEqual([]);
+  });
+
+  it("the same invoice read from Chiobu's pile and again from Drift's pile is marked duplicate", () => {
+    // Daniel Street addressed to Drift, scanned into both piles: both land on Drift once the venue is attributed, and the second
+    // is a repeat of the first whichever venue the first was filed under
+    const first = analyseInvoice(danielStreet51329(), baseCtx({ venueId: DRIFT, folderVenueId: CHIOBU }));
+    expect(first.status).not.toBe("duplicate");
+    const filed = { id: "first-doc", venue_id: DRIFT, supplier_id: SUP_DS, invoice_number: "51329", status: first.status };
+    const second = analyseInvoice(danielStreet51329(), baseCtx({ venueId: DRIFT, folderVenueId: DRIFT, existingDocs: [filed] }));
+    expect(second.status).toBe("duplicate");
+    expect(second.duplicate_of).toBe("first-doc");
+    const secondAtOtherVenue = analyseInvoice(danielStreet51329(), baseCtx({ venueId: CHIOBU, folderVenueId: CHIOBU, existingDocs: [filed] }));
+    expect(secondAtOtherVenue.status).toBe("duplicate");
   });
 });
 
@@ -606,7 +639,7 @@ describe("safety property: nothing applies unless the whole invoice is sound", (
     };
   }
 
-  it("over 400 random invoices: an apply decision always comes with a reconciled invoice, a confirmed venue, a known supplier and a small change", () => {
+  it("over 400 random invoices: an apply decision always comes with a reconciled invoice, a known supplier and a small change", () => {
     const r = rng(1024);
     const pick = <T,>(xs: T[]): T => xs[Math.floor(r() * xs.length)];
     let applies = 0;
@@ -636,7 +669,6 @@ describe("safety property: nothing applies unless the whole invoice is sound", (
         if (l.decision !== "apply") continue;
         applies += 1;
         expect(a.reconciled).toBe(true);
-        expect(a.venue_check).toBe("ok");
         expect(a.supplier_id).toBe(SUP_DS);
         expect(a.duplicate_of).toBeNull();
         expect(l.math_ok).toBe(true);

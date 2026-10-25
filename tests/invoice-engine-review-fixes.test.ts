@@ -176,24 +176,24 @@ describe("M6: duplicates survive a different way of writing the number", () => {
   ];
 
   it("INV-51329 against a filed 51329 is a repeat", () => {
-    expect(findDuplicate("INV-51329", DRIFT, SUP_DS, existing())).toBe("doc-1");
-    expect(findDuplicate("#0051329", DRIFT, SUP_DS, existing())).toBe("doc-1");
-    expect(findDuplicate("51329-1", DRIFT, SUP_DS, existing())).toBeNull();
+    expect(findDuplicate("INV-51329", SUP_DS, existing())).toBe("doc-1");
+    expect(findDuplicate("#0051329", SUP_DS, existing())).toBe("doc-1");
+    expect(findDuplicate("51329-1", SUP_DS, existing())).toBeNull();
   });
 
-  it("same supplier, venue, date and total is a repeat even when the number differs or is unreadable", () => {
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing(), "2026-10-14", 216.8)).toBe("doc-1");
-    expect(findDuplicate(null, DRIFT, SUP_DS, existing(), "2026-10-14", 216.81)).toBe("doc-1");
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing(), "2026-10-14", 216.82)).toBeNull();
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing(), "2026-10-15", 216.8)).toBeNull();
+  it("same supplier, date and total is a repeat even when the number differs or is unreadable", () => {
+    expect(findDuplicate("9999", SUP_DS, existing(), "2026-10-14", 216.8)).toBe("doc-1");
+    expect(findDuplicate(null, SUP_DS, existing(), "2026-10-14", 216.81)).toBe("doc-1");
+    expect(findDuplicate("9999", SUP_DS, existing(), "2026-10-14", 216.82)).toBeNull();
+    expect(findDuplicate("9999", SUP_DS, existing(), "2026-10-15", 216.8)).toBeNull();
   });
 
-  it("the fingerprint needs a known supplier and the same venue, and ignores duplicate and failed documents", () => {
-    expect(findDuplicate("9999", DRIFT, null, existing(), "2026-10-14", 216.8)).toBeNull();
-    expect(findDuplicate("9999", 2, SUP_DS, existing(), "2026-10-14", 216.8)).toBeNull();
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing({ status: "duplicate" }), "2026-10-14", 216.8)).toBeNull();
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing({ status: "failed" }), "2026-10-14", 216.8)).toBeNull();
-    expect(findDuplicate("9999", DRIFT, SUP_DS, existing({ invoice_date: undefined, total_inc: undefined }), "2026-10-14", 216.8)).toBeNull();
+  it("the fingerprint needs a known supplier, ignores the venue, and ignores duplicate and failed documents", () => {
+    expect(findDuplicate("9999", null, existing(), "2026-10-14", 216.8)).toBeNull();
+    expect(findDuplicate("9999", SUP_DS, existing({ venue_id: 2 }), "2026-10-14", 216.8)).toBe("doc-1");
+    expect(findDuplicate("9999", SUP_DS, existing({ status: "duplicate" }), "2026-10-14", 216.8)).toBeNull();
+    expect(findDuplicate("9999", SUP_DS, existing({ status: "failed" }), "2026-10-14", 216.8)).toBeNull();
+    expect(findDuplicate("9999", SUP_DS, existing({ invoice_date: undefined, total_inc: undefined }), "2026-10-14", 216.8)).toBeNull();
   });
 
   it("the engine marks it a duplicate and decides nothing", () => {

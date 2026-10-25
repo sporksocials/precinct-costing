@@ -292,8 +292,17 @@ describe("applyLine: automatic mode is paranoid", () => {
     expect((await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" })).ok).toBe(false);
   });
 
-  it("refuses an unreconciled invoice, a learning-mode invoice and an unconfirmed venue", async () => {
-    for (const doc of [{ mode: "auto", reconciled: false }, { mode: "learning" }, { mode: "auto", venue_check: "mismatch" }]) {
+  it("the venue check never stops an apply: a mismatch or unknown venue still applies", async () => {
+    for (const venue_check of ["mismatch", "unknown"]) {
+      const f = setup({ ...near(), doc: { mode: "auto", venue_check } });
+      const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" });
+      expect(r.ok).toBe(true);
+      expect(f.db.cost_ingredients[0].pack_price).toBe(66.3);
+    }
+  });
+
+  it("refuses an unreconciled invoice and a learning-mode invoice", async () => {
+    for (const doc of [{ mode: "auto", reconciled: false }, { mode: "learning" }]) {
       const f = setup({ ...near(), doc });
       expect((await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" })).ok).toBe(false);
       expect(f.db.cost_ingredients[0].pack_price).toBe(65);

@@ -72,13 +72,10 @@ export interface VenueResult {
   named: { id: number; name: string }[];
 }
 
-/**
- * Does the bill-to / ship-to text name the venue whose folder the file arrived in?
- * ok = it names the folder venue and no other; mismatch = it names only other venues; unknown = it names none, or several.
- */
-export function checkVenue(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, venueNames: AnalyseContext["venueNames"], folderVenueId: number): VenueResult {
+/** Every venue whose name or alias appears in the bill-to or ship-to text. */
+function namedVenues(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, venueNames: AnalyseContext["venueNames"]): { id: number; name: string }[] {
   const hay = venueText(`${ex.bill_to ?? ""} ${ex.ship_to ?? ""}`);
-  const named = venueNames
+  return venueNames
     .filter((v) =>
       [v.name, ...(v.aliases ?? [])].some((n) => {
         const t = venueText(n);
@@ -86,22 +83,41 @@ export function checkVenue(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, ve
       }),
     )
     .map((v) => ({ id: v.id, name: v.name }));
+}
+
+/**
+ * Which of our venues an invoice belongs to, from its bill-to and ship-to text: the venue's id when the text names EXACTLY ONE of
+ * our venues (by name or alias), otherwise null (names none, or more than one) and the caller falls back to the folder the file
+ * arrived in. Prices are shared across venues, so this only decides where the invoice is filed and which ordering products it
+ * looks at; it never blocks anything.
+ */
+export function venueFromInvoice(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, venueNames: AnalyseContext["venueNames"]): number | null {
+  const named = namedVenues(ex, venueNames);
+  return named.length === 1 ? named[0].id : null;
+}
+
+/**
+ * Informational only, nothing reads it to block: does the bill-to / ship-to text name the document's venue?
+ * ok = it names that venue and no other; mismatch = it names only other venues; unknown = it names none, or several.
+ */
+export function checkVenue(ex: Pick<ExtractedInvoice, "bill_to" | "ship_to">, venueNames: AnalyseContext["venueNames"], venueId: number): VenueResult {
+  const named = namedVenues(ex, venueNames);
   if (named.length === 0) return { check: "unknown", named };
-  const hasFolder = named.some((v) => v.id === folderVenueId);
-  if (hasFolder && named.length === 1) return { check: "ok", named };
-  if (!hasFolder) return { check: "mismatch", named };
+  const hasVenue = named.some((v) => v.id === venueId);
+  if (hasVenue && named.length === 1) return { check: "ok", named };
+  if (!hasVenue) return { check: "mismatch", named };
   return { check: "unknown", named };
 }
 
 // ---------------------------------------------------------------- duplicates
 /**
- * The id of an invoice already filed, or null. A repeat is the same venue and supplier with the same invoice number (compared by
- * `normInvoiceNumber`, so "INV-51329" and "#0051329" are one number), OR the same venue and supplier with the same invoice date and
- * a printed total within a cent, even when the number was read differently. Documents marked duplicate or failed are ignored.
+ * The id of an invoice already filed, or null. A repeat is the same supplier with the same invoice number (compared by
+ * `normInvoiceNumber`, so "INV-51329" and "#0051329" are one number), OR the same supplier with the same invoice date and
+ * a printed total within a cent, even when the number was read differently. The venue does not matter: the same invoice scanned
+ * into two venues' piles is one invoice. Documents marked duplicate or failed are ignored.
  */
 export function findDuplicate(
   invoiceNumber: string | null,
-  venueId: number,
   supplierId: string | null,
   existing: AnalyseContext["existingDocs"],
   invoiceDate: string | null = null,
@@ -110,7 +126,7 @@ export function findDuplicate(
   if (!supplierId) return null;
   const num = normInvoiceNumber(invoiceNumber);
   const skip: DocStatus[] = ["duplicate", "failed"];
-  const live = existing.filter((d) => d.venue_id === venueId && d.supplier_id === supplierId && !skip.includes(d.status));
+  const live = existing.filter((d) => d.supplier_id === supplierId && !skip.includes(d.status));
   if (num) {
     const hit = live.find((d) => normInvoiceNumber(d.invoice_number) === num);
     if (hit) return hit.id;

@@ -20,6 +20,8 @@ import {
 } from "@/lib/invoice-pipeline";
 import { AiError, type ClaudeCallArgs, type ClaudeCallResult } from "@/lib/invoice-ai";
 import type { ExtractedInvoice, InvoiceAnalysis, InvoiceFileRow } from "@/lib/invoice-types";
+import { analyseInvoice } from "@/lib/invoice-engine";
+import { baseCtx, danielStreet51329Fixed } from "./fixtures/invoice-fixtures";
 
 // ---------------------------------------------------------------- fixtures
 const NOW = Date.parse("2026-10-24T03:00:00Z");
@@ -56,6 +58,7 @@ class World {
   saves: Parameters<PipelineDeps["save"]>[1][] = [];
   autoApplied: string[] = [];
   notified: string[] = [];
+  notifiedVenues: number[] = [];
   now = NOW;
   callMs = 0;
   mode: "learning" | "auto" = "learning";
@@ -168,6 +171,7 @@ class World {
       },
       notify: async (e) => {
         this.notified.push(e.documentId);
+        this.notifiedVenues.push(e.venueId);
       },
       clock: { now: () => this.now, today: () => "2026-10-24" },
       models: { sort: "claude-haiku-5-5", read: "claude-sonnet-5-5" },
@@ -609,5 +613,131 @@ describe("helpers", () => {
   it("reads model names from the environment with the documented defaults", () => {
     expect(resolveModels({})).toEqual({ sort: "claude-haiku-5-5", read: "claude-sonnet-5-5" });
     expect(resolveModels({ INVOICE_SORT_MODEL: "s", INVOICE_READ_MODEL: "r" })).toEqual({ sort: "s", read: "r" });
+  });
+});
+
+// ---------------------------------------------------------------- venue attribution (Troy, 25 Oct 2026)
+// Prices are shared across venues, so the venue never blocks or asks anything: an invoice that names exactly one of our venues
+// belongs to that venue whatever pile it was scanned in; otherwise it stays with the folder's venue.
+describe("venue attribution", () => {
+  const venueNames = [
+    { id: 1, name: "Drift", aliases: ["drift bar and dining"] },
+    { id: 2, name: "Chiobu", aliases: [] },
+    { id: 3, name: "Greedy Gringo's", aliases: ["greedy gringos"] },
+  ];
+  const oneDoc = [sortedEntry(1, { supplier_name: "Daniel Street Fish Market", invoice_number: "51329" }), sortedEntry(2, { doc_type: "blank" }), sortedEntry(3, { doc_type: "blank" }), sortedEntry(4, { doc_type: "blank" })];
+  const withAddress = (bill_to: string | null, ship_to: string | null = null) => (n: string) => ({ ...EXTRACTS[n], bill_to, ship_to });
+  const loads: { venueId: number; folderVenueId: number }[] = [];
+
+  /** a Chiobu-folder file (venue 2) holding the one Daniel Street invoice */
+  async function run(over: Partial<PipelineDeps> = {}) {
+    loads.length = 0;
+    w.sortReply = () => ({ pages: oneDoc });
+    w.addFile({ venue_id: 2 });
+    return runStep(
+      w.deps({
+        loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => {
+          loads.push({ venueId: a.venueId, folderVenueId: a.folderVenueId });
+          return { venueId: a.venueId, folderVenueId: a.folderVenueId, venueNames } as never;
+        }) as never,
+        ...over,
+      }),
+    );
+  }
+
+  it("an invoice naming Drift in a Chiobu-folder file is filed under Drift: saved, analysed and notified as Drift", async () => {
+    w.readReply = withAddress("DRIFT BAR AND DINING");
+    const r = await run();
+    expect(r.documents[0]).toMatchObject({ id: "d1", venueSlug: "drift" });
+    expect(w.saves[0]).toMatchObject({ venueId: 1 });
+    // the folder's context is loaded first (it carries the venue names), then Drift's, which is what the engine analyses
+    expect(loads).toEqual([{ venueId: 2, folderVenueId: 2 }, { venueId: 1, folderVenueId: 2 }]);
+    expect((w.analyseCtxs[0] as { venueId: number }).venueId).toBe(1);
+    expect(w.notifiedVenues).toEqual([1]);
+    // the split PDF is still filed under the folder the scan arrived in, and the file keeps its folder venue
+    expect([...w.uploads.keys()]).toEqual(["chiobu/2026-10/2026-10-14_daniel-street-fish-market_51329.pdf"]);
+    expect(w.files[0]).toMatchObject({ venue_id: 2, status: "done" });
+  });
+
+  it("an invoice naming no venue stays with the folder venue and loads one context", async () => {
+    w.readReply = withAddress("Some Company Pty Ltd");
+    const r = await run();
+    expect(r.documents[0].venueSlug).toBe("chiobu");
+    expect(w.saves[0]).toMatchObject({ venueId: 2 });
+    expect(loads).toEqual([{ venueId: 2, folderVenueId: 2 }]);
+    expect(w.notifiedVenues).toEqual([2]);
+  });
+
+  it("an invoice naming two venues stays with the folder venue", async () => {
+    w.readReply = withAddress("Drift Bar and Dining", "Chiobu");
+    await run();
+    expect(w.saves[0]).toMatchObject({ venueId: 2 });
+    expect(loads).toEqual([{ venueId: 2, folderVenueId: 2 }]);
+  });
+
+  it("an invoice naming the folder's own venue is unchanged", async () => {
+    w.readReply = withAddress("Chiobu");
+    await run();
+    expect(w.saves[0]).toMatchObject({ venueId: 2 });
+    expect(loads).toHaveLength(1);
+  });
+});
+
+describe("venue attribution with the real engine", () => {
+  const sortOne = [sortedEntry(1, { supplier_name: "Daniel Street Fish Market", invoice_number: "51329" }), sortedEntry(2, { doc_type: "blank" }), sortedEntry(3, { doc_type: "blank" }), sortedEntry(4, { doc_type: "blank" })];
+  const reading = (bill_to: string | null) => () => ({ ...danielStreet51329Fixed(), bill_to, ship_to: null });
+  const deps = () =>
+    w.deps({
+      analyse: analyseInvoice,
+      loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => baseCtx({ venueId: a.venueId, folderVenueId: a.folderVenueId })) as never,
+    });
+
+  it("a Drift invoice scanned in Chiobu's pile: document venue, line venue and ordering products are all Drift's, and nothing is asked about the venue", async () => {
+    w.sortReply = () => ({ pages: sortOne });
+    w.readReply = reading("DRIFT BAR AND DINING");
+    w.addFile({ venue_id: 2 });
+    await runStep(deps());
+    const { venueId, analysis } = w.saves[0];
+    expect(venueId).toBe(1);
+    expect(analysis.venue_check).toBe("ok");
+    expect(analysis.lines.every((l) => l.venue_id === 1)).toBe(true);
+    // the barramundi line finds Drift's ordering product (the ordering list is per venue)
+    expect(analysis.lines.find((l) => l.item_code === "15056" && l.line_class === "product")).toMatchObject({ product_id: "prod-barra" });
+    expect(analysis.questions.map((q) => q.kind)).not.toContain("venue_mismatch");
+  });
+
+  it("the same scan with no venue named stays Chiobu's, finds no Drift product, and nothing about the venue blocks or is asked", async () => {
+    w.sortReply = () => ({ pages: sortOne });
+    w.readReply = reading("Some Company Pty Ltd");
+    w.addFile({ venue_id: 2 });
+    await runStep(deps());
+    const { venueId, analysis } = w.saves[0];
+    expect(venueId).toBe(2);
+    expect(analysis.venue_check).toBe("unknown");
+    expect(analysis.lines.every((l) => l.venue_id === 2)).toBe(true);
+    expect(analysis.lines.find((l) => l.item_code === "15056" && l.line_class === "product")?.product_id).toBeNull();
+    expect(analysis.questions.map((q) => q.kind)).not.toContain("venue_mismatch");
+    expect(analysis.lines.some((l) => /venue/i.test(l.decision_reason ?? ""))).toBe(false);
+  });
+
+  it("the same invoice scanned into Chiobu's pile and again into Drift's pile is a duplicate the second time", async () => {
+    w.sortReply = () => ({ pages: sortOne });
+    w.readReply = reading("DRIFT BAR AND DINING");
+    w.addFile({ venue_id: 2 });
+    await runStep(deps());
+    const first = w.saves[0];
+    // what the database now holds for the first, which the second scan's context sees across all venues
+    const filed = { id: "d1", venue_id: first.venueId, supplier_id: first.analysis.supplier_id, invoice_number: "51329", status: first.analysis.status, invoice_date: "2026-10-14", total_inc: 216.8 };
+    w.docs = [];
+    w.addFile({ venue_id: 1, sha256: "second" });
+    await runStep(
+      w.deps({
+        analyse: analyseInvoice,
+        loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => baseCtx({ venueId: a.venueId, folderVenueId: a.folderVenueId, existingDocs: [filed] as never })) as never,
+      }),
+    );
+    expect(w.saves[1].venueId).toBe(1);
+    expect(w.saves[1].analysis.status).toBe("duplicate");
+    expect(w.saves[1].analysis.duplicate_of).toBe("d1");
   });
 });

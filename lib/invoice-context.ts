@@ -126,7 +126,7 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
       (q) => q.eq("venue_id", venueId),
     ),
     fetchAll<{ id: string; name: string }>(sb, "ordering_suppliers", "id,name", (q) => q.eq("venue_id", venueId)),
-    fetchAll<AnalyseContext["existingDocs"][number]>(sb, "invoice_documents", "id,venue_id,supplier_id,invoice_number,status,invoice_date,total_inc", (q) => q.eq("venue_id", venueId)),
+    fetchAll<AnalyseContext["existingDocs"][number]>(sb, "invoice_documents", "id,venue_id,supplier_id,invoice_number,status,invoice_date,total_inc"), // every venue: the same invoice scanned into two piles is one invoice
   ]);
 
   const { settings, gstRate } = settingsFromRows(settingRows);

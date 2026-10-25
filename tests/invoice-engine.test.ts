@@ -372,7 +372,7 @@ describe("matching and learning", () => {
     const k = byNo(a.lines, 1);
     expect(k).toMatchObject({ match_state: "unmatched", match_method: null, ingredient_id: null, decision: "none", decision_reason: "No product is matched to this line yet." });
     const q = a.questions.find((x) => x.kind === "unmatched_line")!;
-    expect(q.prompt).toBe("Daniel Street Fish Market sent 'Kingfish fillets skin on wing off per kg' (code 99999). Which product is this?");
+    expect(q.prompt).toBe("Daniel Street Fish Market sent Kingfish fillets skin on wing off per kg.");
     expect(q.options[0]).toMatchObject({ id: "pick:ing-kingfish:none", ingredient_id: "ing-kingfish", label: "Kingfish Fillets (1kg)" });
     expect(q.options.map((o) => o.action).filter(Boolean)).toEqual(["not_a_product", "ignore_line"]);
     expect(a.summary.unmatched).toBe(1);

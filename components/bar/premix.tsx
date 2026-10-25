@@ -11,7 +11,7 @@ import { CARD, EmptyState, HEADING, IDLE_MS, REFRESH_MS, RETRY_MS, ROW, StaleBan
 
 /**
  * Pre-Mix Bottles: the drink pre-mixes the bar makes before service, one card per 700 ml bottle. Each card has a bottle counter
- * ("Bottles To Make") that multiplies the recipe, because the bar makes these in big batches. Opens from the "Pre-Mix Bottles"
+ * ("Bottles To Make", minus and plus only) that multiplies the recipe, because the bar makes these in big batches. Opens from the "Pre-Mix Bottles"
  * row on the drinks station and works the same way: no login, refreshes in the background every 5 minutes, keeps the last good
  * copy when the Wi-Fi drops (the service worker holds the page and its data), and drops back to the station after 2 minutes untouched.
  */
@@ -134,9 +134,6 @@ function anchorId(p: Premix): string {
   return `premix-${p.id}`;
 }
 
-/** Quick picks beside the counter: the batch sizes the bar actually makes. */
-const QUICK_BOTTLES = [1, 2, 4, 6, 8, 10];
-
 const STEP_BTN = "flex h-[56px] w-[56px] shrink-0 select-none items-center justify-center rounded-full border-[0.5px] border-white/[0.18] bg-[#1C1C1F] text-[32px] font-medium leading-none text-[#F5F3EE] active:bg-[#2A2A2E] disabled:opacity-30";
 
 function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
@@ -175,22 +172,6 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
                 +
               </button>
             </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {QUICK_BOTTLES.map((n) => (
-              <button
-                key={n}
-                type="button"
-                aria-pressed={bottles === n}
-                onClick={() => setBottles(n)}
-                className={cx(
-                  "inline-flex min-h-[48px] min-w-[56px] items-center justify-center rounded-full border-[0.5px] px-4 text-[20px] font-medium",
-                  bottles === n ? "border-transparent bg-[color:var(--bar-accent)] text-[color:var(--bar-on)]" : "border-white/[0.18] text-[#F5F3EE] active:bg-[#2A2A2E]",
-                )}
-              >
-                {n}
-              </button>
-            ))}
           </div>
         </div>
       ) : null}

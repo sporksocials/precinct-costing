@@ -230,13 +230,14 @@ describe("making several bottles at once", () => {
     expect(batchServesText(null, use, 4)).toBeNull();
   });
 
-  it("is wired into the card: a counter with 44px+ targets, quick picks, and no write anywhere", () => {
+  it("is wired into the card: a minus and plus counter with 56px targets, no quick picks, and no write anywhere", () => {
     const src = readFileSync("components/bar/premix.tsx", "utf8");
     expect(src).toContain("Bottles To Make");
     expect(src).toContain("batchLineDisplay(l, bottles)");
     expect(src).toContain("batchServesText(bottle, u, bottles)");
     expect(src).toMatch(/h-\[56px\] w-\[56px\]/);
-    expect(src).toMatch(/min-h-\[48px\]/);
+    expect(src).not.toContain("QUICK_BOTTLES");
+    expect(src).not.toContain("aria-pressed");
     expect(src).not.toMatch(/localStorage|sessionStorage|fetch\(.*method|supabase/i);
     expect(src).not.toMatch(/[\u2013\u2014]/);
   });

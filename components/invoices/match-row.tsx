@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { money } from "@/lib/format";
 import { itemMeta, seenOn, type GroupSuggestion, type ItemGroup } from "@/lib/invoice-todo-match";
@@ -27,6 +28,7 @@ export function ItemRow({
   problem,
   disabled,
   today,
+  detail,
   onDecide,
   onAddNew,
 }: {
@@ -42,6 +44,8 @@ export function ItemRow({
   problem: string | null;
   disabled: boolean;
   today: string;
+  /** the conversion and new-name block, shown under the picker once an ingredient is chosen */
+  detail?: ReactNode;
   onDecide: (d: Decision | null) => void;
   onAddNew: () => void;
 }) {
@@ -77,6 +81,7 @@ export function ItemRow({
             onPick={(ing) => onDecide({ t: "ingredient", ingredientId: ing.id, name: ing.name, via: "pick" })}
           />
         )}
+        {detail}
         {!decision && usable?.source === "ai" && usable.reason ? <p className="mt-1.5 px-1 text-[13px] leading-snug text-label-2">{usable.reason}</p> : null}
 
         <div className="mt-2">

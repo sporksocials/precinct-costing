@@ -19,6 +19,8 @@ import { descKey, normCode } from "./invoice-names";
 import { loadQuestionBundles, type QuestionLoad } from "./invoice-data-extra";
 import type { ItemGroupAnswer } from "./invoice-answer";
 import type { QuestionOption } from "./invoice-types";
+import { conversionView, type ConversionView } from "./invoice-conversion";
+import { finalName, nameProblem, nameSizeFor, renameDefault, tidyInvoiceName, type RenameKind } from "./invoice-match-names";
 import {
   ingredientAnswer,
   isMatchKind,
@@ -291,14 +293,20 @@ export function acceptableItems(groups: readonly ItemGroup[], sugg: ReadonlyMap<
   }).length;
 }
 
-/** What Save Matches sends for the chosen items: one answer per item, for every open question about it. Items with no choice are left out. */
-export function buildItemAnswers(groups: readonly ItemGroup[], decisions: ReadonlyMap<string, Decision>): { key: string; answer: ItemGroupAnswer }[] {
+/**
+ * What Save Matches sends for the chosen items: one answer per item, for every open question about it. Items with no choice are
+ * left out. `packs` holds the conversion for the rows that show one (packs per invoice unit); an ingredient choice on a row that
+ * is in the map is sent with that number in its note, and left out while the number is null (an unknown conversion is never
+ * sent as 1). A row not in the map (a just-added ingredient) is sent as before and the engine works the unit out itself.
+ */
+export function buildItemAnswers(groups: readonly ItemGroup[], decisions: ReadonlyMap<string, Decision>, packs?: ReadonlyMap<string, number | null>): { key: string; answer: ItemGroupAnswer }[] {
   const out: { key: string; answer: ItemGroupAnswer }[] = [];
   for (const g of groups) {
     const d = decisions.get(g.key);
     if (!d) continue;
     if (d.t === "ingredient") {
-      const a = ingredientAnswer(d.ingredientId);
+      if (packs?.has(g.key) && !((packs.get(g.key) ?? 0) > 0)) continue;
+      const a = ingredientAnswer(d.ingredientId, packs?.get(g.key) ?? null);
       out.push({ key: g.key, answer: { questionIds: g.questionIds, optionId: a.optionId, note: a.note } });
     } else if (d.t === "none") {
       out.push({ key: g.key, answer: { questionIds: g.questionIds, optionId: "not_a_product" } });
@@ -307,6 +315,107 @@ export function buildItemAnswers(groups: readonly ItemGroup[], decisions: Readon
     }
   }
   return out;
+}
+
+/* ---------------------------------------------------------------- the conversion and the new name, per chosen item */
+
+export interface NameEdit {
+  /** what the person typed in the name box (undefined = the tidied invoice name) */
+  text?: string;
+  /** the Keep Current Name switch (undefined = its starting position) */
+  keep?: boolean;
+}
+
+export interface NameView {
+  current: string;
+  /** what the box shows */
+  text: string;
+  /** Keep Current Name is on */
+  keep: boolean;
+  kind: RenameKind;
+  /** a quiet sentence: why the switch started on, or "already named this" */
+  note: string | null;
+  /** why the typed name cannot be used (a clash, blank); the rename is skipped while it stands */
+  problem: string | null;
+  /** the name the ingredient will have after Save Matches, or null when it keeps its own */
+  newName: string | null;
+}
+
+export interface RowDetail {
+  ingredient: IngredientLite;
+  conversion: ConversionView;
+  name: NameView;
+}
+
+export interface DetailContext {
+  ingById: ReadonlyMap<string, IngredientLite>;
+  ingredients: readonly { id: string; name: string }[];
+  gstRate: number;
+  /** what was typed in each row's pack box */
+  typedPacks: ReadonlyMap<string, string>;
+  nameEdits: ReadonlyMap<string, NameEdit>;
+  /** other active suppliers with an item matched to each ingredient */
+  otherSuppliers: ReadonlyMap<string, number>;
+}
+
+/**
+ * The conversion and the new name for every row whose choice is an ingredient already in the app (a just-added ingredient is
+ * built from the line, so it has neither). Rows are taken in screen order: the first row to rename an ingredient wins and a
+ * later row for the same ingredient starts with Keep Current Name on. Nothing here writes.
+ */
+export function buildDetails(rows: readonly ItemGroup[], decisions: ReadonlyMap<string, Decision>, ctx: DetailContext): Map<string, RowDetail> {
+  const out = new Map<string, RowDetail>();
+  const claimed = new Set<string>();
+  for (const g of rows) {
+    const d = decisions.get(g.key);
+    if (!d || d.t !== "ingredient" || d.via === "new") continue;
+    const ing = ctx.ingById.get(d.ingredientId);
+    if (!ing) continue;
+    const line = g.bundles[0].line!;
+    const conversion = conversionView({ description: line.description, unit: g.unit, unitPriceEx: g.lastPriceEx, ingredient: ing, gstRate: ctx.gstRate, typed: ctx.typedPacks.get(g.key) });
+    const edit = ctx.nameEdits.get(g.key);
+    const tidy = tidyInvoiceName(line.description, nameSizeFor(line.description, conversion.packs));
+    const text = edit?.text ?? tidy;
+    const choice = renameDefault({ ingredientId: ing.id, currentName: ing.name, newName: finalName(text) || text, ingredients: ctx.ingredients, otherSuppliers: ctx.otherSuppliers.get(ing.id) ?? 0, takenInBatch: claimed.has(ing.id) });
+    const keep = edit?.keep ?? !choice.rename;
+    const problem = !keep && choice.kind !== "same" ? nameProblem(finalName(text), ing.id, ing.name, ctx.ingredients) : null;
+    const willRename = !keep && !problem && choice.kind === "rename";
+    if (willRename) claimed.add(ing.id);
+    out.set(g.key, {
+      ingredient: ing,
+      conversion,
+      name: { current: ing.name, text, keep: keep || choice.kind === "same", kind: choice.kind, note: choice.note, problem, newName: willRename ? finalName(text) : null },
+    });
+  }
+  return out;
+}
+
+/** A row is settled once its choice is made AND, when it shows a conversion, the pack number is a real number. */
+export function rowSettled(decision: Decision | undefined, detail: RowDetail | undefined): boolean {
+  if (!decision) return false;
+  if (decision.t !== "ingredient" || !detail) return true;
+  return detail.conversion.packs != null;
+}
+
+/** The pack counts Save Matches sends, for the rows that show a conversion (null = held back until it is filled in). */
+export function packsMap(details: ReadonlyMap<string, RowDetail>): Map<string, number | null> {
+  return new Map([...details].map(([k, v]) => [k, v.conversion.packs]));
+}
+
+/** The renames the person has chosen, for the rows that are ready: old name, new name. */
+export function chosenRenames(rows: readonly ItemGroup[], decisions: ReadonlyMap<string, Decision>, details: ReadonlyMap<string, RowDetail>): { key: string; ingredientId: string; from: string; to: string }[] {
+  const out: { key: string; ingredientId: string; from: string; to: string }[] = [];
+  for (const g of rows) {
+    const det = details.get(g.key);
+    if (!det || !decisions.has(g.key) || !rowSettled(decisions.get(g.key), det) || !det.name.newName) continue;
+    out.push({ key: g.key, ingredientId: det.ingredient.id, from: det.ingredient.name, to: det.name.newName });
+  }
+  return out;
+}
+
+/** "3 items need a pack size" for the line above the bar; null when none. */
+export function needsPackText(n: number): string | null {
+  return n === 0 ? null : `${n} ${n === 1 ? "item needs" : "items need"} a pack size before ${n === 1 ? "it" : "they"} can be saved.`;
 }
 
 /** What the Not In The App confirmation lists: the items that will be ignored and remembered. */

@@ -32,7 +32,7 @@ export function NewIngredientFromLine({ bundle, onClose, onSaved }: { bundle: Qu
       open
       initial={initial}
       title="Add As New Ingredient"
-      note="Filled in from the invoice line. Check the name, pack size and price, then press Add. The line is matched to it when you press Save Matches."
+      note="Filled in from the invoice. Check the name, pack size and price, then press Add. The item is matched to it when you press Save Matches."
       onClose={onClose}
       onSaved={(ing) => onSaved({ id: ing.id, name: ing.name })}
     />

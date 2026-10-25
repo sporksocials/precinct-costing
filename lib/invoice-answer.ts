@@ -308,16 +308,33 @@ type Recorded =
   | { ok: true; parts: string[]; applied: ApplyResult[]; docId: string; lineNo: number | null; cls: AnswerClass; reanalyse: boolean; terminal: boolean };
 
 /**
+ * Lets the answers for ONE supplier item (the same code on several invoices) teach the map once. `key` names the item; `done`
+ * holds the scopes already taught. An ingredient match is shared by every venue, an ordering product match is per venue, so the
+ * scope is part of what is remembered.
+ */
+interface LearnOnce {
+  key: string;
+  done: Set<string>;
+}
+
+async function learnOnce(once: LearnOnce | undefined, scope: number | null, learn: () => Promise<void>): Promise<void> {
+  const sk = once ? `${once.key}|${scope ?? "all"}` : null;
+  if (sk && once!.done.has(sk)) return;
+  await learn();
+  if (sk) once!.done.add(sk);
+}
+
+/**
  * Records ONE answer and its direct effect (a learned match, an ignored line, an approved price) but does NOT look at the invoice
  * again. `answerQuestion` re-analyses straight after; `answerQuestionsBatch` re-analyses each invoice once after all its answers.
  * `terminal` means the answer ends the invoice's story (set aside, read again): nothing should be re-analysed after it.
  */
-async function recordAnswer(sb: SupabaseClient, args: { questionId: string; optionId: string; actor: string; note?: string }): Promise<Recorded> {
+async function recordAnswer(sb: SupabaseClient, args: { questionId: string; optionId: string; actor: string; note?: string; once?: LearnOnce }): Promise<Recorded> {
   const failed = (message: string, applied: ApplyResult[] = []): Recorded => ({ ok: false, status: "failed", message, applied });
   const { questionId, optionId, actor, note } = args;
   const q = check(await sb.from("invoice_questions").select("*").eq("id", questionId).maybeSingle(), "Could not read the question").data as InvoiceQuestionRow | null;
   if (!q) return failed("That question no longer exists.");
-  if (q.status !== "open") return q.status === "answered" ? { ok: false, status: "already", message: "This question has already been answered.", applied: [] } : failed("This question no longer needs an answer.");
+  if (q.status !== "open") return { ok: false, status: "already", message: q.status === "answered" ? "This question has already been answered." : "This question no longer needs an answer.", applied: [] };
   const resolved = await resolveOption(sb, q, optionId, note);
   if ("error" in resolved) return failed(resolved.error);
   const option = resolved.option;
@@ -366,7 +383,10 @@ async function recordAnswer(sb: SupabaseClient, args: { questionId: string; opti
     }
     case "not_a_product": {
       const l = needLine();
-      if (doc.supplier_id) await learnMap(sb, { supplierId: doc.supplier_id, venueId: null, alsoClear: doc.venue_id, line: l, target: { ingredientId: null, productId: null }, packs: null, rejected: true, actor });
+      if (doc.supplier_id) {
+        const supplierId = doc.supplier_id;
+        await learnOnce(args.once, doc.venue_id, () => learnMap(sb, { supplierId, venueId: null, alsoClear: doc.venue_id, line: l, target: { ingredientId: null, productId: null }, packs: null, rejected: true, actor }));
+      }
       check(await sb.from("invoice_lines").update({ state: "ignored", match_state: "ignored" }).eq("id", l.id), "Could not update the line");
       parts.push(`${l.description} is not a product, and it will be ignored from now on.`);
       cls = "ignored";
@@ -428,15 +448,11 @@ async function recordAnswer(sb: SupabaseClient, args: { questionId: string; opti
         if (!doc.supplier_id) throw new Error("This invoice has no supplier yet, so the match cannot be remembered.");
         // only a pack size somebody stated (or the engine derived safely, already on the line) is remembered; never a guess of 1
         const packs = positiveOrNull(option.packs_per_unit) ?? positiveOrNull(l.packs_per_unit);
-        await learnMap(sb, {
-          supplierId: doc.supplier_id,
-          venueId: option.product_id ? doc.venue_id : null,
-          line: l,
-          target: { ingredientId: option.ingredient_id ?? null, productId: option.product_id ?? null },
-          packs,
-          rejected: false,
-          actor,
-        });
+        const supplierId = doc.supplier_id;
+        const scope = option.product_id ? doc.venue_id : null;
+        await learnOnce(args.once, scope, () =>
+          learnMap(sb, { supplierId, venueId: scope, line: l, target: { ingredientId: option.ingredient_id ?? null, productId: option.product_id ?? null }, packs, rejected: false, actor }),
+        );
         const sup = check(await sb.from("invoice_suppliers").select("name").eq("id", doc.supplier_id).maybeSingle(), "Could not read the supplier").data as { name: string } | null;
         const who = sup?.name ?? doc.supplier_name_read ?? "This supplier";
         const what = l.item_code?.trim() ? `code ${l.item_code.trim()}` : `"${l.description}"`;
@@ -507,6 +523,8 @@ export interface BatchAnswerInput {
   questionId: string;
   optionId: string;
   note?: string;
+  /** answers that share a key are about one supplier item: the map is taught once for the key (and the rest only record) */
+  groupKey?: string;
 }
 
 export interface BatchAnswerResult {
@@ -526,6 +544,7 @@ export interface BatchResult {
   saved: number;
   failed: number;
   applied: ApplyResult[];
+  counts: BatchCounts;
 }
 
 export interface BatchCounts {
@@ -578,7 +597,7 @@ export async function answerQuestionsBatch(
     seen.add(a.questionId);
     return true;
   });
-  if (wanted.length === 0) return { ok: true, message: "Nothing was saved.", results, saved: 0, failed: 0, applied };
+  if (wanted.length === 0) return { ok: true, message: "Nothing was saved.", results, saved: 0, failed: 0, applied, counts };
 
   // invoice-wide questions (no line) first
   let lineless = new Set<string>();
@@ -591,9 +610,10 @@ export async function answerQuestionsBatch(
   const ordered = [...wanted.filter((a) => lineless.has(a.questionId)), ...wanted.filter((a) => !lineless.has(a.questionId))];
 
   const docs = new Map<string, { reanalyse: boolean; terminal: boolean; matched: Set<number> }>();
+  const taught = new Set<string>();
   for (const a of ordered) {
     try {
-      const rec = await recordAnswer(sb, { questionId: a.questionId, optionId: a.optionId, actor: args.actor, note: a.note });
+      const rec = await recordAnswer(sb, { questionId: a.questionId, optionId: a.optionId, actor: args.actor, note: a.note, once: a.groupKey ? { key: a.groupKey, done: taught } : undefined });
       applied.push(...rec.applied);
       if (!rec.ok) {
         if (rec.status === "already") {
@@ -642,5 +662,87 @@ export async function answerQuestionsBatch(
     }
   }
   const saved = results.filter((r) => r.status === "saved").length;
-  return { ok: counts.failed === 0, message: [batchMessage(counts), ...tail].join(" "), results, saved, failed: counts.failed, applied };
+  return { ok: counts.failed === 0, message: [batchMessage(counts), ...tail].join(" "), results, saved, failed: counts.failed, applied, counts };
+}
+
+// ---------------------------------------------------------------- one answer for a whole supplier item (the Match Items screen)
+
+/** One choice for one supplier item: every open question about it (across invoices and venues) gets this same answer. */
+export interface ItemGroupAnswer {
+  /** the open questions that are about this item, one per invoice line */
+  questionIds: string[];
+  optionId: string;
+  note?: string;
+}
+
+export interface ItemGroupResult {
+  /** position in the list that was sent */
+  index: number;
+  status: "saved" | "already" | "partial" | "failed";
+  /** questions answered now, answered before, and not answered */
+  saved: number;
+  already: number;
+  failed: number;
+  /** the first reason a question could not be saved, in plain words */
+  message: string;
+}
+
+export interface ItemGroupsResult {
+  /** true when no item failed outright or in part */
+  ok: boolean;
+  /** "Saved 9 matches. 3 items marked Not In The App. 2 prices ready to approve." */
+  message: string;
+  groups: ItemGroupResult[];
+  /** the per question results underneath, for anyone who wants them */
+  results: BatchAnswerResult[];
+  applied: ApplyResult[];
+}
+
+/** The sentence after Match Items saves. Counts items (what the person chose), not invoice lines. */
+export function itemGroupsMessage(c: { matches: number; ignored: number; already: number; failed: number; waiting: number; autoApplied: number }): string {
+  const out: string[] = [];
+  if (c.matches) out.push(`Saved ${plural(c.matches, "match", "matches")}.`);
+  if (c.ignored) out.push(`${plural(c.ignored, "item", "items")} marked Not In The App.`);
+  if (c.autoApplied) out.push(`${plural(c.autoApplied, "price", "prices")} applied automatically.`);
+  if (c.waiting) out.push(`${plural(c.waiting, "price", "prices")} ready to approve.`);
+  if (c.already) out.push(`${c.already === 1 ? "1 item was" : `${c.already} items were`} already done.`);
+  if (c.failed) out.push(`${plural(c.failed, "item", "items")} could not be saved.`);
+  return out.length ? out.join(" ") : "Nothing was saved.";
+}
+
+/**
+ * Saves one choice per supplier item. Each item's answer goes to EVERY open question about it, in one batch: the match is taught
+ * once (ingredient matches are shared across venues, ordering product matches are per venue), then each affected invoice is looked
+ * at once. Safe to run again: questions already answered are "already", never an error. One item failing never stops the others;
+ * each item reports its own result.
+ */
+export async function answerItemGroups(sb: SupabaseClient, args: { groups: ItemGroupAnswer[]; actor: string }, deps: AnswerDeps = {}): Promise<ItemGroupsResult> {
+  const answers: BatchAnswerInput[] = [];
+  args.groups.forEach((g, i) => {
+    for (const questionId of g.questionIds) answers.push({ questionId, optionId: g.optionId, note: g.note, groupKey: `item:${i}` });
+  });
+  if (answers.length === 0) return { ok: true, message: "Nothing was saved.", groups: [], results: [], applied: [] };
+  const batch = await answerQuestionsBatch(sb, { answers, actor: args.actor }, deps);
+  const byQuestion = new Map(batch.results.map((r) => [r.questionId, r]));
+
+  const groups: ItemGroupResult[] = args.groups.map((g, index) => {
+    const rs = g.questionIds.map((id) => byQuestion.get(id)).filter((r): r is BatchAnswerResult => !!r);
+    const saved = rs.filter((r) => r.status === "saved").length;
+    const already = rs.filter((r) => r.status === "already").length;
+    const failedRs = rs.filter((r) => r.status === "failed");
+    const status: ItemGroupResult["status"] = failedRs.length === 0 ? (saved > 0 || rs.length === 0 ? "saved" : "already") : saved + already > 0 ? "partial" : "failed";
+    return { index, status, saved, already, failed: failedRs.length, message: failedRs[0]?.message ?? "" };
+  });
+
+  const matches = groups.filter((g, i) => g.status === "saved" && g.saved > 0 && args.groups[i].optionId !== NOT_A_PRODUCT).length;
+  const ignored = groups.filter((g, i) => g.status === "saved" && g.saved > 0 && args.groups[i].optionId === NOT_A_PRODUCT).length;
+  const message = itemGroupsMessage({
+    matches,
+    ignored,
+    already: groups.filter((g) => g.status === "already").length,
+    failed: groups.filter((g) => g.status === "failed" || g.status === "partial").length,
+    waiting: batch.counts.waiting,
+    autoApplied: batch.counts.autoApplied,
+  });
+  return { ok: groups.every((g) => g.status === "saved" || g.status === "already"), message, groups, results: batch.results, applied: batch.applied };
 }

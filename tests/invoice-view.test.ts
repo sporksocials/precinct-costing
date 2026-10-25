@@ -5,42 +5,51 @@ import {
   brisbaneDate,
   canApprove,
   canSkip,
+  caughtUpLine,
   chargeTreatment,
   checkItems,
+  dayHeading,
   dayLabel,
   decisionText,
-  docStats,
+  detailSentence,
+  docDay,
   feeShareText,
   filterDocs,
+  groupByDay,
+  hiddenCounts,
+  hiddenKind,
+  hiddenLabel,
+  hiddenSentence,
   homeCounts,
-  isUnread,
   inRange,
   invoiceSourceLabel,
   invoicesWord,
+  isUnread,
   landedText,
   last30Range,
-  lineStateView,
-  matchesStatus,
-  monthRange,
-  needYouText,
+  lineStatus,
   numberLabel,
+  outcomeFor,
+  outcomeStats,
+  outcomeView,
   pctChange,
-  periodRange,
-  pricesWord,
   priceCompares,
   priceMove,
+  pricesWord,
   qtyPriceText,
-  readPeriod,
-  readStatusFilter,
+  shortDay,
+  signedPct,
   sortDocs,
   splitLines,
-  statsFor,
-  statusView,
+  statusSentence,
+  todoLabel,
+  todoPhrase,
+  todoTotal,
   totalsStrip,
   undoBody,
   undoTitle,
   weekRange,
-  type DocStats,
+  type DocOutcomeStats,
 } from "@/lib/invoice-view";
 import type { InvoiceDocumentRow, InvoiceLineRow } from "@/lib/invoice-types";
 
@@ -132,19 +141,11 @@ describe("Brisbane dates and periods", () => {
     expect(weekRange("2026-10-25").from).toBe("2026-10-19");
     expect(weekRange("2026-10-26").from).toBe("2026-10-26");
   });
-  it("month and last 30 days", () => {
-    expect(monthRange("2026-10-24")).toEqual({ from: "2026-10-01", to: "2026-10-31" });
-    expect(monthRange("2026-12-05")).toEqual({ from: "2026-12-01", to: "2026-12-31" });
-    expect(monthRange("2028-02-10")).toEqual({ from: "2028-02-01", to: "2028-02-29" });
+  it("last 30 days", () => {
     expect(last30Range("2026-10-24")).toEqual({ from: "2026-09-25", to: "2026-10-24" });
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
   });
-  it("period ids", () => {
-    expect(periodRange("all", "2026-10-24")).toEqual({ from: null, to: null });
-    expect(periodRange("week", "2026-10-24")).toEqual(weekRange("2026-10-24"));
-    expect(readPeriod("last_week")).toBe("last_week");
-    expect(readPeriod("junk")).toBe("week");
-    expect(readPeriod(null)).toBe("week");
+  it("ranges", () => {
     expect(inRange("2026-10-19", weekRange("2026-10-24"))).toBe(true);
     expect(inRange("2026-10-26", weekRange("2026-10-24"))).toBe(false);
     expect(inRange("", { from: null, to: null })).toBe(false);
@@ -154,6 +155,17 @@ describe("Brisbane dates and periods", () => {
     expect(dayLabel("2026-10-14")).toBe("14 Oct 2026");
     expect(dayLabel("2026-10-14T23:30:00Z")).toBe("15 Oct 2026");
     expect(dayLabel(null)).toBe("");
+  });
+  it("short days and day headings for the list", () => {
+    expect(shortDay("2026-10-20", "2026-10-25")).toBe("20 Oct");
+    expect(shortDay("2025-12-30", "2026-10-25")).toBe("30 Dec 2025");
+    expect(shortDay("2026-10-20T01:00:00Z")).toBe("20 Oct");
+    expect(shortDay(null)).toBe("");
+    expect(dayHeading("2026-10-25", "2026-10-25")).toBe("Today");
+    expect(dayHeading("2026-10-24", "2026-10-25")).toBe("Yesterday");
+    expect(dayHeading("2026-10-19", "2026-10-25")).toBe("Mon 19 Oct");
+    expect(dayHeading("2025-12-31", "2026-01-02")).toBe("Wed 31 Dec 2025");
+    expect(dayHeading("", "2026-10-25")).toBe("Earlier");
   });
 });
 
@@ -174,20 +186,19 @@ describe("Home counts follow Troy's rules", () => {
     { kind: "price_change" as const, status: "reverted" as const, applied_at: "2026-10-22T01:00:00Z" }, // put back
     { kind: "price_change" as const, status: "applied" as const, applied_at: "2026-10-11T01:00:00Z" }, // last week
   ];
-  it("counts processed, updated and need you", () => {
-    const c = homeCounts({ docs, changes, range, waiting: [{ status: "needs_review" }, { status: "needs_review" }, { status: "partly_applied" }, { status: "ignored" }, { status: "duplicate" }], totalDocs: 6 });
-    expect(c).toEqual({ processed: 2, updated: 2, needYou: 3, reading: 0, firstRun: false });
+  it("counts processed, updated and still being read", () => {
+    const c = homeCounts({ docs, changes, range, totalDocs: 6 });
+    expect(c).toEqual({ processed: 2, updated: 2, reading: 0, firstRun: false });
   });
   it("a document filed late Sunday night Brisbane belongs to Sunday's week", () => {
     const sun = [{ id: "x", status: "applied" as const, created_at: "2026-10-25T13:59:00Z" }]; // Sun 23:59 Brisbane
     const mon = [{ id: "y", status: "applied" as const, created_at: "2026-10-25T14:01:00Z" }]; // Mon 00:01 Brisbane
-    expect(homeCounts({ docs: sun, changes: [], range, waiting: [], totalDocs: 1 }).processed).toBe(1);
-    expect(homeCounts({ docs: mon, changes: [], range, waiting: [], totalDocs: 1 }).processed).toBe(0);
+    expect(homeCounts({ docs: sun, changes: [], range, totalDocs: 1 }).processed).toBe(1);
+    expect(homeCounts({ docs: mon, changes: [], range, totalDocs: 1 }).processed).toBe(0);
   });
-  it("first run only when nothing was ever filed and nothing waits", () => {
-    expect(homeCounts({ docs: [], changes: [], range, waiting: [], totalDocs: 0 }).firstRun).toBe(true);
-    expect(homeCounts({ docs: [], changes: [], range, waiting: [], totalDocs: 5 }).firstRun).toBe(false);
-    expect(homeCounts({ docs: [], changes: [], range, waiting: [{ status: "needs_review" }], totalDocs: 0 }).firstRun).toBe(false);
+  it("first run only when nothing was ever filed", () => {
+    expect(homeCounts({ docs: [], changes: [], range, totalDocs: 0 }).firstRun).toBe(true);
+    expect(homeCounts({ docs: [], changes: [], range, totalDocs: 5 }).firstRun).toBe(false);
   });
   it("an invoice only counts as processed once it has been read; placeholders are counted as still being read", () => {
     const placeholders = [
@@ -197,85 +208,155 @@ describe("Home counts follow Troy's rules", () => {
       { id: "s1", status: "nothing_to_apply" as const, created_at: "2026-10-22T01:00:00Z", read_model: null }, // a statement: finished without a read
       { id: "dup", status: "duplicate" as const, created_at: "2026-10-22T01:00:00Z", read_model: null },
     ];
-    const c = homeCounts({ docs: placeholders, changes: [], range, waiting: [], totalDocs: 5 });
+    const c = homeCounts({ docs: placeholders, changes: [], range, totalDocs: 5 });
     expect(c.processed).toBe(2); // the read one and the statement
     expect(c.reading).toBe(2);
     // placeholders alone are not "first run" and not zero
-    expect(homeCounts({ docs: placeholders.slice(0, 2), changes: [], range, waiting: [], totalDocs: 0 }).firstRun).toBe(false);
+    expect(homeCounts({ docs: placeholders.slice(0, 2), changes: [], range, totalDocs: 0 }).firstRun).toBe(false);
   });
-  it("isUnread, its status word, and the Needs You filter leave placeholders alone", () => {
+  it("isUnread tells a placeholder from a read invoice and a finished statement", () => {
     expect(isUnread({ status: "needs_review", read_model: null })).toBe(true);
     expect(isUnread({ status: "needs_review", read_model: "m" })).toBe(false);
     expect(isUnread({ status: "applied", read_model: null })).toBe(false);
-    const none = { changed: 0, confirmed: 0, questions: 0, approvals: 0, needYou: 0 };
-    expect(statusView("needs_review", none, true)).toEqual({ word: "Waiting To Be Read", tone: "neutral", icon: "dash" });
-    expect(matchesStatus("needs", "needs_review", none, true)).toBe(false);
-    expect(matchesStatus("all", "needs_review", none, true)).toBe(true);
   });
   it("words", () => {
     expect(invoicesWord(1)).toBe("Invoice Processed");
     expect(invoicesWord(12)).toBe("Invoices Processed");
     expect(pricesWord(1)).toBe("Price Updated");
     expect(pricesWord(31)).toBe("Prices Updated");
-    expect(needYouText(3)).toBe("3 Need You");
-    expect(needYouText(1)).toBe("1 Needs You");
   });
 });
 
-describe("statuses and filters", () => {
-  const changes = [
-    { document_id: "d1", kind: "price_change" as const, status: "applied" as const },
-    { document_id: "d1", kind: "price_change" as const, status: "applied" as const },
-    { document_id: "d1", kind: "price_change" as const, status: "reverted" as const },
-    { document_id: "d1", kind: "price_confirmed" as const, status: "applied" as const },
-    { document_id: "d2", kind: "price_confirmed" as const, status: "applied" as const },
+describe("the status sentence and the To Do wording", () => {
+  const c = (over: object = {}) => ({ processed: 29, updated: 0, reading: 7, firstRun: false, ...over });
+  it("leaves out any clause that is zero except the first", () => {
+    expect(statusSentence(c())).toBe("29 invoices read this week. 7 are still being read.");
+    expect(statusSentence(c({ updated: 12, reading: 0 }))).toBe("29 invoices read this week. 12 prices updated.");
+    expect(statusSentence(c({ processed: 1, reading: 1, updated: 1 }))).toBe("1 invoice read this week. 1 is still being read. 1 price updated.");
+    expect(statusSentence(c({ processed: 0, reading: 0 }))).toBe("0 invoices read this week.");
+    expect(statusSentence(c({ updated: 3 }))).toBe("29 invoices read this week. 7 are still being read. 3 prices updated.");
+  });
+  it("says what to do when nothing has ever arrived", () => {
+    expect(statusSentence(c({ firstRun: true }))).toBe("No invoices yet. Scan one and it appears here.");
+  });
+  it("the quiet Home line and the amber phrase", () => {
+    expect(caughtUpLine({ processed: 29, updated: 0 })).toBe("29 invoices read this week, 0 prices updated");
+    expect(caughtUpLine({ processed: 1, updated: 1 })).toBe("1 invoice read this week, 1 price updated");
+    expect(todoPhrase({ items: 41, prices: 46, checks: 0 })).toBe("41 items to match, 46 prices to approve");
+    expect(todoPhrase({ items: 1, prices: 0, checks: 2 })).toBe("1 item to match, 2 to check");
+    expect(todoPhrase({ items: 0, prices: 0, checks: 0 })).toBe("");
+    expect(todoTotal({ items: 41, prices: 46, checks: 2 })).toBe(89);
+    expect(todoLabel(89)).toBe("To Do (89)");
+    expect(todoLabel(0)).toBe("To Do");
+  });
+});
+
+describe("hidden documents", () => {
+  const docs = [
+    { status: "duplicate" as const, read_model: "m" },
+    { status: "duplicate" as const, read_model: "m" },
+    { status: "duplicate" as const, read_model: "m" },
+    ...Array.from({ length: 7 }, () => ({ status: "needs_review" as const, read_model: null })),
+    { status: "needs_review" as const, read_model: "m" },
+    { status: "applied" as const, read_model: "m" },
+    { status: "failed" as const, read_model: null },
+    { status: "ignored" as const, read_model: null },
   ];
-  const stats = docStats(changes, [{ document_id: "d1" }, { document_id: "d3" }], [{ document_id: "d1" }, { document_id: "d3" }, { document_id: "d3" }]);
-  it("counts per document, ignoring put-back changes", () => {
-    expect(statsFor(stats, "d1")).toEqual({ changed: 2, confirmed: 1, questions: 1, approvals: 1, needYou: 2 });
-    expect(statsFor(stats, "d3").needYou).toBe(3);
-    expect(statsFor(stats, "nope")).toEqual({ changed: 0, confirmed: 0, questions: 0, approvals: 0, needYou: 0 });
+  it("keeps duplicates, placeholders, unreadable and ignored documents out of sight", () => {
+    expect(hiddenKind({ status: "needs_review", read_model: "m" })).toBeNull();
+    expect(hiddenKind({ status: "needs_review", read_model: null })).toBe("reading");
+    expect(hiddenCounts(docs)).toEqual({ duplicate: 3, reading: 7, failed: 1, ignored: 1 });
   });
-  it("words each status with an icon and the right tone", () => {
-    expect(statusView("applied", { changed: 5, confirmed: 0, questions: 0, approvals: 0, needYou: 0 })).toEqual({ word: "Applied: 5 prices", tone: "neutral", icon: "check" });
-    expect(statusView("applied", { changed: 1, confirmed: 0, questions: 0, approvals: 0, needYou: 0 }).word).toBe("Applied: 1 price");
-    expect(statusView("applied", statsFor(stats, "d2")).word).toBe("Prices Confirmed");
-    expect(statusView("needs_review", { changed: 0, confirmed: 0, questions: 1, approvals: 1, needYou: 2 })).toEqual({ word: "Needs You: 2", tone: "warn", icon: "alert" });
-    expect(statusView("needs_review", statsFor(stats, "none")).word).toBe("Needs Review");
-    expect(statusView("partly_applied", { changed: 3, confirmed: 0, questions: 0, approvals: 2, needYou: 2 }).word).toBe("Applied: 3 prices, 2 need you");
-    expect(statusView("nothing_to_apply", statsFor(stats, "x")).word).toBe("Nothing To Apply");
-    expect(statusView("duplicate", statsFor(stats, "x")).word).toBe("Duplicate");
-    expect(statusView("failed", statsFor(stats, "x"))).toMatchObject({ word: "Could Not Read", tone: "danger" });
-    expect(statusView("ignored", statsFor(stats, "x")).word).toBe("Ignored");
+  it("says what is hidden in one sentence", () => {
+    expect(hiddenSentence({ duplicate: 3, reading: 7, failed: 0, ignored: 0 })).toBe("3 duplicates and 7 still being read are hidden.");
+    expect(hiddenSentence({ duplicate: 1, reading: 0, failed: 0, ignored: 0 })).toBe("1 duplicate is hidden.");
+    expect(hiddenSentence({ duplicate: 3, reading: 7, failed: 2, ignored: 0 })).toBe("3 duplicates, 7 still being read and 2 that could not be read are hidden.");
+    expect(hiddenSentence({ duplicate: 0, reading: 0, failed: 0, ignored: 0 })).toBe("");
   });
-  it("never uses a dash in a status word", () => {
-    for (const s of ["needs_review", "applied", "partly_applied", "nothing_to_apply", "duplicate", "ignored", "failed"] as const) {
-      expect(statusView(s, { changed: 2, confirmed: 1, questions: 1, approvals: 1, needYou: 2 }).word).not.toMatch(/[–—]/);
-    }
+  it("gives a revealed document its own plain label", () => {
+    expect(hiddenLabel("duplicate", "793369")).toBe("Duplicate of #793369");
+    expect(hiddenLabel("duplicate", null)).toBe("Duplicate");
+    expect(hiddenLabel("reading")).toBe("Still being read");
+    expect(hiddenLabel("failed")).toBe("Could not read");
+    expect(hiddenLabel("ignored")).toBe("Ignored");
   });
-  const none: DocStats = { changed: 0, confirmed: 0, questions: 0, approvals: 0, needYou: 0 };
-  it("filters by status", () => {
-    expect(matchesStatus("all", "failed", none)).toBe(true);
-    expect(matchesStatus("needs", "needs_review", none)).toBe(true);
-    expect(matchesStatus("needs", "partly_applied", { ...none, needYou: 1 })).toBe(true);
-    expect(matchesStatus("needs", "applied", none)).toBe(false);
-    expect(matchesStatus("needs", "duplicate", { ...none, needYou: 4 })).toBe(false);
-    expect(matchesStatus("applied", "partly_applied", none)).toBe(true);
-    expect(matchesStatus("applied", "nothing_to_apply", none)).toBe(false);
-    expect(matchesStatus("nothing", "nothing_to_apply", none)).toBe(true);
-    expect(readStatusFilter("needs")).toBe("needs");
-    expect(readStatusFilter("x")).toBe("all");
+});
+
+describe("the outcome phrase for an invoice", () => {
+  const none: DocOutcomeStats = { match: 0, approve: 0, checks: 0, changed: 0, upToDate: 0 };
+  const read = { status: "needs_review" as const, reconciled: true, read_model: "m" };
+  const L = (over: object) => ({ document_id: "d1", line_class: "product" as const, match_state: "matched" as const, decision: "none" as const, state: "open" as const, ...over });
+  it("counts each document's lines and odd questions", () => {
+    const lines = [
+      L({}), // matched, nothing decided
+      L({ match_state: "unmatched" }),
+      L({ match_state: "unmatched" }),
+      L({ match_state: "ambiguous" }),
+      L({ decision: "needs_approval" }),
+      L({ decision: "apply" }),
+      L({ decision: "same" }),
+      L({ state: "confirmed" }),
+      L({ state: "applied" }),
+      L({ line_class: "delivery", match_state: "ignored" }),
+      L({ document_id: "d2", state: "applied" }),
+    ];
+    const m = outcomeStats(lines, [
+      { document_id: "d1", kind: "unmatched_line" },
+      { document_id: "d1", kind: "totals_mismatch" },
+      { document_id: "d1", kind: "other" },
+    ]);
+    expect(outcomeFor(m, "d1")).toEqual({ match: 3, approve: 2, checks: 2, changed: 1, upToDate: 2 });
+    expect(outcomeFor(m, "d2")).toEqual({ ...none, changed: 1 });
+    expect(outcomeFor(m, "nope")).toEqual(none);
   });
-  it("filters documents by venue, period and status", () => {
-    const docs = [doc({ id: "d1", created_at: "2026-10-21T01:00:00Z" }), doc({ id: "d2", venue_id: 2, status: "applied", created_at: "2026-10-20T01:00:00Z" }), doc({ id: "d3", status: "applied", created_at: "2026-09-01T01:00:00Z" })];
-    const wk = weekRange("2026-10-24");
-    expect(filterDocs(docs, { venueId: null, range: wk, status: "all" }, stats).map((d) => d.id)).toEqual(["d1", "d2"]);
-    expect(filterDocs(docs, { venueId: 1, range: wk, status: "all" }, stats).map((d) => d.id)).toEqual(["d1"]);
-    expect(filterDocs(docs, { venueId: null, range: { from: null, to: null }, status: "applied" }, stats).map((d) => d.id)).toEqual(["d2", "d3"]);
+  it("puts what waits on a person first, in plain words", () => {
+    expect(outcomeView(read, { ...none, match: 9, approve: 2, changed: 3 })).toEqual({ word: "Match 9 items", tone: "warn", icon: "target" });
+    expect(outcomeView(read, { ...none, match: 1 }).word).toBe("Match 1 item");
+    expect(outcomeView(read, { ...none, approve: 2, changed: 3 }).word).toBe("Approve 2 prices");
+    expect(outcomeView(read, { ...none, checks: 2 }).word).toBe("Check 2 things");
+    expect(outcomeView(read, { ...none, checks: 1 }).word).toBe("Check 1 thing");
+    expect(outcomeView({ ...read, reconciled: false }, none)).toMatchObject({ word: "Check 1 thing", tone: "warn" });
   });
+  it("then what it already did, and only the waiting ones are amber", () => {
+    expect(outcomeView(read, { ...none, changed: 3, upToDate: 9 })).toEqual({ word: "3 prices changed", tone: "neutral", icon: "check" });
+    expect(outcomeView(read, { ...none, upToDate: 12 }).word).toBe("12 prices up to date");
+    expect(outcomeView({ ...read, status: "nothing_to_apply" }, none)).toEqual({ word: "Nothing to update", tone: "neutral", icon: "dash" });
+    expect(outcomeView({ status: "duplicate", reconciled: false, read_model: "m" }, none).word).toBe("Duplicate");
+    expect(outcomeView({ status: "failed", reconciled: false }, none)).toMatchObject({ word: "Could not read", tone: "danger" });
+  });
+  it("never uses a dash in a phrase", () => {
+    for (const s of [none, { ...none, match: 4 }, { ...none, approve: 4 }, { ...none, checks: 4 }, { ...none, changed: 4 }, { ...none, upToDate: 4 }]) expect(outcomeView(read, s).word).not.toMatch(/[–—]/);
+  });
+});
+
+describe("the list", () => {
+  const stats = new Map();
   it("sorts the newest invoice first", () => {
     const sorted = sortDocs([doc({ id: "a", invoice_date: "2026-10-01" }), doc({ id: "b", invoice_date: "2026-10-17" }), doc({ id: "c", invoice_date: null })]);
     expect(sorted.map((d) => d.id)).toEqual(["b", "a", "c"]);
+    expect(stats.size).toBe(0);
+  });
+  it("filters by venue and by supplier or number", () => {
+    const docs = [doc({ id: "d1", invoice_number: "793369" }), doc({ id: "d2", venue_id: 2, invoice_number: "ENV-23585" }), doc({ id: "d3", invoice_number: "51329" })];
+    const titleOf = (d: { id: string }) => (d.id === "d2" ? "Diablo Co" : "Daniel Street Fish Market");
+    expect(filterDocs(docs, { venueId: null, query: "", titleOf }).map((d) => d.id)).toEqual(["d1", "d2", "d3"]);
+    expect(filterDocs(docs, { venueId: 1, query: "", titleOf }).map((d) => d.id)).toEqual(["d1", "d3"]);
+    expect(filterDocs(docs, { venueId: null, query: "diablo", titleOf }).map((d) => d.id)).toEqual(["d2"]);
+    expect(filterDocs(docs, { venueId: null, query: "#7933", titleOf }).map((d) => d.id)).toEqual(["d1"]);
+    expect(filterDocs(docs, { venueId: 1, query: "env", titleOf }).map((d) => d.id)).toEqual([]);
+  });
+  it("groups under day headings in order", () => {
+    const docs = sortDocs([
+      doc({ id: "a", invoice_date: "2026-10-25" }),
+      doc({ id: "b", invoice_date: "2026-10-25", created_at: "2026-10-24T01:00:00Z" }),
+      doc({ id: "c", invoice_date: "2026-10-24" }),
+      doc({ id: "d", invoice_date: "2026-10-19" }),
+      doc({ id: "e", invoice_date: null, created_at: "2026-10-18T05:00:00Z" }),
+    ]);
+    expect(docDay(doc({ invoice_date: null, created_at: "2026-10-18T05:00:00Z" }))).toBe("2026-10-18");
+    const g = groupByDay(docs, "2026-10-25");
+    expect(g.map((x) => x.heading)).toEqual(["Today", "Yesterday", "Mon 19 Oct", "Sun 18 Oct"]);
+    expect(g[0].docs.map((d) => d.id)).toEqual(["b", "a"]);
   });
   it("labels", () => {
     expect(numberLabel("51329")).toBe("#51329");
@@ -364,14 +445,37 @@ describe("lines", () => {
     expect(chargeTreatment(delivery, 5.91, rules, "s2").spread).toBe(true);
     expect(chargeTreatment(delivery, 5.91, [{ ...rules[1], active: false }], "s1").spread).toBe(true);
   });
-  it("states the line and what a person may do", () => {
-    expect(lineStateView(line({}))).toEqual({ word: "Needs approval", tone: "warn" });
-    expect(lineStateView(line({ state: "applied" })).word).toBe("Applied");
-    expect(lineStateView(line({ state: "confirmed" })).word).toBe("Price confirmed");
-    expect(lineStateView(line({ state: "approved_skip" })).word).toBe("Skipped");
-    expect(lineStateView(line({ state: "reverted" })).word).toBe("Put back");
-    expect(lineStateView(line({ decision: "same" })).word).toBe("Same price");
-    expect(lineStateView(line({ decision: "none", match_state: "unmatched" }))).toEqual({ word: "Not matched yet", tone: "warn" });
+  it("gives each line ONE plain status", () => {
+    expect(lineStatus(line({}))).toEqual({ kind: "waiting", word: "Changed +2.8% (waiting)", tone: "warn", icon: "target" });
+    expect(lineStatus(line({ decision: "apply" })).word).toBe("Changed +2.8% (waiting)");
+    expect(lineStatus(line({ state: "applied" }))).toMatchObject({ word: "Changed +2.8%", tone: "neutral", icon: "check" });
+    expect(lineStatus(line({ state: "applied", change_pct: -0.011 })).word).toBe("Changed -1.1%");
+    expect(lineStatus(line({ state: "applied", change_pct: null, old_pack_price: null, new_pack_price: null })).word).toBe("Changed");
+    expect(lineStatus(line({ state: "confirmed" })).word).toBe("Matches");
+    expect(lineStatus(line({ decision: "same" })).word).toBe("Matches");
+    expect(lineStatus(line({ state: "approved_skip" })).word).toBe("Skipped");
+    expect(lineStatus(line({ state: "reverted" })).word).toBe("Put back");
+    expect(lineStatus(line({ decision: "none", match_state: "unmatched" }))).toMatchObject({ word: "Needs matching", tone: "warn", kind: "needs_matching" });
+    expect(lineStatus(line({ decision: "none", match_state: "ambiguous" })).word).toBe("Needs matching");
+    expect(lineStatus(line({ decision: "none", match_state: "ignored" })).word).toBe("Not in the app");
+    expect(lineStatus(line({ decision: "none" })).word).toBe("Nothing to update");
+    expect(signedPct(0.0284)).toBe("+2.8%");
+    expect(signedPct(-0.05)).toBe("-5.0%");
+    expect(signedPct(0.0001)).toBe("0%");
+    expect(signedPct(null)).toBe("");
+  });
+  it("sums an invoice up in one sentence", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => line({ id: `m${i}`, decision: "same" }));
+    const three = Array.from({ length: 3 }, (_, i) => line({ id: `c${i}` }));
+    expect(detailSentence([...nine, ...three])).toBe("12 prices were checked: 9 match, 3 changed and wait for approval.");
+    expect(detailSentence([line({ decision: "same" })])).toBe("1 price was checked: 1 matches.");
+    expect(detailSentence([line({ state: "applied" }), line({ decision: "same" })])).toBe("2 prices were checked: 1 matches, 1 was updated.");
+    expect(detailSentence([line({ decision: "none", match_state: "unmatched" }), line({ decision: "none", match_state: "unmatched" }), line({ decision: "none", match_state: "ignored" })])).toBe("2 items still need matching. 1 item is not in the app.");
+    expect(detailSentence([line({ decision: "none", match_state: "unmatched" })])).toBe("1 item still needs matching.");
+    expect(detailSentence([])).toBe("No prices were read from this invoice.");
+    expect(detailSentence([...nine, ...three])).not.toMatch(/[–—]|decision|guard|reconcil/i);
+  });
+  it("lets a person approve and skip", () => {
     expect(canApprove(line({}))).toBe(true);
     expect(canApprove(line({ state: "applied" }))).toBe(false);
     expect(canApprove(line({ ingredient_id: null, product_id: null }))).toBe(false);
@@ -403,7 +507,7 @@ describe("undo wording", () => {
     expect(undoBody({ kind: "price_confirmed", old_price: 68.9, new_price: 68.9 }, "Kingfish Fillets", null)).toContain("only confirmed");
   });
   it("no dash in any wording a person reads", () => {
-    const words = [undoTitle(1), undoBody({ kind: "price_change", old_price: 1, new_price: 2 }, "X", 2), needYouText(2), invoicesWord(2), pricesWord(2)];
+    const words = [undoTitle(1), undoBody({ kind: "price_change", old_price: 1, new_price: 2 }, "X", 2), invoicesWord(2), pricesWord(2)];
     for (const w of words) expect(w).not.toMatch(/[–—]/);
   });
 });

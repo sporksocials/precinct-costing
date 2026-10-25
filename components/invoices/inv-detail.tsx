@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, FileText, HelpCircle, X } from "lucide-react";
+import { AlertTriangle, FileText, Target } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { money } from "@/lib/format";
 import { applyLine } from "@/lib/invoice-apply";
@@ -14,31 +14,35 @@ import {
   checkItems,
   dayLabel,
   decisionText,
-  docStats,
+  detailSentence,
   docTitle,
+  feeShareText,
+  landedText,
+  LANDED_EXPLAIN,
+  lineStatus,
   numberLabel,
   splitLines,
-  statsFor,
-  statusView,
-  totalsStrip, isUnread,
+  totalsStrip,
 } from "@/lib/invoice-view";
 import type { InvoiceLineRow, InvoicePriceChangeRow, LineClass } from "@/lib/invoice-types";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { VenueAccent, VENUE_SHORT } from "@/components/venue";
+import { useVenue, venueQuery, VenueAccent, VENUE_SHORT } from "@/components/venue";
 import { VenueTag } from "@/components/brand";
-import { Banner, cx, Empty, ListSkeleton, useToast } from "@/components/ui";
+import { Banner, Disclosure, Empty, ListSkeleton, useToast } from "@/components/ui";
 import { TouchBack, TouchButton, TouchLink, TouchSheet } from "@/components/ordering/touch";
 import { usePersonName } from "@/components/use-person-name";
-import { InvoiceTabs } from "./inv-tabs";
-import { StatusLabel } from "./inv-parts";
 import { ChargeLine, InvLine } from "./inv-line";
 import { UndoChangeSheet, UndoDocumentSheet } from "./inv-undo";
 
-/** One invoice: the checks in words, its PDF, every line with what it matched and decided, and what a person can do about it. */
+/**
+ * One invoice, for a person who just wants to know what happened: who it is from, one sentence about its prices, the PDF, and a line
+ * by line list with one plain status each. The technical checks, landed cost and reasons sit under one collapsed Details section.
+ */
 export function InvoiceDetail({ id }: { id: string }) {
   const store = useStore();
   const toast = useToast();
   const nameOf = usePersonName();
+  const { venue: filterVenue } = useVenue();
   const detail = useInvoiceDetail(id);
   const d = detail.data;
   const [approving, setApproving] = useState<InvoiceLineRow | null>(null);
@@ -56,40 +60,43 @@ export function InvoiceDetail({ id }: { id: string }) {
     for (const c of d?.changes ?? []) m.set(c.line_id, [...(m.get(c.line_id) ?? []), c]);
     return m;
   }, [d?.changes]);
-  const stats = useMemo(
-    () => (d?.doc ? statsFor(docStats(d.changes, d.questions, d.lines.filter((l) => l.decision === "needs_approval" && l.state === "open")), d.doc.id) : null),
-    [d],
-  );
 
-  if (detail.loading && !d) return <ListSkeleton rows={6} />;
-  if (detail.error && !d) return <Banner action={<TouchButton onClick={() => void detail.reload()}>Try Again</TouchButton>}>{detail.error}</Banner>;
-  if (!d) return null;
+  const listPath = `/invoices${venueQuery(filterVenue)}`;
   const back = (
-    <TouchBack path="/invoices" fallback="/invoices">
+    <TouchBack path="/invoices" fallback={listPath}>
       Invoices
     </TouchBack>
   );
-  if (d.missing || !d.doc || !stats)
+  if (detail.loading && !d) return <ListSkeleton rows={6} />;
+  if (detail.error && !d) return <Banner action={<TouchButton onClick={() => void detail.reload()}>Try Again</TouchButton>}>{detail.error}</Banner>;
+  if (!d) return null;
+  if (d.missing || !d.doc)
     return (
       <div>
         {back}
-        <Empty title={d.missing ? "Invoices Are Not Set Up Yet" : "Invoice Not Found"} body={d.missing ? "Once they are, every scanned invoice appears here." : "It may have been removed, or the link is old."} action={<TouchLink href="/invoices">Back To Invoices</TouchLink>} />
+        <Empty title={d.missing ? "Invoices Are Not Set Up Yet" : "Invoice Not Found"} body={d.missing ? "Once they are, every scanned invoice appears here." : "It may have been removed, or the link is old."} action={<TouchLink href={listPath}>Back To Invoices</TouchLink>} />
       </div>
     );
 
   const doc = d.doc;
   const venue = store.venueById.get(doc.venue_id);
   const venueName = venue ? (VENUE_SHORT[venue.slug] ?? venue.name) : null;
-  const status = statusView(doc.status, stats, isUnread(doc));
   const checks = checkItems(doc);
   const totals = totalsStrip(doc);
   const title = docTitle(doc, d.supplierName);
   const applied = d.changes.filter((c) => c.status === "applied");
+  const sentence = detailSentence(lineView.products);
+  const needMatching = lineView.products.filter((l) => lineStatus(l).kind === "needs_matching").length;
+  const waitingLines = lineView.products.filter((l) => lineStatus(l).kind === "waiting");
+  const oddQuestions = d.questions.filter((q) => q.kind !== "unmatched_line" && q.kind !== "ambiguous_match");
+  const matchHref = doc.supplier_id ? `/invoices/match/${doc.supplier_id}${venueQuery(filterVenue)}` : null;
+  const when = dayLabel(doc.invoice_date) || dayLabel(doc.created_at);
   const changeItemName = (c: InvoicePriceChangeRow) => {
     const line = d.lines.find((l) => l.id === c.line_id);
     return (c.target === "ingredient" ? ingById.get(c.target_id)?.name : d.products.get(c.target_id)?.name) ?? line?.description ?? "This item";
   };
   const changeCurrent = (c: InvoicePriceChangeRow) => (c.target === "ingredient" ? (ingById.get(c.target_id)?.pack_price ?? null) : (d.products.get(c.target_id)?.price ?? null));
+  const lineName = (l: InvoiceLineRow) => ingById.get(l.ingredient_id ?? "")?.name ?? d.products.get(l.product_id ?? "")?.name ?? l.description;
 
   const after = async () => {
     await detail.reload();
@@ -116,20 +123,31 @@ export function InvoiceDetail({ id }: { id: string }) {
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] text-label-2">
               <span>{numberLabel(doc.invoice_number)}</span>
               <span aria-hidden>·</span>
-              <span>{dayLabel(doc.invoice_date) || dayLabel(doc.created_at)}</span>
+              <span>{when}</span>
               {venue ? (
                 <>
                   <span aria-hidden>·</span>
                   <VenueTag slug={venue.slug} name={venueName ?? venue.name} size={16} />
                 </>
               ) : null}
+              {doc.total_inc != null ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="font-medium text-label tnum">{`${totals.totalInc} inc GST`}</span>
+                </>
+              ) : null}
             </p>
-            <p className="mt-2">
-              <StatusLabel view={status} />
-            </p>
+            <p className="mt-3 text-[17px] leading-snug">{sentence}</p>
           </header>
 
-          <div className="mb-3 lg:hidden">
+          {needMatching > 0 && matchHref ? (
+            <Link href={matchHref} className="mt-2 flex min-h-[56px] items-center gap-3 rounded-2xl bg-warn-soft px-4 text-[17px] font-semibold text-warn sm:text-[15px]">
+              <Target aria-hidden className="h-5 w-5 shrink-0" strokeWidth={2.5} />
+              <span className="flex-1">{`Match ${needMatching} ${needMatching === 1 ? "Item" : "Items"}`}</span>
+            </Link>
+          ) : null}
+
+          <div className="my-3 lg:hidden">
             {d.pdfUrl ? (
               <TouchLink href={d.pdfUrl} target="_blank" rel="noopener noreferrer" className="w-full">
                 <FileText aria-hidden className="h-5 w-5" strokeWidth={2.25} />
@@ -140,54 +158,21 @@ export function InvoiceDetail({ id }: { id: string }) {
             )}
           </div>
 
-          <section aria-labelledby="inv-checks" className="mt-4">
-            <h2 id="inv-checks" className="px-1 pb-1.5 text-[13px] font-medium text-label-2">
-              Checks
-            </h2>
-            <ul className="group-list">
-              {checks.map((c) => (
-                <li key={c.key} className="flex items-start gap-3 px-4 py-3">
-                  {c.ok === true ? <Check aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-good" strokeWidth={3} /> : c.ok === false ? <X aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-danger" strokeWidth={3} /> : <HelpCircle aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-warn" strokeWidth={2.5} />}
-                  <div className="min-w-0">
-                    <p className={cx("text-[17px] font-medium leading-snug sm:text-[15px]", c.ok === true ? "text-good" : c.ok === false ? "text-danger" : "text-warn")}>{c.label}</p>
-                    {c.detail ? <p className="mt-0.5 text-[15px] text-label-2 sm:text-[13px]">{c.detail}</p> : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section aria-label="Totals" className="mt-4">
-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ["Subtotal Ex GST", totals.subtotalEx],
-                ["GST", totals.gst],
-                ["Total Inc GST", totals.totalInc],
-                ["Delivery And Fees Spread", totals.feePool ?? "None"],
-              ].map(([k, v]) => (
-                <div key={k} className="rounded-2xl bg-surface px-3 py-2.5">
-                  <dt className="text-[13px] text-label-2">{k}</dt>
-                  <dd className="mt-0.5 text-[17px] font-semibold tnum">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-
-          {d.questions.length > 0 ? (
-            <section aria-labelledby="inv-questions" className="mt-6">
+          {oddQuestions.length > 0 ? (
+            <section aria-labelledby="inv-questions" className="mt-4">
               <h2 id="inv-questions" className="px-1 pb-1.5 text-[13px] font-medium text-label-2">
-                {`Questions (${d.questions.length})`}
+                Check These
               </h2>
               <ul className="group-list">
-                {d.questions.map((q) => (
+                {oddQuestions.map((q) => (
                   <li key={q.id} className="flex items-start gap-3 px-4 py-3">
-                    <AlertTriangle aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-warn" strokeWidth={2.5} />
+                    <Target aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-warn" strokeWidth={2.5} />
                     <p className="min-w-0 text-[17px] leading-snug sm:text-[15px]">{q.prompt}</p>
                   </li>
                 ))}
                 <li>
-                  <Link href={`/invoices/questions?doc=${doc.id}`} className="flex min-h-[48px] items-center px-4 text-[17px] font-semibold text-accent sm:text-[15px]">
-                    Match Lines And Answer Questions
+                  <Link href={`/invoices/check${venueQuery(filterVenue)}`} className="flex min-h-[48px] items-center px-4 text-[17px] font-semibold text-accent sm:text-[15px]">
+                    Check These
                   </Link>
                 </li>
               </ul>
@@ -196,7 +181,7 @@ export function InvoiceDetail({ id }: { id: string }) {
 
           <section aria-labelledby="inv-lines" className="mt-6">
             <h2 id="inv-lines" className="px-1 pb-1.5 text-[13px] font-medium text-label-2">
-              {`Products (${lineView.products.length})`}
+              {`Items (${lineView.products.length})`}
             </h2>
             {lineView.products.length === 0 ? (
               <p className="rounded-2xl bg-surface px-4 py-4 text-[15px] text-label-2">No product lines were read from this invoice.</p>
@@ -209,7 +194,7 @@ export function InvoiceDetail({ id }: { id: string }) {
                     ingredient={l.ingredient_id ? (ingById.get(l.ingredient_id) ?? null) : null}
                     productName={l.product_id ? (d.products.get(l.product_id)?.name ?? null) : null}
                     venueSlug={venue?.slug ?? null}
-                    poolClasses={poolClasses}
+                    matchHref={matchHref}
                     changes={changesByLine.get(l.id) ?? []}
                     nameOf={nameOf}
                     h={{
@@ -225,25 +210,85 @@ export function InvoiceDetail({ id }: { id: string }) {
             )}
           </section>
 
-          {lineView.charges.length > 0 ? (
-            <section aria-labelledby="inv-charges" className="mt-6">
-              <h2 id="inv-charges" className="px-1 pb-1.5 text-[13px] font-medium text-label-2">
-                Charges And Credits
-              </h2>
-              <ul className="group-list">
-                {lineView.charges.map((l) => (
-                  <ChargeLine
-                    key={l.id}
-                    line={l}
-                    doc={doc}
-                    rules={d.chargeRules}
-                    supplierId={doc.supplier_id}
-                    takenOff={discountTargets.has(l.id) ? tidyLabel(d.lines.find((x) => x.id === discountTargets.get(l.id))?.description) : null}
-                  />
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          <Disclosure title="Details" hint="Checks, totals, landed cost and the reasons">
+            <div className="space-y-5 rounded-b-2xl bg-surface px-4 py-4">
+              <section aria-label="Checks">
+                <h3 className="pb-1.5 text-[13px] font-medium text-label-2">Checks</h3>
+                <ul className="space-y-2">
+                  {checks.map((c) => (
+                    <li key={c.key} className="text-[15px]">
+                      <span className={c.ok === false ? "font-medium text-danger" : "font-medium"}>{c.label}</span>
+                      {c.detail ? <span className="block text-[13px] text-label-2">{c.detail}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+
+              <section aria-label="Totals">
+                <h3 className="pb-1.5 text-[13px] font-medium text-label-2">Totals</h3>
+                <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {[
+                    ["Subtotal Ex GST", totals.subtotalEx],
+                    ["GST", totals.gst],
+                    ["Total Inc GST", totals.totalInc],
+                    ["Delivery And Fees Spread", totals.feePool ?? "None"],
+                  ].map(([k, v]) => (
+                    <div key={k} className="rounded-xl bg-surface-2 px-3 py-2">
+                      <dt className="text-[13px] text-label-2">{k}</dt>
+                      <dd className="mt-0.5 text-[15px] font-semibold tnum">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+
+              {lineView.products.some((l) => landedText(l)) ? (
+                <section aria-label="Landed cost">
+                  <h3 className="pb-1 text-[13px] font-medium text-label-2">Landed Cost</h3>
+                  <p className="pb-2 text-[13px] text-label-2">{LANDED_EXPLAIN}</p>
+                  <ul className="space-y-2">
+                    {lineView.products.filter((l) => landedText(l)).map((l) => (
+                      <li key={l.id} className="text-[15px]">
+                        <span className="font-medium">{l.description}</span>
+                        <span className="block text-[13px] text-label-2">{[landedText(l), feeShareText(l, poolClasses)].filter(Boolean).join(". ")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {waitingLines.length > 0 ? (
+                <section aria-label="Why some prices wait">
+                  <h3 className="pb-1.5 text-[13px] font-medium text-label-2">Why Some Prices Wait</h3>
+                  <ul className="space-y-2">
+                    {waitingLines.map((l) => (
+                      <li key={l.id} className="text-[15px]">
+                        <span className="font-medium">{lineName(l)}</span>
+                        <span className="block text-[13px] text-label-2">{decisionText(l)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {lineView.charges.length > 0 ? (
+                <section aria-label="Charges and credits">
+                  <h3 className="pb-1.5 text-[13px] font-medium text-label-2">Charges And Credits</h3>
+                  <ul className="group-list">
+                    {lineView.charges.map((l) => (
+                      <ChargeLine
+                        key={l.id}
+                        line={l}
+                        doc={doc}
+                        rules={d.chargeRules}
+                        supplierId={doc.supplier_id}
+                        takenOff={discountTargets.has(l.id) ? tidyLabel(d.lines.find((x) => x.id === discountTargets.get(l.id))?.description) : null}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          </Disclosure>
 
           {applied.length > 0 ? (
             <div className="mt-6">
@@ -269,7 +314,7 @@ export function InvoiceDetail({ id }: { id: string }) {
       <ApproveSheet
         line={approving}
         reconciled={doc.reconciled}
-        itemName={approving ? (ingById.get(approving.ingredient_id ?? "")?.name ?? d.products.get(approving.product_id ?? "")?.name ?? approving.description) : ""}
+        itemName={approving ? lineName(approving) : ""}
         onClose={() => setApproving(null)}
         onDone={after}
       />

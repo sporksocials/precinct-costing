@@ -11,7 +11,6 @@ import { indexDoc, search } from "@/lib/search";
 import type { PortalPrice } from "@/lib/types";
 import { draftFromPortal, IngredientSheet } from "@/components/ingredient-sheet";
 import { Banner, Chips, Empty, ListSkeleton, PageHeader, Row, SearchField } from "@/components/ui";
-import { InvoiceTabs } from "@/components/invoices/inv-tabs";
 
 const PAGE = 100;
 
@@ -49,7 +48,6 @@ export default function SupplierPricesPage() {
   return (
     <div>
       <PageHeader title="Supplier Prices" subtitle={captured ? `Latest portal prices · ${dateShort(captured)}` : undefined} />
-      <InvoiceTabs active="prices" />
       <SearchField value={q} onChange={setQ} placeholder="Search the catalogue" />
       {suppliers.length > 1 ? <Chips className="mt-3" ariaLabel="Supplier" value={supplier} onChange={setSupplier} options={[{ value: "all", label: "All" }, ...suppliers.map((s) => ({ value: s, label: s }))]} /> : null}
       {store.portalError ? <Banner>{store.portalError}</Banner> : null}

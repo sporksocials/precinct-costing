@@ -9,8 +9,9 @@ import { inAllergens } from "./allergen-tabs";
 export const MORE_HREFS = ["/research-notes", "/portal-prices", "/data-health", "/change-log", "/trash", "/settings"] as const;
 
 /**
- * Invoices (the list, an invoice, the questions screen) share one home with Supplier Prices: the two are the tabs "Supplier Prices | Invoices"
- * (Troy, 24 Oct 2026). There is no sidebar row or More row of its own, so the sidebar highlights Supplier Prices and the phone tab bar More.
+ * Invoices is its own work area (Troy, 25 Oct 2026: a weekly job people open on their own): a desktop sidebar row after Ordering and the
+ * first row of the phone More page. Every screen under it (the list, an invoice, Match Items, Approve Prices, Check These) highlights
+ * Invoices; Supplier Prices highlights only itself. On a phone the tab bar highlights More.
  */
 export function inInvoices(pathname: string): boolean {
   return pathname === "/invoices" || pathname.startsWith("/invoices/");
@@ -19,7 +20,7 @@ export function inInvoices(pathname: string): boolean {
 /** Whether a page belongs to the sidebar entry `href`. */
 export function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/" || pathname === "/alerts"; // the full alert list is part of Home
-  if (href === "/portal-prices") return pathname === href || pathname.startsWith(href + "/") || inInvoices(pathname);
+  if (href === "/invoices") return inInvoices(pathname);
   // Allergens is one entry: the matrix, its To Do, review mode, print, and Menu Labels (lib/allergen-tabs.ts)
   if (href === "/matrix") return inAllergens(pathname);
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
@@ -51,7 +52,7 @@ export function phoneTab(pathname: string): PhoneTabId | null {
   if (isActive(pathname, "/ingredients")) return "ingredients"; // before Allergens: /allergens/review is an ingredient screen
   if (pathname === "/more" || pathname === "/search" || pathname === "/specials" || pathname.startsWith("/specials/")) return "more";
   if (inAllergens(pathname) || pathname.startsWith("/allergens")) return "more";
-  if (inInvoices(pathname)) return "more"; // Supplier Prices | Invoices
+  if (inInvoices(pathname)) return "more"; // Invoices is the first row of the More page
   if (MORE_HREFS.some((h) => pathname === h || pathname.startsWith(h + "/"))) return "more";
   return null;
 }

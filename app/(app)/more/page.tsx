@@ -1,10 +1,12 @@
 "use client";
 
-import { HeartPulse, History, Lightbulb, Search, Settings, ShieldCheck, Store, Tag, Trash2 } from "lucide-react";
+import { FileText, HeartPulse, History, Lightbulb, Search, Settings, ShieldCheck, Store, Tag, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useDataHealthSummary } from "@/lib/use-data-health";
 import { Group, PageHeader, Row } from "@/components/ui";
 import { otherAppIcon } from "@/components/other-apps";
+import { useMatchCounts } from "@/lib/invoice-todo-match";
+import { useApproveCounts } from "@/lib/invoice-todo-approve";
 import { OTHER_APPS, OTHER_APPS_TITLE } from "@/lib/other-apps";
 
 function Icon({ children, className }: { children: React.ReactNode; className: string }) {
@@ -15,11 +17,23 @@ export default function MorePage() {
   const { userEmail, signOut, researchNotes, ready } = useStore();
   const openNotes = researchNotes.filter((n) => n.status === "open").length;
   const health = useDataHealthSummary();
+  // the quiet "to do" count on the Invoices row comes from the same two hooks as the Invoices page and the Home card
+  const invMatch = useMatchCounts(null);
+  const invApprove = useApproveCounts(null);
+  const invTodo = invMatch.data && invApprove.data ? invMatch.data.items + invApprove.data.prices + invApprove.data.checks : 0;
   const ic = "h-[18px] w-[18px]";
   return (
     <div>
       <PageHeader title="More" />
       <Group inset="3.75rem" className="mt-2">
+        <Row
+          href="/invoices"
+          title="Invoices"
+          sub="Match items, approve prices"
+          leading={<Icon className="bg-[#2f5f9a]"><FileText className={ic} /></Icon>}
+          trailing={invTodo > 0 ? <span className="text-label">{`${invTodo} to do`}</span> : undefined}
+          chevron
+        />
         <Row href="/search" title="Search" sub="Find a dish, ingredient or prep" leading={<Icon className="bg-[#3a5f8a]"><Search className={ic} /></Icon>} chevron />
         <Row href="/specials" title="Specials" leading={<Icon className="bg-[#7a5c2e]"><Tag className={ic} /></Icon>} chevron />
         <Row href="/matrix" title="Allergens" sub="Matrix, what to do, menu labels" leading={<Icon className="bg-[#6a3a7a]"><ShieldCheck className={ic} /></Icon>} chevron />

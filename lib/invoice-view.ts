@@ -41,34 +41,11 @@ export function weekRange(today: string, weeksBack = 0): DateRange {
   const monday = addDays(today, -weekdayMon0(today) - 7 * weeksBack);
   return { from: monday, to: addDays(monday, 6) };
 }
-export function monthRange(today: string): DateRange {
-  const [y, m] = today.split("-").map(Number);
-  const first = `${y}-${String(m).padStart(2, "0")}-01`;
-  const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
-  return { from: first, to: addDays(next, -1) };
-}
 /** The last 30 days including today. */
 export function last30Range(today: string): DateRange {
   return { from: addDays(today, -29), to: today };
 }
 
-export type PeriodId = "week" | "last_week" | "month" | "all";
-export const PERIOD_OPTIONS: { value: PeriodId; label: string }[] = [
-  { value: "week", label: "This Week" },
-  { value: "last_week", label: "Last Week" },
-  { value: "month", label: "This Month" },
-  { value: "all", label: "All" },
-];
-export const DEFAULT_PERIOD: PeriodId = "week";
-export function readPeriod(v: string | null | undefined): PeriodId {
-  return PERIOD_OPTIONS.some((p) => p.value === v) ? (v as PeriodId) : DEFAULT_PERIOD;
-}
-export function periodRange(id: PeriodId, today: string): DateRange {
-  if (id === "week") return weekRange(today, 0);
-  if (id === "last_week") return weekRange(today, 1);
-  if (id === "month") return monthRange(today);
-  return { from: null, to: null };
-}
 export function inRange(date: string, r: DateRange): boolean {
   if (!date) return false;
   if (r.from && date < r.from) return false;
@@ -85,6 +62,25 @@ export function dayLabel(v: string | null | undefined): string {
   return `${day} ${MON[m - 1]} ${y}`;
 }
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** "20 Oct" from a yyyy-mm-dd date or an ISO timestamp read in Brisbane; the year is added only when `today` is in another year. "" when unreadable. */
+export function shortDay(v: string | null | undefined, today?: string): string {
+  if (!v) return "";
+  const d = v.length <= 10 ? v : brisbaneDate(v);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
+  const [y, m, day] = d.split("-").map(Number);
+  const base = `${day} ${MON[m - 1]}`;
+  return today && today.slice(0, 4) !== String(y) ? `${base} ${y}` : base;
+}
+
+/** The heading for a day in a list: "Today", "Yesterday", "Mon 19 Oct" (with the year when it is not this year). */
+export function dayHeading(date: string, today: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Earlier";
+  if (date === today) return "Today";
+  if (date === addDays(today, -1)) return "Yesterday";
+  return `${DOW[weekdayMon0(date)]} ${shortDay(date, today)}`;
+}
 
 // ---------------------------------------------------------------- counts
 
@@ -113,74 +109,25 @@ export interface ChangeLite {
   applied_at: string;
 }
 
-/** What waits on a person for ONE document: open questions plus lines waiting for approval. */
-export interface DocStats {
-  /** prices written by the invoice system (kind price_change, still applied) */
-  changed: number;
-  /** prices confirmed as unchanged */
-  confirmed: number;
-  questions: number;
-  approvals: number;
-  needYou: number;
-}
-const NO_STATS: DocStats = { changed: 0, confirmed: 0, questions: 0, approvals: 0, needYou: 0 };
-
-export function docStats(
-  changes: readonly Pick<InvoicePriceChangeRow, "document_id" | "kind" | "status">[],
-  questions: readonly { document_id: string }[],
-  approvalLines: readonly { document_id: string }[],
-): Map<string, DocStats> {
-  const m = new Map<string, DocStats>();
-  const get = (id: string) => {
-    let s = m.get(id);
-    if (!s) {
-      s = { ...NO_STATS };
-      m.set(id, s);
-    }
-    return s;
-  };
-  for (const c of changes) {
-    if (c.status !== "applied") continue;
-    const s = get(c.document_id);
-    if (c.kind === "price_change") s.changed++;
-    else s.confirmed++;
-  }
-  for (const q of questions) get(q.document_id).questions++;
-  for (const l of approvalLines) get(l.document_id).approvals++;
-  for (const s of m.values()) s.needYou = s.questions + s.approvals;
-  return m;
-}
-export const statsFor = (m: Map<string, DocStats>, id: string): DocStats => m.get(id) ?? NO_STATS;
-
 export interface HomeCounts {
   processed: number;
   updated: number;
-  needYou: number;
   /** invoices found in scans but not read yet (they are not in `processed`) */
   reading: number;
-  /** nothing has ever been filed and nothing waits */
+  /** nothing has ever been filed */
   firstRun: boolean;
 }
 
 /**
- * The Home card's three numbers (Troy's rule): invoices processed = documents created in the period that are not duplicate,
- * failed or ignored; prices updated = price_change rows still applied in the period (a confirmation is not an update); need you =
- * open questions plus lines waiting for approval, on documents that are not duplicate, failed or ignored.
+ * The Home card's and the page's counts (Troy's rule): invoices processed = documents created in the period that are not duplicate,
+ * failed or ignored and have been READ; prices updated = price_change rows still applied in the period (a confirmation is not an
+ * update). What waits on a person comes from the To Do count hooks, never from here, so the card and the page cannot disagree.
  */
-export function homeCounts(input: {
-  docs: readonly DocLite[];
-  changes: readonly ChangeLite[];
-  range: DateRange;
-  /** documents behind the open questions and the approval lines, with their status; one entry per question or line */
-  waiting: readonly { status: DocStatus }[];
-  totalDocs: number;
-}): HomeCounts {
-  // an invoice counts as processed once it has been READ, not when its placeholder is made
+export function homeCounts(input: { docs: readonly DocLite[]; changes: readonly ChangeLite[]; range: DateRange; totalDocs: number }): HomeCounts {
   const processed = input.docs.filter((d) => !NOT_COUNTED.includes(d.status) && !isUnread(d) && inRange(brisbaneDate(d.created_at), input.range)).length;
   const reading = input.docs.filter((d) => !NOT_COUNTED.includes(d.status) && isUnread(d)).length;
   const updated = input.changes.filter((c) => c.kind === "price_change" && c.status === "applied" && inRange(brisbaneDate(c.applied_at), input.range)).length;
-  const needYou = input.waiting.filter((w) => !NOT_COUNTED.includes(w.status)).length;
-  return { processed, updated, needYou, reading, firstRun: input.totalDocs === 0 && needYou === 0 && reading === 0 };
+  return { processed, updated, reading, firstRun: input.totalDocs === 0 && reading === 0 };
 }
 
 export function invoicesWord(n: number): string {
@@ -189,61 +136,160 @@ export function invoicesWord(n: number): string {
 export function pricesWord(n: number): string {
   return n === 1 ? "Price Updated" : "Prices Updated";
 }
-/** "3 Need You", "1 Needs You". */
-export function needYouText(n: number): string {
-  return n === 1 ? "1 Needs You" : `${n} Need You`;
+
+export const FIRST_RUN_TEXT = "No invoices yet. Scan one and it appears here.";
+const countOf = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The one status sentence at the top of the Invoices page. A zero is left out, except the first clause. */
+export function statusSentence(c: Pick<HomeCounts, "processed" | "updated" | "reading" | "firstRun">): string {
+  if (c.firstRun) return FIRST_RUN_TEXT;
+  const parts = [`${countOf(c.processed, "invoice", "invoices")} read this week.`];
+  if (c.reading > 0) parts.push(`${c.reading} ${c.reading === 1 ? "is" : "are"} still being read.`);
+  if (c.updated > 0) parts.push(`${countOf(c.updated, "price", "prices")} updated.`);
+  return parts.join(" ");
 }
+/** The quiet Home line when nothing waits: "29 invoices read this week, 0 prices updated". */
+export function caughtUpLine(c: Pick<HomeCounts, "processed" | "updated">): string {
+  return `${countOf(c.processed, "invoice", "invoices")} read this week, ${countOf(c.updated, "price", "prices")} updated`;
+}
+
+/** What waits on a person, as the two To Do count hooks report it. */
+export interface TodoNumbers {
+  items: number;
+  prices: number;
+  checks: number;
+}
+export const todoTotal = (t: TodoNumbers): number => t.items + t.prices + t.checks;
+/** "41 items to match, 46 prices to approve, 2 to check"; only the parts above zero. Empty when nothing waits. */
+export function todoPhrase(t: TodoNumbers): string {
+  const parts: string[] = [];
+  if (t.items > 0) parts.push(`${countOf(t.items, "item", "items")} to match`);
+  if (t.prices > 0) parts.push(`${countOf(t.prices, "price", "prices")} to approve`);
+  if (t.checks > 0) parts.push(`${t.checks} to check`);
+  return parts.join(", ");
+}
+/** "To Do (46)"; no number at zero. */
+export const todoLabel = (n: number): string => (n > 0 ? `To Do (${n})` : "To Do");
 
 // ---------------------------------------------------------------- the list
 
-export type StatusFilterId = "all" | "needs" | "applied" | "nothing";
-export const STATUS_FILTERS: { value: StatusFilterId; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "needs", label: "Needs You" },
-  { value: "applied", label: "Applied" },
-  { value: "nothing", label: "Nothing To Apply" },
-];
-export function readStatusFilter(v: string | null | undefined): StatusFilterId {
-  return STATUS_FILTERS.some((s) => s.value === v) ? (v as StatusFilterId) : "all";
+/** The documents the list keeps out of sight until someone asks. */
+export type HiddenKind = "duplicate" | "reading" | "failed" | "ignored";
+export function hiddenKind(d: { status: DocStatus; read_model?: string | null }): HiddenKind | null {
+  if (d.status === "duplicate") return "duplicate";
+  if (d.status === "ignored") return "ignored";
+  if (d.status === "failed") return "failed";
+  return isUnread(d) ? "reading" : null;
 }
-export function matchesStatus(filter: StatusFilterId, status: DocStatus, stats: DocStats, unread = false): boolean {
-  if (filter === "all") return true;
-  if (unread) return false; // not read yet: nothing waits on a person
-  if (filter === "needs") return !NOT_COUNTED.includes(status) && (status === "needs_review" || stats.needYou > 0);
-  if (filter === "applied") return status === "applied" || status === "partly_applied";
-  return status === "nothing_to_apply";
+export type HiddenCounts = Record<HiddenKind, number>;
+export function hiddenCounts(docs: readonly { status: DocStatus; read_model?: string | null }[]): HiddenCounts {
+  const out: HiddenCounts = { duplicate: 0, reading: 0, failed: 0, ignored: 0 };
+  for (const d of docs) {
+    const k = hiddenKind(d);
+    if (k) out[k]++;
+  }
+  return out;
+}
+const joinWords = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+/** "3 duplicates and 7 still being read are hidden." ("" when nothing is hidden) */
+export function hiddenSentence(c: HiddenCounts): string {
+  const parts: string[] = [];
+  if (c.duplicate) parts.push(countOf(c.duplicate, "duplicate", "duplicates"));
+  if (c.reading) parts.push(`${c.reading} still being read`);
+  if (c.failed) parts.push(`${c.failed} that could not be read`);
+  if (c.ignored) parts.push(`${c.ignored} ignored`);
+  if (!parts.length) return "";
+  const total = c.duplicate + c.reading + c.failed + c.ignored;
+  return `${joinWords(parts)} ${total === 1 ? "is" : "are"} hidden.`;
+}
+/** The plain label on a revealed hidden document. `originalNumber` is the invoice number a duplicate copies, when known. */
+export function hiddenLabel(kind: HiddenKind, originalNumber?: string | null): string {
+  switch (kind) {
+    case "duplicate":
+      return originalNumber && originalNumber.trim() ? `Duplicate of #${originalNumber.trim()}` : "Duplicate";
+    case "reading":
+      return "Still being read";
+    case "failed":
+      return "Could not read";
+    case "ignored":
+      return "Ignored";
+  }
 }
 
-export type StatusIcon = "check" | "alert" | "dash" | "copy" | "x" | "ban";
-export interface StatusView {
+/** What an invoice still asks of a person, and what it already did. Built from its lines and open questions (never from the document status). */
+export interface DocOutcomeStats {
+  /** product lines that need matching to an app item */
+  match: number;
+  /** product lines with a changed price waiting for a tap */
+  approve: number;
+  /** open questions that are not about matching (the odd ones) */
+  checks: number;
+  /** prices written by this invoice */
+  changed: number;
+  /** product lines whose price already matches the app */
+  upToDate: number;
+}
+export const NO_OUTCOME: DocOutcomeStats = { match: 0, approve: 0, checks: 0, changed: 0, upToDate: 0 };
+
+export interface LineLite {
+  document_id: string;
+  line_class: LineClass;
+  match_state: InvoiceLineRow["match_state"];
+  decision: InvoiceLineRow["decision"];
+  state: InvoiceLineRow["state"];
+}
+const MATCH_QUESTIONS = new Set(["unmatched_line", "ambiguous_match"]);
+
+export function outcomeStats(lines: readonly LineLite[], questions: readonly { document_id: string; kind: string }[]): Map<string, DocOutcomeStats> {
+  const m = new Map<string, DocOutcomeStats>();
+  const get = (id: string) => {
+    let s = m.get(id);
+    if (!s) {
+      s = { ...NO_OUTCOME };
+      m.set(id, s);
+    }
+    return s;
+  };
+  for (const l of lines) {
+    if (l.line_class !== "product") continue;
+    const s = get(l.document_id);
+    if (l.state === "applied") s.changed++;
+    else if (l.state === "confirmed" || (l.state === "open" && l.decision === "same")) s.upToDate++;
+    else if (l.state === "open" && (l.match_state === "unmatched" || l.match_state === "ambiguous")) s.match++;
+    else if (l.state === "open" && (l.decision === "needs_approval" || l.decision === "apply")) s.approve++;
+  }
+  for (const q of questions) if (!MATCH_QUESTIONS.has(q.kind)) get(q.document_id).checks++;
+  return m;
+}
+export const outcomeFor = (m: Map<string, DocOutcomeStats>, id: string): DocOutcomeStats => m.get(id) ?? NO_OUTCOME;
+
+export type StatusIcon = "check" | "target" | "dash" | "copy" | "x" | "ban";
+export interface OutcomeView {
   word: string;
   /** warn = waits on a person (amber token), danger = could not be read; neutral is plain text. The word and the icon always go with it. */
   tone: "neutral" | "warn" | "danger";
   icon: StatusIcon;
 }
-const plural = (n: number, one: string, many: string) => (n === 1 ? `${n} ${one}` : `${n} ${many}`);
+/** @deprecated name kept for the shared label component */
+export type StatusView = OutcomeView;
 
-export function statusView(status: DocStatus, s: DocStats, unread = false): StatusView {
-  if (unread) return { word: "Waiting To Be Read", tone: "neutral", icon: "dash" };
-  switch (status) {
-    case "needs_review":
-      return { word: s.needYou > 0 ? `Needs You: ${s.needYou}` : "Needs Review", tone: "warn", icon: "alert" };
-    case "partly_applied":
-      return { word: `Applied: ${plural(s.changed, "price", "prices")}${s.needYou > 0 ? `, ${s.needYou} ${s.needYou === 1 ? "needs" : "need"} you` : ""}`, tone: s.needYou > 0 ? "warn" : "neutral", icon: s.needYou > 0 ? "alert" : "check" };
-    case "applied":
-      return { word: s.changed > 0 ? `Applied: ${plural(s.changed, "price", "prices")}` : s.confirmed > 0 ? "Prices Confirmed" : "Applied", tone: "neutral", icon: "check" };
-    case "nothing_to_apply":
-      return { word: "Nothing To Apply", tone: "neutral", icon: "dash" };
-    case "duplicate":
-      return { word: "Duplicate", tone: "neutral", icon: "copy" };
-    case "ignored":
-      return { word: "Ignored", tone: "neutral", icon: "ban" };
-    case "failed":
-      return { word: "Could Not Read", tone: "danger", icon: "x" };
-  }
+/**
+ * ONE short phrase for an invoice in the list, in plain words. What waits on a person comes first (matching, then approving, then the
+ * odd ones); then what the invoice already did; then "Nothing to update".
+ */
+export function outcomeView(doc: { status: DocStatus; reconciled: boolean; read_model?: string | null }, s: DocOutcomeStats): OutcomeView {
+  const kind = hiddenKind(doc);
+  if (kind) return { word: hiddenLabel(kind), tone: kind === "failed" ? "danger" : "neutral", icon: kind === "duplicate" ? "copy" : kind === "failed" ? "x" : kind === "ignored" ? "ban" : "dash" };
+  if (s.match > 0) return { word: `Match ${countOf(s.match, "item", "items")}`, tone: "warn", icon: "target" };
+  if (s.approve > 0) return { word: `Approve ${countOf(s.approve, "price", "prices")}`, tone: "warn", icon: "target" };
+  if (s.checks > 0) return { word: `Check ${s.checks} ${s.checks === 1 ? "thing" : "things"}`, tone: "warn", icon: "target" };
+  if (!doc.reconciled && doc.status === "needs_review") return { word: "Check 1 thing", tone: "warn", icon: "target" };
+  if (s.changed > 0) return { word: `${countOf(s.changed, "price", "prices")} changed`, tone: "neutral", icon: "check" };
+  if (s.upToDate > 0) return { word: `${countOf(s.upToDate, "price", "prices")} up to date`, tone: "neutral", icon: "check" };
+  return { word: "Nothing to update", tone: "neutral", icon: "dash" };
 }
 
-/** "Daniel Street Fish Market · 51329" for a title line; the number is left off when there is none. */
+/** "Daniel Street Fish Market" for a title line; a credit note says so. */
 export function docTitle(d: Pick<InvoiceDocumentRow, "supplier_name_read" | "doc_type">, supplierName: string | null): string {
   const name = supplierName || d.supplier_name_read || "Unknown Supplier";
   return d.doc_type === "credit_note" ? `${name} (Credit Note)` : name;
@@ -256,23 +302,36 @@ export function invoiceSourceLabel(number: string | null, supplier: string, date
   return ["Invoice " + (number?.trim() || "(no number)"), supplier, dayLabel(date)].filter(Boolean).join(" · ");
 }
 
+/** The day an invoice sits under in the list: its own date, else the day it was filed (Brisbane). */
+export function docDay(d: Pick<InvoiceDocumentRow, "invoice_date" | "created_at">): string {
+  return d.invoice_date && /^\d{4}-\d{2}-\d{2}/.test(d.invoice_date) ? d.invoice_date.slice(0, 10) : brisbaneDate(d.created_at);
+}
+
 /** Newest invoice date first, then newest filed. */
 export function sortDocs<T extends Pick<InvoiceDocumentRow, "invoice_date" | "created_at">>(docs: readonly T[]): T[] {
   return [...docs].sort((a, b) => (b.invoice_date ?? "").localeCompare(a.invoice_date ?? "") || b.created_at.localeCompare(a.created_at));
 }
 
-export function filterDocs<T extends Pick<InvoiceDocumentRow, "id" | "venue_id" | "status" | "created_at" | "invoice_date"> & { read_model?: string | null }>(
-  docs: readonly T[],
-  f: { venueId: number | null; range: DateRange; status: StatusFilterId },
-  stats: Map<string, DocStats>,
-): T[] {
+/** Documents for one venue (null = all), or whose supplier or number contains `query`. */
+export function filterDocs<T extends Pick<InvoiceDocumentRow, "venue_id" | "invoice_number">>(docs: readonly T[], f: { venueId: number | null; query: string; titleOf: (d: T) => string }): T[] {
+  const q = f.query.trim().toLowerCase().replace(/^#/, "");
   return docs.filter((d) => {
     if (f.venueId != null && d.venue_id !== f.venueId) return false;
-    if (f.range.from || f.range.to) {
-      if (!inRange(brisbaneDate(d.created_at), f.range)) return false;
-    }
-    return matchesStatus(f.status, d.status, statsFor(stats, d.id), isUnread(d));
+    if (!q) return true;
+    return f.titleOf(d).toLowerCase().includes(q) || (d.invoice_number ?? "").toLowerCase().includes(q);
   });
+}
+
+/** Groups already-sorted documents under their day headings, keeping order. */
+export function groupByDay<T extends Pick<InvoiceDocumentRow, "invoice_date" | "created_at">>(docs: readonly T[], today: string): { heading: string; docs: T[] }[] {
+  const out: { heading: string; docs: T[] }[] = [];
+  for (const d of docs) {
+    const heading = dayHeading(docDay(d), today);
+    const last = out[out.length - 1];
+    if (last && last.heading === heading) last.docs.push(d);
+    else out.push({ heading, docs: [d] });
+  }
+  return out;
 }
 
 /** 100 rows and then Show More, like the Menu list. */
@@ -397,31 +456,63 @@ export function feeShareText(l: Pick<InvoiceLineRow, "fee_share_ex">, poolClasse
 }
 export const LANDED_EXPLAIN = "Landed cost is the price per unit once your share of delivery and fees is added in.";
 
-export interface LineStateView {
-  word: string;
-  /** warn only for a line that waits on a person */
-  tone: "neutral" | "warn";
+/** "+2.8%" or "-1.1%" (a hyphen minus, never a dash), "" when there is no usable move. */
+export function signedPct(pct: number | null | undefined): string {
+  const m = priceMove(pct);
+  if (m.dir === "none") return "";
+  if (m.dir === "same") return "0%";
+  return `${m.dir === "up" ? "+" : "-"}${m.text.replace(/^(Up|Down) /, "")}`;
 }
-export function lineStateView(l: Pick<InvoiceLineRow, "state" | "decision" | "match_state">): LineStateView {
+
+export type LineKind = "matches" | "changed" | "waiting" | "skipped" | "put_back" | "not_in_app" | "needs_matching" | "nothing";
+export interface LineStatus extends OutcomeView {
+  kind: LineKind;
+}
+/** ONE plain status per product line: Matches, Changed +2.8%, Changed +2.8% (waiting), Not in the app, Needs matching. */
+export function lineStatus(l: Pick<InvoiceLineRow, "state" | "decision" | "match_state" | "change_pct" | "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price">): LineStatus {
+  const pct = l.change_pct ?? pctChange(l.old_pack_price, l.new_pack_price) ?? pctChange(l.old_product_price, l.new_product_price);
+  const moved = signedPct(pct);
+  const changed = moved && moved !== "0%" ? `Changed ${moved}` : "Changed";
   switch (l.state) {
     case "applied":
-      return { word: "Applied", tone: "neutral" };
+      return { kind: "changed", word: changed, tone: "neutral", icon: "check" };
     case "confirmed":
-      return { word: "Price confirmed", tone: "neutral" };
+      return { kind: "matches", word: "Matches", tone: "neutral", icon: "check" };
     case "approved_skip":
-      return { word: "Skipped", tone: "neutral" };
+      return { kind: "skipped", word: "Skipped", tone: "neutral", icon: "dash" };
     case "reverted":
-      return { word: "Put back", tone: "neutral" };
+      return { kind: "put_back", word: "Put back", tone: "neutral", icon: "dash" };
     case "ignored":
-      return { word: "Ignored", tone: "neutral" };
+      return { kind: "not_in_app", word: "Not in the app", tone: "neutral", icon: "dash" };
     case "open":
       break;
   }
-  if (l.decision === "needs_approval") return { word: "Needs approval", tone: "warn" };
-  if (l.decision === "apply") return { word: "Ready to apply", tone: "neutral" };
-  if (l.decision === "same") return { word: "Same price", tone: "neutral" };
-  if (l.match_state === "unmatched" || l.match_state === "ambiguous") return { word: "Not matched yet", tone: "warn" };
-  return { word: "Nothing to apply", tone: "neutral" };
+  if (l.match_state === "ignored") return { kind: "not_in_app", word: "Not in the app", tone: "neutral", icon: "dash" };
+  if (l.match_state === "unmatched" || l.match_state === "ambiguous") return { kind: "needs_matching", word: "Needs matching", tone: "warn", icon: "target" };
+  if (l.decision === "needs_approval" || l.decision === "apply") return { kind: "waiting", word: `${changed} (waiting)`, tone: "warn", icon: "target" };
+  if (l.decision === "same") return { kind: "matches", word: "Matches", tone: "neutral", icon: "check" };
+  return { kind: "nothing", word: "Nothing to update", tone: "neutral", icon: "dash" };
+}
+
+/** The one sentence at the top of an invoice: what happened to its prices. */
+export function detailSentence(lines: readonly Parameters<typeof lineStatus>[0][]): string {
+  const k: Record<LineKind, number> = { matches: 0, changed: 0, waiting: 0, skipped: 0, put_back: 0, not_in_app: 0, needs_matching: 0, nothing: 0 };
+  for (const l of lines) k[lineStatus(l).kind]++;
+  const checked = k.matches + k.changed + k.waiting + k.skipped + k.put_back;
+  if (checked + k.needs_matching + k.not_in_app === 0) return "No prices were read from this invoice.";
+  const out: string[] = [];
+  if (checked > 0) {
+    const bits: string[] = [];
+    if (k.matches) bits.push(`${k.matches} ${k.matches === 1 ? "matches" : "match"}`);
+    if (k.changed) bits.push(`${k.changed} ${k.changed === 1 ? "was" : "were"} updated`);
+    if (k.waiting) bits.push(`${k.waiting} changed and ${k.waiting === 1 ? "waits" : "wait"} for approval`);
+    if (k.skipped) bits.push(`${k.skipped} ${k.skipped === 1 ? "was" : "were"} skipped`);
+    if (k.put_back) bits.push(`${k.put_back} ${k.put_back === 1 ? "was" : "were"} put back`);
+    out.push(`${checked} ${checked === 1 ? "price was" : "prices were"} checked: ${bits.join(", ")}.`);
+  }
+  if (k.needs_matching > 0) out.push(`${countOf(k.needs_matching, "item still needs", "items still need")} matching.`);
+  if (k.not_in_app > 0) out.push(`${countOf(k.not_in_app, "item is", "items are")} not in the app.`);
+  return out.join(" ");
 }
 
 /** The engine's reason in plain words, with a fallback per decision. */

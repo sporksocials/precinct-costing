@@ -64,14 +64,39 @@ export interface QuestionLoad {
  * Questions of one status with their invoice, line and supplier name. Open ones come newest first by when they were raised;
  * answered ones newest first by when they were answered. `venueId` and `docId` narrow the list.
  */
-export async function loadQuestionBundles(sb: SupabaseClient, opts: { status: "open" | "answered"; venueId?: number | null; docId?: string | null; limit?: number }): Promise<QuestionLoad> {
+export async function loadQuestionBundles(
+  sb: SupabaseClient,
+  opts: { status: "open" | "answered"; venueId?: number | null; docId?: string | null; limit?: number; kinds?: readonly string[]; pageAll?: boolean },
+): Promise<QuestionLoad> {
   const orderCol = opts.status === "open" ? "created_at" : "answered_at";
-  let q = sb.from("invoice_questions").select("*").eq("status", opts.status);
-  if (opts.venueId != null) q = q.eq("venue_id", opts.venueId);
-  if (opts.docId) q = q.eq("document_id", opts.docId);
-  q = q.order(orderCol, { ascending: false });
-  if (opts.limit) q = q.limit(opts.limit);
-  const { data, error } = await q;
+  const build = () => {
+    let q = sb.from("invoice_questions").select("*").eq("status", opts.status);
+    if (opts.venueId != null) q = q.eq("venue_id", opts.venueId);
+    if (opts.docId) q = q.eq("document_id", opts.docId);
+    if (opts.kinds?.length) q = q.in("kind", [...opts.kinds]);
+    return q.order(orderCol, { ascending: false }).order("id", { ascending: true });
+  };
+  let data: unknown[] | null = null;
+  let error: DbError = null;
+  if (opts.pageAll) {
+    // a long list is read a page at a time (the database sends at most 1000 rows per request)
+    const rows: unknown[] = [];
+    for (let page = 0; page < 20; page++) {
+      const r = await build().range(page * 1000, page * 1000 + 999);
+      if (r.error) {
+        error = r.error;
+        break;
+      }
+      rows.push(...(r.data ?? []));
+      if ((r.data ?? []).length < 1000) break;
+    }
+    data = rows;
+  } else {
+    const q = opts.limit ? build().limit(opts.limit) : build();
+    const r = await q;
+    data = r.data;
+    error = r.error;
+  }
   if (error) {
     if (isMissingTable(error)) return { bundles: [], available: false };
     throw plain(error, "Could not load the questions");

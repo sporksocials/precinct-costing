@@ -174,21 +174,21 @@ describe("Add As New Ingredient starts from the line", () => {
 });
 
 describe("source rules for the new screens", () => {
-  const files = ["components/invoices/q-review.tsx", "components/invoices/q-match-row.tsx", "components/invoices/q-other-row.tsx", "components/invoices/q-picker.tsx", "components/invoices/q-new-ingredient.tsx", "components/invoices/q-screen.tsx", "lib/invoice-suggest.ts", "lib/invoice-suggest-ai.ts", "lib/invoice-answer.ts", "lib/invoice-questions.ts"];
+  const files = ["components/invoices/match-screen.tsx", "components/invoices/match-row.tsx", "components/invoices/q-other-row.tsx", "components/invoices/q-picker.tsx", "components/invoices/q-new-ingredient.tsx", "lib/invoice-suggest.ts", "lib/invoice-suggest-ai.ts", "lib/invoice-answer.ts", "lib/invoice-questions.ts"];
   const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
   it("has no em or en dashes in anything a person reads", () => {
     for (const f of files) expect(strip(readFileSync(f, "utf8")), f).not.toMatch(/[–—]/);
   });
   it("shows Title Case on every button a person presses", () => {
-    const src = readFileSync("components/invoices/q-review.tsx", "utf8") + readFileSync("components/invoices/q-match-row.tsx", "utf8");
-    for (const label of ["Accept All Suggestions", "Not In The App: All Remaining", "Use Suggestion", "Add As New Ingredient", "Match Lines"]) expect(src + readFileSync("components/invoices/q-screen.tsx", "utf8")).toContain(label);
+    const src = readFileSync("components/invoices/match-screen.tsx", "utf8") + readFileSync("components/invoices/match-row.tsx", "utf8") + readFileSync("components/invoices/todo-match.tsx", "utf8");
+    for (const label of ["Accept All Suggestions", "Not In The App: All Remaining", "Use Suggestion", "Add As New Ingredient", "Match Items"]) expect(src).toContain(label);
   });
-  it("every Save Matches write goes through the batch answer, and the screen files never write on their own", () => {
+  it("every Save Matches write goes through the answer functions, and the screen files never write on their own", () => {
     for (const f of files.filter((x) => x.startsWith("components/"))) expect(strip(readFileSync(f, "utf8")), f).not.toMatch(/\.from\([^)]*\)\s*\.(insert|update|upsert|delete)\(/);
-    expect(strip(readFileSync("components/invoices/q-review.tsx", "utf8"))).toContain("answerQuestionsBatch(");
+    expect(strip(readFileSync("components/invoices/match-screen.tsx", "utf8"))).toContain("answerItemGroups(");
   });
   it("sticks the bar above the phone tab bar and clear of the sidebar, like the other bottom bars", () => {
-    const src = readFileSync("components/invoices/q-review.tsx", "utf8");
+    const src = readFileSync("components/invoices/match-screen.tsx", "utf8");
     expect(src).toContain("bottom-[calc(50px+env(safe-area-inset-bottom))]");
     expect(src).toContain("lg:left-[248px]");
   });

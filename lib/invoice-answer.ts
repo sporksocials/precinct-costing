@@ -13,7 +13,7 @@ import { fetchAll, loadAnalyseContext } from "./invoice-context";
 import { insertRow } from "./invoice-insert";
 import { descKey, normCode } from "./invoice-names";
 import type { AnalyseInvoice, AnswerQuestion, AnswerResult, ApplyResult } from "./invoice-interfaces";
-import { saveAnalysis } from "./invoice-store";
+import { saveAnalysis, type SaveAnalysisExtra } from "./invoice-store";
 import type {
   ExtractedInvoice,
   ExtractedLine,
@@ -186,7 +186,9 @@ async function reanalyse(sb: SupabaseClient, documentId: string, actor: string, 
   Object.assign(ctx, { venueConfirmed, supplierConfirmed }); // the engine's AnalyseConfirmations
   const extracted = extractedFromStored(doc, lines);
   const analysis = analyse(extracted, ctx);
-  await saveAnalysis(sb, { fileId: doc.file_id, venueId: doc.venue_id, extracted, analysis, pagePdfPath: doc.page_pdf_path, readModel: doc.read_model, documentId });
+  // `extracted` here is rebuilt from the stored lines (lossy), so the document's own stored reading is left alone
+  const keep: SaveAnalysisExtra = { keepExtracted: true };
+  await saveAnalysis(sb, { fileId: doc.file_id, venueId: doc.venue_id, extracted, analysis, pagePdfPath: doc.page_pdf_path, readModel: doc.read_model, documentId, ...keep });
   return { applied: await applyDocumentAuto(sb, { documentId, actor }) };
 }
 

@@ -12,7 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type Row = Record<string, any>;
-type Filter = { col: string; op: "eq" | "neq" | "in" | "is" | "gt" | "gte" | "lt" | "lte"; val: any };
+type Filter = { col: string; op: "eq" | "neq" | "in" | "is" | "gt" | "gte" | "lt" | "lte" | "notnull" | "notin"; val: any };
 export interface LoggedOp { table: string; op: "select" | "insert" | "update" | "delete" | "upsert"; payload?: any; filters: Filter[]; rows: number }
 type UpdateHook = (before: Row, after: Row) => void;
 
@@ -68,6 +68,8 @@ export function createFakeSupabase(seed: Record<string, Row[]> = {}): FakeSupaba
       case "gte": return v >= f.val;
       case "lt": return v < f.val;
       case "lte": return v <= f.val;
+      case "notnull": return f.val === null ? v !== null && v !== undefined : v !== f.val;
+      case "notin": return !(Array.isArray(f.val) ? f.val : String(f.val).replace(/^\(|\)$/g, "").split(",").map((s) => s.trim())).includes(v);
     }
   }
 
@@ -107,6 +109,8 @@ export function createFakeSupabase(seed: Record<string, Row[]> = {}): FakeSupaba
     gte(col: string, val: any) { this.filters.push({ col, op: "gte", val }); return this; }
     lt(col: string, val: any) { this.filters.push({ col, op: "lt", val }); return this; }
     lte(col: string, val: any) { this.filters.push({ col, op: "lte", val }); return this; }
+    /** `.not(col, "is", null)` and `.not(col, "in", "(a,b)")` */
+    not(col: string, op: "is" | "in", val: any) { this.filters.push({ col, op: op === "is" ? "notnull" : "notin", val }); return this; }
     order(col: string, o?: { ascending?: boolean }) { this.orderBy.push({ col, asc: o?.ascending !== false }); return this; }
     limit(n: number) { this.lim = n; return this; }
     range(from: number, to: number) { this.rangeFrom = from; this.rangeTo = to; return this; }

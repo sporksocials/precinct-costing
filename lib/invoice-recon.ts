@@ -15,7 +15,10 @@
  * unit price does not, lines that were not supplied and a GST total of 0.00 are all understood. A line that still does not add up
  * may be explained by an INFERENCE (an amount that includes GST, or an unlabelled clean-percent discount), but only when the
  * document's printed subtotal, GST and total all agree with that reading; otherwise the line fails exactly as before.
- * Pure, no store, no clock.
+ *
+ * A printed Discount column is read TWO ways per line (25 Oct 2026, Markris): (A) the discount comes off the printed price, or (B) the
+ * printed price is already net of it and the column is only information. Whichever reproduces the printed line total wins; B wins
+ * a tie. A line neither reading explains fails as before. Pure, no store, no clock.
  */
 import type { ExtractedLine, GstFlag, LineClass, ReconNote } from "./invoice-types";
 import { dollars, normCode, qtyText, round4, tidyLabel } from "./invoice-names";
@@ -116,11 +119,13 @@ export interface LinePatch {
   total_basis?: "ex" | "inc";
   gst?: GstFlag;
   discount_pct?: number;
+  discount_amount?: number;
 }
 
 export interface LineInference {
   index: number;
-  kind: "gst_inclusive_total" | "discount";
+  /** price_net: the printed price is already net of the printed Discount column, so no line discount is stored */
+  kind: "gst_inclusive_total" | "discount" | "price_net";
   patch: LinePatch;
   /** the clean percent, for kind "discount" */
   pct?: number;
@@ -131,7 +136,7 @@ export interface ReconResult {
   reconciled: boolean;
   /** per ReconLine.index: true/false for a product line that could be checked, null when it could not */
   mathOk: Map<number, boolean | null>;
-  /** lines that only add up under an inference the document-level checks confirmed; empty when none was needed or accepted */
+  /** lines that add up only under another reading: a discount column the price already includes (always safe), or an inference the document-level checks confirmed */
   inferred: Map<number, LineInference>;
 }
 
@@ -253,6 +258,14 @@ interface Candidate {
   totalEx: number | null;
 }
 
+/** A failed line that could carry an unlabelled discount, with what the search needs. */
+interface DiscountPoolEntry {
+  cand: Candidate;
+  gross: number;
+  actual: number;
+  qty: number;
+}
+
 /** Check one document. Returns plain-words notes (failures and passes), whether it is reconciled, and the per-line maths result. */
 export function reconcile(input: ReconInput): ReconResult {
   const { gstRate } = input;
@@ -260,6 +273,7 @@ export function reconcile(input: ReconInput): ReconResult {
   const notes: ReconNote[] = [];
   const mathOk = new Map<number, boolean | null>();
   for (const l of input.lines) if (l.skip) mathOk.set(l.index, null);
+  const inferred = new Map<number, LineInference>();
   let allOk = true;
   const fail = (check: ReconNote["check"], message: string) => {
     allOk = false;
@@ -277,7 +291,9 @@ export function reconcile(input: ReconInput): ReconResult {
 
   // (a) line maths, product lines only
   const failed: Candidate[] = [];
+  const pool: DiscountPoolEntry[] = [];
   let checked = 0;
+  let priceNetLines = 0;
   for (const l of lines) {
     if (l.line_class !== "product") continue;
     const hasPrice = l.unit_price != null;
@@ -306,8 +322,18 @@ export function reconcile(input: ReconInput): ReconResult {
     const pct = l.discount_pct ?? 0;
     const declared = pct !== 0 || amt !== 0;
     const gross = qty * price;
+    const tol = lineTolerance(qty);
+    // Reading B: the printed price is already net of the Discount column. Tried first, so it wins a tie. It is only the plain
+    // qty x price = total check, so it can never excuse a line that does not add up on its own terms.
+    if (declared && within(gross, actual, tol)) {
+      mathOk.set(l.index, true);
+      inferred.set(l.index, { index: l.index, kind: "price_net", patch: { discount_pct: 0, discount_amount: 0 } });
+      priceNetLines += 1;
+      continue;
+    }
+    // Reading A: the discount comes off the printed price.
     const calc = gross * (1 - pct / 100) - amtU;
-    if (within(calc, actual, lineTolerance(qty))) {
+    if (within(calc, actual, tol)) {
       mathOk.set(l.index, true);
       continue;
     }
@@ -318,22 +344,37 @@ export function reconcile(input: ReconInput): ReconResult {
     // An INFERENCE is tried only for a line with no printed discount, and only when the document has printed totals to confirm it.
     let inference: LineInference | null = null;
     let totalEx: number | null = l.amounts.line_total_ex;
+    let poolable = false;
     if (!declared && anyPrinted && gross > 0 && actual >= 0) {
       const taxableOrProven = l.gst === "taxable" || (l.gst === "unknown" && G != null && G > 0);
-      if (taxableOrProven && within(actual, gross * (1 + gstRate), lineTolerance(qty) * (1 + gstRate))) {
+      if (taxableOrProven && within(actual, gross * (1 + gstRate), tol * (1 + gstRate))) {
         // the Amount column carries GST that the unit price does not
         inference = { index: l.index, kind: "gst_inclusive_total", patch: { basis: "ex", total_basis: "inc", gst: "taxable" } };
         totalEx = round4((l.line_total as number) / (1 + gstRate));
       } else if (totalBasis === basis && l.gst !== "unknown") {
-        // the total is short by a clean percent: an unlabelled discount
-        const shortfallPct = ((gross - actual) / gross) * 100;
-        const clean = Math.round(shortfallPct / 0.5) * 0.5;
-        if (shortfallPct >= 1 && clean >= 1 && clean <= MAX_INFERRED_DISCOUNT_PCT && Math.abs(shortfallPct - clean) <= 0.05) {
-          inference = { index: l.index, kind: "discount", patch: { discount_pct: clean }, pct: clean };
-        }
+        poolable = true; // maybe an unlabelled discount: judged for the whole document below
       }
     }
-    failed.push({ line: l, message, inference, totalEx });
+    const cand: Candidate = { line: l, message, inference, totalEx };
+    failed.push(cand);
+    if (poolable) pool.push({ cand, gross, actual, qty });
+  }
+
+  // An unlabelled discount is judged for the whole document at once, in DOLLARS: one clean percent (multiples of 0.5 from 1 to 50,
+  // smallest first) that every failing line fits within its own tolerance. A supplier that takes the same percent off every line
+  // leaves a consistent shortfall, but cents rounding on a small line moves its percent by more than a tight percent test allows.
+  // Consistency across lines is the evidence; a lone line must also sit very close to the percent. Believed only when a printed
+  // subtotal or total exists to check the lines against (and the document check below agrees).
+  if (pool.length > 0 && (S != null || T != null)) {
+    for (let p = 1; p <= MAX_INFERRED_DISCOUNT_PCT + EPS; p += 0.5) {
+      if (!pool.every((e) => within(e.gross * (1 - p / 100), e.actual, lineTolerance(e.qty)))) continue;
+      if (pool.length === 1) {
+        const e = pool[0];
+        if (Math.abs(((e.gross - e.actual) / e.gross) * 100 - p) > 0.05) continue;
+      }
+      for (const e of pool) e.cand.inference = { index: e.cand.line.index, kind: "discount", patch: { discount_pct: p }, pct: p };
+      break;
+    }
   }
 
   // Accept the inferences only if the document's own printed figures agree with that reading.
@@ -344,7 +385,6 @@ export function reconcile(input: ReconInput): ReconResult {
     return { total_ex: c ? c.totalEx : l.amounts.line_total_ex, gst: c?.inference?.patch.gst ?? l.gst };
   };
   const accepted = candidates.length > 0 && documentChecks(lines.map((l) => view(l, true)), gstRate, S, G, T).ok;
-  const inferred = new Map<number, LineInference>();
   for (const f of failed) {
     if (accepted && f.inference) {
       mathOk.set(f.line.index, true);
@@ -355,6 +395,9 @@ export function reconcile(input: ReconInput): ReconResult {
   }
   if (checked > 0 && failed.every((f) => accepted && f.inference)) {
     notes.push({ check: "line_math", ok: true, message: "Every line's quantity times price matches its total." });
+  }
+  if (priceNetLines > 0) {
+    notes.push({ check: "line_math", ok: true, message: "The printed prices already include the discount column." });
   }
   if (accepted) {
     const gstLines = candidates.filter((c) => c.inference?.kind === "gst_inclusive_total");

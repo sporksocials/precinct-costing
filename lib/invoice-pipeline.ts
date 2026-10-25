@@ -137,6 +137,11 @@ export interface PipelineDeps {
   suggest?: (documentId: string) => Promise<void>;
   /** when nothing is waiting to be read: finds ONE older document whose questions never got suggestions and adds them; true when it did */
   suggestNext?: () => Promise<boolean>;
+  /**
+   * when nothing is waiting and no suggestion work was done: re-runs ONE stored invoice reading through the current engine (no model
+   * call) if its rules version is older than ENGINE_VERSION; true when it did. The pipeline never loops on it: one document per step.
+   */
+  reanalyseNext?: () => Promise<boolean>;
   clock: PipelineClock;
   /** defaults come from the environment (INVOICE_SORT_MODEL, INVOICE_READ_MODEL) */
   models?: { sort: string; read: string };
@@ -311,6 +316,14 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
         if (await deps.suggestNext()) return { idle: false, fileId: null, stage: "read", documents: [], message: "Added match suggestions to an earlier invoice." };
       } catch (e) {
         console.warn(`Invoice suggestion backfill failed: ${safeError(e)}`);
+      }
+    }
+    // Still quiet: re-check one stored invoice with the latest rules (free, no model call).
+    if (deps.reanalyseNext) {
+      try {
+        if (await deps.reanalyseNext()) return { idle: false, fileId: null, stage: "read", documents: [], message: "Re-checked an earlier invoice with the latest rules." };
+      } catch (e) {
+        console.warn(`Invoice re-check failed: ${safeError(e)}`);
       }
     }
     return idleResult();

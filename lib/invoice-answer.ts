@@ -580,6 +580,22 @@ export interface BatchCounts {
   autoApplied: number;
 }
 
+/** How many answers, and how many invoice re-checks, run at once. Saving one item that sits on five invoices used to take a minute. */
+const ANSWER_PARALLEL = 4;
+const REANALYSE_PARALLEL = 3;
+
+/** Runs `fn` over `items`, at most `n` at a time. Every item runs even when another throws; `fn` handles its own errors. */
+async function runPool<T>(items: readonly T[], n: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+}
+
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** The one sentence a person reads after Save Matches. Only says what happened. */
@@ -633,19 +649,21 @@ export async function answerQuestionsBatch(
 
   const docs = new Map<string, { reanalyse: boolean; terminal: boolean; matched: Set<number> }>();
   const taught = new Set<string>();
-  for (const a of ordered) {
+  // results keep the order the answers were sent in, however the work interleaves
+  const slots: (BatchAnswerResult | undefined)[] = new Array(ordered.length);
+  const one = async (a: BatchAnswerInput, slot: number): Promise<void> => {
     try {
       const rec = await recordAnswer(sb, { questionId: a.questionId, optionId: a.optionId, actor: args.actor, note: a.note, once: a.groupKey ? { key: a.groupKey, done: taught } : undefined });
       applied.push(...rec.applied);
       if (!rec.ok) {
         if (rec.status === "already") {
           counts.already++;
-          results.push({ questionId: a.questionId, ok: true, status: "already", message: rec.message });
+          slots[slot] = { questionId: a.questionId, ok: true, status: "already", message: rec.message };
         } else {
           counts.failed++;
-          results.push({ questionId: a.questionId, ok: false, status: "failed", message: rec.message });
+          slots[slot] = { questionId: a.questionId, ok: false, status: "failed", message: rec.message };
         }
-        continue;
+        return;
       }
       if (rec.cls === "match") counts.matches++;
       else if (rec.cls === "ignored") counts.ignored++;
@@ -656,33 +674,60 @@ export async function answerQuestionsBatch(
       d.terminal ||= rec.terminal;
       if (rec.cls === "match" && rec.lineNo != null) d.matched.add(rec.lineNo);
       docs.set(rec.docId, d);
-      results.push({ questionId: a.questionId, ok: true, status: "saved", message: ["Saved.", ...rec.parts].join(" ") });
+      slots[slot] = { questionId: a.questionId, ok: true, status: "saved", message: ["Saved.", ...rec.parts].join(" ") };
     } catch (e) {
       counts.failed++;
-      results.push({ questionId: a.questionId, ok: false, status: "failed", message: `Nothing was saved. ${e instanceof Error ? e.message : "Something went wrong."}` });
+      slots[slot] = { questionId: a.questionId, ok: false, status: "failed", message: `Nothing was saved. ${e instanceof Error ? e.message : "Something went wrong."}` };
     }
-  }
+  };
 
-  // each invoice is looked at once, after all its answers
-  const tail: string[] = [];
-  for (const [docId, d] of docs) {
-    if (!d.reanalyse || d.terminal) continue;
-    try {
-      const again = await reanalyse(sb, docId, args.actor, deps);
-      applied.push(...again.applied);
-      counts.autoApplied += again.applied.filter((x) => x.ok && x.changeIds.length > 0).length;
-    } catch {
-      tail.push("The answers are saved, but an invoice could not be checked again just now.");
-    }
-    if (d.matched.size) {
-      try {
-        const lines = await fetchAll<{ line_no: number; decision: string; state: string }>(sb, "invoice_lines", "line_no,decision,state", (q) => q.eq("document_id", docId));
-        counts.waiting += lines.filter((l) => d.matched.has(l.line_no) && l.decision === "needs_approval" && l.state !== "ignored").length;
-      } catch {
-        // the count is a courtesy
-      }
-    }
+  // Each answer is several round trips, so they run side by side: the invoice-wide ones first, one at a time (a match may need
+  // the supplier they settle); then each supplier item, whose FIRST answer teaches the map alone and the rest only record.
+  const slotOf = new Map(ordered.map((a, i) => [a, i] as const));
+  const linelessAnswers = ordered.filter((a) => lineless.has(a.questionId));
+  for (const a of linelessAnswers) await one(a, slotOf.get(a)!);
+  const byItem = new Map<string, BatchAnswerInput[]>();
+  for (const a of ordered) {
+    if (lineless.has(a.questionId)) continue;
+    const key = a.groupKey ?? `q:${a.questionId}`;
+    byItem.set(key, [...(byItem.get(key) ?? []), a]);
   }
+  await runPool([...byItem.values()], ANSWER_PARALLEL, async (group) => {
+    // answers go one at a time until one has taught the map (an earlier answer may have been "already"), then the rest run together
+    const key = group[0].groupKey;
+    let i = 0;
+    while (i < group.length) {
+      await one(group[i], slotOf.get(group[i])!);
+      i++;
+      if (!key || [...taught].some((t) => t.startsWith(`${key}|`))) break;
+    }
+    await runPool(group.slice(i), ANSWER_PARALLEL, (a) => one(a, slotOf.get(a)!));
+  });
+  for (const r of slots) if (r) results.push(r);
+
+  // each invoice is looked at once, after all its answers (a few at a time: each is a full read of what the app knows)
+  const tail: string[] = [];
+  await runPool(
+    [...docs].filter(([, d]) => d.reanalyse && !d.terminal),
+    REANALYSE_PARALLEL,
+    async ([docId, d]) => {
+      try {
+        const again = await reanalyse(sb, docId, args.actor, deps);
+        applied.push(...again.applied);
+        counts.autoApplied += again.applied.filter((x) => x.ok && x.changeIds.length > 0).length;
+      } catch {
+        if (!tail.length) tail.push("The answers are saved, but an invoice could not be checked again just now.");
+      }
+      if (d.matched.size) {
+        try {
+          const lines = await fetchAll<{ line_no: number; decision: string; state: string }>(sb, "invoice_lines", "line_no,decision,state", (q) => q.eq("document_id", docId));
+          counts.waiting += lines.filter((l) => d.matched.has(l.line_no) && l.decision === "needs_approval" && l.state !== "ignored").length;
+        } catch {
+          // the count is a courtesy
+        }
+      }
+    },
+  );
   const saved = results.filter((r) => r.status === "saved").length;
   return { ok: counts.failed === 0, message: [batchMessage(counts), ...tail].join(" "), results, saved, failed: counts.failed, applied, counts };
 }

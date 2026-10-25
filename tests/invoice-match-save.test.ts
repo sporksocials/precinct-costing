@@ -386,6 +386,13 @@ describe("source rules for the new files", () => {
       }
     }
   });
+  it("each row can be saved on its own, with its own rename question", () => {
+    const row = read("components/invoices/match-row.tsx");
+    const screen = read("components/invoices/match-screen.tsx");
+    expect(row).toContain("Save This Item");
+    expect(screen).toContain("onSaveClick(new Set([g.key]))");
+    expect(screen).toContain("only.has(a.key)");
+  });
   it("makes every control at least 44px: the inputs, the switch, the quick buttons", () => {
     const d = read("components/invoices/match-detail.tsx");
     expect(d.match(/min-h-\[44px\]/g)!.length).toBeGreaterThanOrEqual(3);

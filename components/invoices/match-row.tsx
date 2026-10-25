@@ -27,8 +27,11 @@ export function ItemRow({
   docs,
   problem,
   disabled,
+  ready,
+  saving,
   today,
   detail,
+  onSave,
   onDecide,
   onAddNew,
 }: {
@@ -43,9 +46,15 @@ export function ItemRow({
   docs: readonly IngredientDoc[];
   problem: string | null;
   disabled: boolean;
+  /** the choice is made and any pack amount is filled in, so this item can be saved on its own */
+  ready?: boolean;
+  /** this item is the one being saved right now */
+  saving?: boolean;
   today: string;
   /** the conversion and new-name block, shown under the picker once an ingredient is chosen */
   detail?: ReactNode;
+  /** Save This Item: saves just this row, with its rename question when a rename is chosen */
+  onSave?: () => void;
   onDecide: (d: Decision | null) => void;
   onAddNew: () => void;
 }) {
@@ -86,6 +95,11 @@ export function ItemRow({
 
         <div className="mt-2">
           <div className="flex flex-wrap gap-2">
+            {decision && ready && onSave ? (
+              <TouchButton variant="primary" className="!px-4 !text-[15px]" disabled={disabled} onClick={onSave}>
+                {saving ? "Saving..." : "Save This Item"}
+              </TouchButton>
+            ) : null}
             {!decision && usable && suggestedIngredient ? (
               <TouchButton variant="primary" className="!px-3 !text-[15px]" disabled={disabled} onClick={() => onDecide({ t: "ingredient", ingredientId: suggestedIngredient.id, name: suggestedIngredient.name, via: "suggestion" })}>
                 Use Suggestion

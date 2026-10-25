@@ -83,6 +83,9 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
   const [otherSuppliers, setOtherSuppliers] = useState<ReadonlyMap<string, number>>(new Map());
   const [planning, setPlanning] = useState(false);
   const [confirmRename, setConfirmRename] = useState<BatchRenamePlan | null>(null);
+  // the items the open rename sheet is for: one item when "Save This Item" was pressed, null for every chosen item
+  const [renameKeys, setRenameKeys] = useState<ReadonlySet<string> | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [undoing, setUndoing] = useState(false);
 
   const ingredients = store.ingredients;
@@ -156,9 +159,9 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
 
   /** Saves the matches (each with its pack number), then the renames in `plan`; null plan = leave every name alone. */
   const runSave = useCallback(
-    async (plan: BatchRenamePlan | null): Promise<boolean> => {
+    async (plan: BatchRenamePlan | null, only?: ReadonlySet<string> | null): Promise<boolean> => {
       if (saving) return false;
-      const built = buildItemAnswers(rows, decisions, packsMap(details));
+      const built = buildItemAnswers(rows, decisions, packsMap(details)).filter((a) => !only || only.has(a.key));
       if (built.length === 0) return true;
       setSaving(true);
       setBanner(null);
@@ -195,10 +198,11 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
   const save = useCallback(() => runSave(null), [runSave]);
 
   /** Save Matches: when any rename is chosen, the plan (with the names that follow) is shown first and nothing is saved until confirmed. */
-  const onSaveClick = useCallback(async () => {
-    const renames = chosenRenames(rows, decisions, details);
+  const onSaveClick = useCallback(async (only?: ReadonlySet<string>) => {
+    const renames = chosenRenames(rows, decisions, details).filter((r) => !only || only.has(r.key));
+    setRenameKeys(only ?? null);
     if (renames.length === 0) {
-      await runSave(null);
+      await runSave(null, only);
       return;
     }
     setPlanning(true);
@@ -214,9 +218,9 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
   const chooseRename = useCallback(
     (plan: BatchRenamePlan | null) => {
       setConfirmRename(null);
-      void runSave(plan);
+      void runSave(plan, renameKeys);
     },
-    [runSave],
+    [runSave, renameKeys],
   );
 
   const undoNames = useCallback(async () => {
@@ -341,6 +345,12 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
                     docs={searchDocs}
                     problem={problems.get(g.key) ?? null}
                     disabled={saving}
+                    ready={rowSettled(d, details.get(g.key))}
+                    saving={saving && savingKey === g.key}
+                    onSave={() => {
+                      setSavingKey(g.key);
+                      void onSaveClick(new Set([g.key]));
+                    }}
                     today={store.today}
                     detail={
                       details.get(g.key) ? (

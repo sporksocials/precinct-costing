@@ -18,6 +18,9 @@ const TRAILING = new Set([
   "carton", "kg", "kgs", "slv", "squeezie", "unit",
 ]);
 
+/** Small words that cannot end a name. */
+const DANGLING = new Set(["in", "of", "and", "with", "for", "the", "a", "an", "to", "on", "&"]);
+
 /** Short bracket words that are supplier codes or packaging, never a brand (NTC, GB, TAN, LAM, DOZEN, TETRA). */
 const BRACKET_NOISE = new Set(["dozen", "tetra", "bucket", "carton", "case", "each", "unit", "units", "pack", "bulk", "frz", "frozen", "fresh", "aust", "lab", "label", "green", "red", "inch"]);
 
@@ -79,7 +82,9 @@ export function tidyInvoiceName(description: string | null | undefined, size: st
   let ws = words(text);
   // a bare item number on the end ("- 40174", "- 01243") is the supplier's, not part of the name
   while (ws.length > 1 && /^\d{4,}$/.test(ws[ws.length - 1])) ws.pop();
-  while (ws.length > 1 && TRAILING.has(ws[ws.length - 1].toLowerCase().replace(/[^a-z]/g, ""))) ws.pop();
+  // container words on the end go, and so does any "in" or "of" they leave dangling ("BAG IN BOX" is not a product name)
+  const last = () => ws[ws.length - 1].toLowerCase().replace(/[^a-z]/g, "");
+  while (ws.length > 1 && (TRAILING.has(last()) || DANGLING.has(last()))) ws.pop();
   ws = ws.filter((w, i) => !(i > 0 && w.toLowerCase() === ws[i - 1].toLowerCase()));
 
   const tail = [...dedupe(brands.map(polish)).map((b) => ` (${b})`), size ? ` (${size})` : ""].join("");

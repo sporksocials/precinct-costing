@@ -15,7 +15,7 @@ export function RenameSheet({ plan, venues, onChoose, onClose }: { plan: BatchRe
   const n = plan.ingredients.length;
   const linked = linkedCount(plan);
   return (
-    <TouchSheet open onClose={onClose} title={`Rename ${n} ${n === 1 ? "Item" : "Items"}?`} action={{ label: "Rename All", onClick: () => onChoose(plan) }} size="lg">
+    <TouchSheet open onClose={onClose} title={`Rename ${n} ${n === 1 ? "Item" : "Items"}?`} size="lg">
       <div className="space-y-5 pb-2">
         <p className="text-[15px] leading-snug text-label-2">
           {linked > 0

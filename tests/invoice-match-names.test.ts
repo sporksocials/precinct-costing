@@ -24,6 +24,9 @@ describe("tidyInvoiceName: real Bidfood and Markris descriptions", () => {
     expect(tidy("BACON MIDDLE RINDLESS GAS FLUSHED (CATERERS C) 2.5kg")).toBe("Bacon Middle Rindless Gas Flushed (2.5kg)");
     expect(tidy("*EDAMAME (SHIOYUDE) BEAN SHELL ON ~ IN POD ~ (NTC)")).toBe("Edamame Bean Shell on in Pod (Shioyude)");
   });
+  it("leaves no dangling small word when it drops a container", () => {
+    expect(tidy("MENU MASTER - WHITE VINEGAR BAG IN BOX - 15LT BOX")).toBe("Menu Master White Vinegar (15L)");
+  });
   it("drops short supplier codes in brackets and a bracket the scan never closed", () => {
     expect(tidy("HTC - SHREDDED COCONUT MEAT STRIPPED FROZEN - 400G (green lab")).toBe("Htc Shredded Coconut Meat Stripped Frozen (400g)");
     expect(tidy("MISSION - TORTILLA PLAIN FLOUR WRAPS ** 12 INCH ** (DOZEN)")).toBe("Mission Tortilla Plain Flour Wraps 12 Inch");

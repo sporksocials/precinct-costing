@@ -14,6 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "./invoice-context";
 import { insertRow, insertRows } from "./invoice-insert";
 import type { SaveAnalysis } from "./invoice-interfaces";
+import { ENGINE_VERSION } from "./invoice-engine";
 import { sameSupplierName, tidySupplierName } from "./invoice-names";
 import type { DocStatus, InvoiceAnalysis, InvoiceLineRow, InvoiceQuestionRow, LineState } from "./invoice-types";
 
@@ -83,6 +84,29 @@ async function resolveSupplier(sb: SupabaseClient, analysis: InvoiceAnalysis): P
 /** The three supplier-discount columns on a line (added by a later migration). */
 export const DISCOUNT_COLUMNS = ["line_discount_ex", "discount_pct", "discount_per_base"] as const;
 
+/** The stored reading and the version of the rules that last checked it (added by a later migration). */
+export const EXTRA_DOCUMENT_COLUMNS = ["extracted", "analysis_version"] as const;
+
+/** True when a database error says one of the stored-reading columns is not there yet (an older database). */
+function extraColumnMissing(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  const text = String(error.message ?? "");
+  return EXTRA_DOCUMENT_COLUMNS.some((c) => text.includes(c)) && (/column|schema cache|does not exist/i.test(text) || error.code === "42703" || error.code === "PGRST204");
+}
+
+const withoutExtraColumns = (fields: Record<string, any>): Record<string, any> => {
+  const copy = { ...fields };
+  for (const c of EXTRA_DOCUMENT_COLUMNS) delete copy[c];
+  return copy;
+};
+
+/** Insert a document row; when the database has no stored-reading columns yet the same row goes in without them. */
+async function insertDocument(sb: SupabaseClient, fields: Record<string, any>) {
+  const res = await insertRow(sb, "invoice_documents", fields).select("id").single();
+  if (res.error && extraColumnMissing(res.error as any)) return insertRow(sb, "invoice_documents", withoutExtraColumns(fields)).select("id").single();
+  return res;
+}
+
 /** True when a database error says one of the discount columns is not there yet (an older database): Postgres 42703 or PostgREST PGRST204. */
 function discountColumnMissing(error: { message?: string; code?: string } | null | undefined): boolean {
   if (!error) return false;
@@ -107,7 +131,16 @@ async function insertLineRows(sb: SupabaseClient, rows: Record<string, any>[]): 
   return (check(res, "Could not save the lines").data ?? []) as { id: string; line_no: number }[];
 }
 
-export const saveAnalysis: SaveAnalysis = async (sb, args) => {
+/**
+ * Extra, optional arguments that are not part of the shared SaveAnalysis contract. `keepExtracted`: the caller re-analysed from rows
+ * rebuilt out of the stored lines (a lossy copy of the reading), so the document's own stored reading is left exactly as it is.
+ */
+export interface SaveAnalysisExtra {
+  keepExtracted?: boolean;
+}
+
+export const saveAnalysis: SaveAnalysis = async (sb, args0) => {
+  const args = args0 as typeof args0 & SaveAnalysisExtra;
   const { fileId, venueId, extracted, analysis, pagePdfPath, readModel, documentId } = args;
 
   const existingDoc = documentId
@@ -145,17 +178,22 @@ export const saveAnalysis: SaveAnalysis = async (sb, args) => {
     mode: analysis.mode,
     duplicate_of: duplicateOf,
     read_model: readModel,
+    // the reading as the model gave it (so the checks can be run again for free) and the rules version that last checked it
+    ...(args.keepExtracted ? {} : { extracted }),
+    analysis_version: ENGINE_VERSION,
   };
 
   // ---- the document row
   let docId: string;
   let finalStatus: DocStatus = status;
   if (documentId) {
-    const res = check(await sb.from("invoice_documents").update(fields).eq("id", documentId).select("id"), "Could not update the invoice");
+    let upd = await sb.from("invoice_documents").update(fields).eq("id", documentId).select("id");
+    if (upd.error && extraColumnMissing(upd.error as any)) upd = await sb.from("invoice_documents").update(withoutExtraColumns(fields)).eq("id", documentId).select("id");
+    const res = check(upd, "Could not update the invoice");
     if (!res.data || res.data.length === 0) throw new Error("That invoice no longer exists, so it cannot be re-checked.");
     docId = documentId;
   } else {
-    let res = await insertRow(sb, "invoice_documents", fields).select("id").single();
+    let res = await insertDocument(sb, fields);
     if (res.error && (res.error as any).code === "23505" && fields.supplier_id && fields.invoice_number) {
       // the same invoice is already filed (a race the analysis could not see): file this one as a duplicate of it
       const other = check(
@@ -164,7 +202,7 @@ export const saveAnalysis: SaveAnalysis = async (sb, args) => {
       ).data?.[0] as { id: string } | undefined;
       if (other) {
         finalStatus = "duplicate";
-        res = await insertRow(sb, "invoice_documents", { ...fields, status: "duplicate", duplicate_of: other.id }).select("id").single();
+        res = await insertDocument(sb, { ...fields, status: "duplicate", duplicate_of: other.id });
       }
     }
     docId = (check(res, "Could not save the invoice").data as { id: string }).id;

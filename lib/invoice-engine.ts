@@ -48,6 +48,14 @@ import {
   unreadableSupplierQuestion,
 } from "./invoice-questions";
 
+/**
+ * The version of the checking rules (this engine, reconciliation and the reading rules around them). It is stamped on every saved
+ * invoice (`invoice_documents.analysis_version`), and a quiet step re-checks stored invoices that carry an older one from their
+ * stored reading, at no AI cost. BUMP IT WHENEVER the engine, reconciliation or reading rules change in a way that should re-check
+ * stored invoices. Version 2: a printed Discount column the price already includes, and an unlabelled discount judged in dollars.
+ */
+export const ENGINE_VERSION = 2;
+
 interface Work {
   i: number;
   line: ExtractedLine;

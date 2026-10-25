@@ -9,6 +9,7 @@ import { applyDocumentAuto } from "./invoice-apply";
 import { loadAnalyseContext } from "./invoice-context";
 import { analyseInvoice } from "./invoice-engine";
 import { realClock, resolveModels, type PipelineDeps } from "./invoice-pipeline";
+import { reanalyseNext } from "./invoice-reanalyse";
 import { supabaseRepo, supabaseStorage } from "./invoice-repo";
 import { saveAnalysis } from "./invoice-store";
 import { getServiceClient } from "./supabase/service";
@@ -45,6 +46,15 @@ export async function defaultDeps(env: Record<string, string | undefined> = proc
       }
       return false;
     },
+    reanalyseNext: () =>
+      reanalyseNext(sb, {
+        analyse: analyseInvoice,
+        loadContext: loadAnalyseContext,
+        save: saveAnalysis,
+        autoApply: applyDocumentAuto,
+        today: () => realClock.today(),
+        firstReadModel: resolveModels(env).read,
+      }),
     analyse: analyseInvoice,
     loadContext: loadAnalyseContext,
     save: saveAnalysis,

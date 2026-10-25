@@ -382,7 +382,7 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
           >
             <div className="mx-auto flex max-w-[1100px] flex-wrap items-center gap-2 lg:px-6">
               <p role="status" aria-live="polite" className="sr-only sm:not-sr-only sm:order-1 sm:flex-1 sm:basis-0 sm:text-[13px] sm:leading-snug sm:text-label-2">
-                {saving ? "Saving. This takes a few seconds." : packText ?? progressText(chosen, total)}
+                {saving ? "Saving, then re-checking the invoices it sits on. This can take up to half a minute." : packText ?? progressText(chosen, total)}
               </p>
               {acceptable > 0 ? (
                 <TouchButton variant="tinted" disabled={saving} className="flex-1 !text-[15px] sm:order-2 sm:flex-none" onClick={() => setDecisions((d) => acceptItemSuggestions(rows, sugg, d, nameOf))}>

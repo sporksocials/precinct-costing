@@ -609,3 +609,28 @@ describe("reconcile with the new line fields", () => {
     expect(lineAmounts({ unit_price: 7.49, line_total: 16.48, basis: "ex", total_basis: "inc", gst: "unknown" }, 0.1).convertible).toBe(false);
   });
 });
+
+describe("pages of one invoice that are far apart in the same scan", () => {
+  it("merges the lines on page 6 with the totals on page 21 when supplier and invoice number match", async () => {
+    const { groupPages } = await import("@/lib/invoice-read");
+    const page = (n: number, over: Record<string, unknown> = {}) => ({ page: n, doc_type: "invoice" as const, supplier_name: "Markris Wholesale Foods", invoice_number: null as string | null, page_of: null, continues_previous: false, ...over });
+    const groups = groupPages([
+      page(1, { invoice_number: "793900" }),
+      page(2, { invoice_number: "793901" }),
+      page(3, { invoice_number: "793907" }),
+      page(4, { invoice_number: "793908" }),
+      page(5, { invoice_number: "793909" }),
+      page(6, { invoice_number: "793910", supplier_name: "Simon George & Sons" }),
+      page(7, { invoice_number: "793907" }),
+    ]);
+    expect(groups.find((g) => g.invoice_number === "793907")?.pages).toEqual([3, 7]);
+    expect(groups).toHaveLength(6);
+  });
+
+  it("does not merge the same number from a different supplier", async () => {
+    const { groupPages } = await import("@/lib/invoice-read");
+    const page = (n: number, supplier: string, no: string) => ({ page: n, doc_type: "invoice" as const, supplier_name: supplier, invoice_number: no, page_of: null, continues_previous: false });
+    const groups = groupPages([page(1, "Markris Wholesale Foods", "5001"), page(2, "Daniel Street Fish Market", "6000"), page(3, "Simon George & Sons", "5001")]);
+    expect(groups).toHaveLength(3);
+  });
+});

@@ -307,7 +307,27 @@ export function groupPages(sorted: SortedPageX[]): PageGroup[] {
       groups.push(open);
     }
   }
-  return groups;
+  return mergeSameInvoice(groups);
+}
+
+/**
+ * Pages of ONE invoice that are not next to each other in the scan (lines on page 6, the totals page on page 21): an invoice number
+ * is unique per supplier, so two groups with the same supplier and the same number inside one file are one invoice.
+ */
+function mergeSameInvoice(groups: PageGroup[]): PageGroup[] {
+  const out: PageGroup[] = [];
+  for (const g of groups) {
+    const earlier = g.invoice_number
+      ? out.find((o) => !!o.invoice_number && norm(o.invoice_number) === norm(g.invoice_number!) && sameSupplier(o.supplier_name, g.supplier_name) && (o.doc_type === g.doc_type || g.doc_type === "other"))
+      : undefined;
+    if (earlier) {
+      earlier.pages = [...earlier.pages, ...g.pages].sort((a, b) => a - b);
+      earlier.supplier_name ??= g.supplier_name;
+    } else {
+      out.push(g);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- read reply

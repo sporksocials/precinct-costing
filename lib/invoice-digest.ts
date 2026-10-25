@@ -475,3 +475,213 @@ export function buildWeeklyEmail(plan: WeeklyPlan, opts: { origin: string; now: 
 
   return { skipped: false, subject, text, html, questionIds: plan.questionIds };
 }
+
+// ---------------------------------------------------------------- the weekly Slack review (the ONLY Slack message)
+/*
+ * Troy, 25 Oct 2026: "I only want a msg once a week on a Friday morning at 8am with a review from that week." One message for
+ * every venue, built from per venue sections so the shared channel can be split into one channel per venue later (call
+ * `splitWeeklyByVenue` and post each piece). Plain Australian English, no dashes, one emoji at the very start, no jargon.
+ */
+
+/** Every weekly review contains this text, which is how a recorded digest is recognised as the weekly one. */
+export const WEEKLY_REVIEW_MARKER = "Invoice review: week to";
+/** a second request inside this many days answers "Already sent this week." and posts nothing */
+export const WEEKLY_REVIEW_REPEAT_DAYS = 5;
+/** the review looks back this many days from the moment it runs */
+export const WEEKLY_REVIEW_DAYS = 7;
+export const WEEKLY_MAX_MOVES = 5;
+export const WEEKLY_MAX_DISCOUNTS = 3;
+/** the whole message stays under about this many characters (discounts and moves are dropped one at a time to fit) */
+export const WEEKLY_TEXT_LIMIT = 2500;
+
+/** A standing, new or varying supplier discount seen on an invoice this week. */
+export interface DiscountNote {
+  supplier: string;
+  item: string;
+  status: "standing" | "seen once" | "varies";
+  /** fractions: 0.1662 is 16.6% */
+  pctMean: number;
+  pctMin: number;
+  pctMax: number;
+  /** dollars per kg, L or each, ex GST; null when the unit cost was not worked out */
+  perUnit: number | null;
+  unit: string | null;
+}
+
+export interface WeeklyVenueData {
+  venueName: string;
+  venueSlug: string;
+  /** invoices and credit notes read this week */
+  invoicesRead: number;
+  /** price changes written to the app this week */
+  pricesUpdated: number;
+  /** prices that matched what the app already had */
+  pricesConfirmed: number;
+  /** price moves seen on this week's invoices (any order; the builder sorts and caps) */
+  moves: AttentionItem[];
+  discounts: DiscountNote[];
+  /** still to do, now: distinct items to match, prices to approve, other questions to check */
+  toMatch: number;
+  toApprove: number;
+  toCheck: number;
+  /** invoices found in scans but not read yet */
+  stillReading: number;
+}
+
+export interface WeeklyReviewData {
+  now: Date;
+  /** the app's web address, no trailing slash */
+  origin: string;
+  venues: WeeklyVenueData[];
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Fri 30 Oct" for an instant, in Brisbane. */
+export function weekdayDayLabel(d: Date): string {
+  const p = brisbaneParts(d);
+  return `${WEEKDAYS[p.dow]} ${p.day} ${MONTHS[p.m - 1]}`;
+}
+
+/** The venue as the owners say it: "Greedy Gringo's" is "Greedy". */
+export function shortVenueName(name: string | null | undefined): string {
+  const s = plainText(name).replace(/\s+gringo'?s$/i, "").trim();
+  return s || "A venue";
+}
+
+/** "per kg", "each", "per carton": how a unit price reads after the dollar amount. */
+function perUnitWords(unit: string | null | undefined): string {
+  const u = plainText(unit).toLowerCase().replace(/\.$/, "");
+  if (!u) return "";
+  if (u === "ea" || u === "each") return " each";
+  if (u === "ctn" || u === "carton") return " per carton";
+  if (u === "lt" || u === "ltr" || u === "litre") return " per L";
+  return ` per ${slackEscape(u)}`;
+}
+
+function listWords(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** "Kingfish fillets (Daniel Street): $68.90 to $74.20 per kg, up 7.7%" */
+export function moveLine(m: AttentionItem): string {
+  const up = (m.pct ?? 0) > 0;
+  const pct = `${(Math.round(Math.abs(m.pct ?? 0) * 1000) / 10).toFixed(1)}%`;
+  const prices = `${fmtPrice(m.oldPrice ?? 0)} to ${fmtPrice(m.newPrice ?? 0)}${perUnitWords(m.unit)}`;
+  return `• ${slackEscape(tidyItem(m.item))} (${slackEscape(shortSupplier(m.supplier))}): ${prices}, ${up ? "up" : "down"} ${pct}`;
+}
+
+const pct1 = (f: number) => `${(Math.round(f * 1000) / 10).toFixed(1)}%`;
+
+/** "Daniel Street takes 16.6% ($6.88 per kg) off Humpty Doo barramundi fillets." */
+export function discountLine(d: DiscountNote): string {
+  const who = slackEscape(shortSupplier(d.supplier));
+  const item = slackEscape(tidyItem(d.item));
+  const dollars = d.perUnit != null && d.perUnit > 0 ? ` (${fmtPrice(d.perUnit)}${perUnitWords(d.unit)})` : "";
+  if (d.status === "varies") return `• ${who} takes between ${pct1(d.pctMin)} and ${pct1(d.pctMax)} off ${item}.`;
+  if (d.status === "seen once") return `• ${who} took ${pct1(d.pctMean)}${dollars} off ${item}.`;
+  return `• ${who} takes ${pct1(d.pctMean)}${dollars} off ${item}.`;
+}
+
+/** Largest change first (up or down), then item and supplier A to Z so ties always come out the same way. */
+export function sortMoves(moves: readonly AttentionItem[]): AttentionItem[] {
+  return [...moves].sort(
+    (a, b) => Math.abs(b.pct ?? 0) - Math.abs(a.pct ?? 0) || a.item.localeCompare(b.item) || a.supplier.localeCompare(b.supplier) || (a.newPrice ?? 0) - (b.newPrice ?? 0),
+  );
+}
+
+function venueHasActivity(v: WeeklyVenueData): boolean {
+  return v.invoicesRead + v.pricesUpdated + v.pricesConfirmed + v.moves.length + v.discounts.length + v.toMatch + v.toApprove + v.toCheck + v.stillReading > 0;
+}
+
+function venueSection(v: WeeklyVenueData, maxMoves: number, maxDiscounts: number): string[] {
+  const head: string[] = [];
+  if (v.invoicesRead > 0) head.push(plural(v.invoicesRead, "invoice", "invoices"));
+  if (v.pricesUpdated > 0) head.push(plural(v.pricesUpdated, "price updated", "prices updated"));
+  if (v.pricesConfirmed > 0) head.push(`${v.pricesConfirmed} confirmed as unchanged`);
+  const lines: string[] = [`*${slackEscape(shortVenueName(v.venueName))}:* ${head.length ? head.join(", ") : "nothing new this week"}`];
+
+  const moves = sortMoves(v.moves).slice(0, maxMoves);
+  if (moves.length > 0) {
+    lines.push(moves.length === 1 ? "*Biggest price move* (by percent, up or down):" : `*Biggest price moves* (top ${moves.length} by percent, up or down):`);
+    for (const m of moves) lines.push(moveLine(m));
+  }
+  const discounts = v.discounts.slice(0, maxDiscounts);
+  if (discounts.length > 0) {
+    lines.push("*Supplier discounts we spotted*:");
+    for (const d of discounts) lines.push(discountLine(d));
+  }
+  const todo: string[] = [];
+  if (v.toMatch > 0) todo.push(`${plural(v.toMatch, "item", "items")} to match`);
+  if (v.toApprove > 0) todo.push(`${plural(v.toApprove, "price", "prices")} to approve`);
+  if (v.toCheck > 0) todo.push(`${v.toCheck} to check`);
+  if (todo.length) lines.push(`*Still to do*: ${todo.join(", ")}.`);
+  if (v.stillReading > 0) lines.push(`*Reading*: ${v.stillReading} ${v.stillReading === 1 ? "invoice is" : "invoices are"} still being read.`);
+  return lines;
+}
+
+function summaryLine(venues: WeeklyVenueData[]): string {
+  const read = venues.reduce((n, v) => n + v.invoicesRead, 0);
+  const updated = venues.reduce((n, v) => n + v.pricesUpdated, 0);
+  const confirmed = venues.reduce((n, v) => n + v.pricesConfirmed, 0);
+  const readAt = venues.filter((v) => v.invoicesRead > 0);
+  const where = listWords(readAt.map((v) => slackEscape(shortVenueName(v.venueName))));
+  const first = read > 0 ? `${plural(read, "invoice", "invoices")} read ${readAt.length > 1 ? "across" : "at"} ${where}.` : "No new invoices were read this week.";
+  let prices: string;
+  if (updated > 0 && confirmed > 0) prices = `${plural(updated, "price", "prices")} updated, ${confirmed} confirmed as unchanged.`;
+  else if (updated > 0) prices = `${plural(updated, "price", "prices")} updated.`;
+  else if (confirmed > 0) prices = `${plural(confirmed, "price", "prices")} confirmed as unchanged.`;
+  else prices = read > 0 ? "No prices changed." : "";
+  return prices ? `${first} ${prices}` : first;
+}
+
+function renderWeekly(d: WeeklyReviewData, maxMoves: number, maxDiscounts: number): string {
+  const headline = `:receipt: *${WEEKLY_REVIEW_MARKER} ${weekdayDayLabel(d.now)}*`;
+  const active = d.venues.filter(venueHasActivity);
+  if (active.length === 0) return `${headline}\nNothing new this week. All caught up.`;
+
+  const out: string[] = [headline, summaryLine(active)];
+  for (const v of active) {
+    out.push("");
+    out.push(...venueSection(v, maxMoves, maxDiscounts));
+  }
+  const open = active.reduce((n, v) => n + v.toMatch + v.toApprove + v.toCheck, 0);
+  out.push("");
+  if (open > 0) {
+    const origin = d.origin.replace(/[<>|\s]/g, "").replace(/\/+$/, "");
+    out.push(`<${origin}/invoices?tab=todo|Open Invoices>`);
+  } else {
+    out.push("Nothing is waiting on you.");
+  }
+  return out.join("\n");
+}
+
+/**
+ * The one Slack message of the week: headline, a summary line, then a section for each venue that had anything happen or
+ * anything waiting. A quiet week still says so in one line. If the text would pass about 2500 characters, discounts and then
+ * price moves are trimmed (never the counts) until it fits.
+ */
+export function buildWeeklyReview(d: WeeklyReviewData): string {
+  let text = renderWeekly(d, WEEKLY_MAX_MOVES, WEEKLY_MAX_DISCOUNTS);
+  for (const [moves, discounts] of [[4, 3], [3, 2], [2, 1], [1, 1], [1, 0], [0, 0]] as const) {
+    if (text.length <= WEEKLY_TEXT_LIMIT) break;
+    text = renderWeekly(d, moves, discounts);
+  }
+  if (text.length > WEEKLY_TEXT_LIMIT) {
+    const cut = text.slice(0, WEEKLY_TEXT_LIMIT);
+    const nl = cut.lastIndexOf("\n");
+    text = nl > 0 ? cut.slice(0, nl) : cut;
+  }
+  return text;
+}
+
+/** One review per venue, for the day the shared channel is split into a channel for each venue. */
+export function splitWeeklyByVenue(d: WeeklyReviewData): WeeklyReviewData[] {
+  return d.venues.map((v) => ({ ...d, venues: [v] }));
+}
+
+/** True when a recorded digest body is a weekly review (the idempotency check reads this). */
+export function isWeeklyReviewBody(body: string | null | undefined): boolean {
+  return typeof body === "string" && body.includes(WEEKLY_REVIEW_MARKER);
+}

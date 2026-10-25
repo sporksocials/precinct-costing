@@ -1,13 +1,17 @@
 /**
- * The invoice pipeline: "a PDF arrived" to "its invoices are read, analysed and saved". One call to `processStep` does ONE bounded
- * unit of work (it stops starting new calls after 45 seconds, so a 60 second route never times out mid-write) and says whether
- * more is waiting; the scanner script calls it again until it answers idle.
+ * The invoice pipeline: "a PDF arrived" to "its invoices are read, analysed and saved". One call to `processStep` does exactly ONE
+ * unit of work inside a 50 second budget (the platform limit is 60), hands the file back, and says whether more is waiting; the
+ * scanner script calls it again until it answers idle, several at a time (each takes a different file: the claim is atomic).
  *
  *   claim the oldest file (compare and set, so two callers never take the same one)
- *   stage 1  sort the pages (cheap model), group them into documents, write a shell row per document
- *   stage 2  per document, one at a time: split its pages out, read them, upload the split PDF, analyse, save, auto-apply when
- *            the rules allow, tell the notify hook
- *   all documents done -> file 'done'
+ *   unit A   a file with no documents yet: sort the pages (cheap model), group them into documents, write a shell row per document
+ *   unit B   otherwise: read exactly ONE document: split its pages out, read them, upload the split PDF, analyse, save, auto-apply
+ *            when the rules allow, tell the notify hook
+ *   then the claim is handed back ('received') until every document is read; the last one marks the file 'done'
+ *
+ * Time: a document is not started with less than READ_MIN_REMAINING_MS left, and every model call is given at most the time left
+ * minus CALL_MARGIN_MS. A call cut short by the budget (not by its own usual limit) is NOT a failed attempt: the claim goes straight
+ * back, so the next step retries at once instead of the file sitting stalled for 10 minutes.
  *
  * Resumable: a document whose row already has a read_model was saved, so the next step skips it. A crash between documents loses
  * at most the document in flight. Everything outside this file (the engine, the store, the apply layer, the clock, the model
@@ -19,7 +23,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AnalyseInvoice, ApplyDocumentAuto, LoadAnalyseContext, ProcessStep, ProcessStepResult, SaveAnalysis } from "./invoice-interfaces";
 import { DEFAULT_READ_MODEL, DEFAULT_SORT_MODEL, INVOICE_ENV, type DocStatus, type ExtractedInvoice, type InvoiceAnalysis, type InvoiceDocType, type InvoiceFileRow, type SortedPage } from "./invoice-types";
-import { AiError, type ClaudeFn } from "./invoice-ai";
+import { AiError, CALL_TIMEOUT_MS, type ClaudeCallArgs, type ClaudeCallResult, type ClaudeFn } from "./invoice-ai";
 import { venueFromInvoice } from "./invoice-match";
 import { PdfError, countPages, splitPages, toBase64 } from "./invoice-pdf";
 import {
@@ -40,10 +44,14 @@ import {
 } from "./invoice-read";
 
 export const INVOICE_BUCKET = "invoice-pdfs";
-/** stop starting new model calls after this long in one step */
-export const STEP_BUDGET_MS = 45_000;
-/** the route's hard limit is 60 s; a model call is never allowed to run past this point */
-export const STEP_HARD_LIMIT_MS = 58_000;
+/** one step's whole budget: the route's limit is 60 s and the scanner script's own fetch limit is about a minute too */
+export const STEP_BUDGET_MS = 50_000;
+/** a document is not started with less than this left (a read plus the save and the apply need room) */
+export const READ_MIN_REMAINING_MS = 25_000;
+/** a model call ends at least this long before the budget does, so the save after it still fits */
+export const CALL_MARGIN_MS = 5_000;
+/** a model call is never started with less than this to run */
+export const MIN_CALL_MS = 10_000;
 export const STALLED_AFTER_MS = 10 * 60_000;
 export const MAX_ATTEMPTS = 3;
 export const SIGNED_URL_SECONDS = 600;
@@ -190,9 +198,32 @@ async function callWithRetry<T>(call: (retryError?: string) => Promise<string>, 
   }
 }
 
-/** Seconds a model call may still run: the usual limit, cut short near the end of the step. */
-function callTimeout(deps: PipelineDeps, start: number): number {
-  return Math.max(5_000, Math.min(40_000, STEP_HARD_LIMIT_MS - (deps.clock.now() - start)));
+/** The step ran out of time before it could finish its one unit of work. Never a failure: the claim is handed straight back. */
+export class StepBudgetError extends Error {
+  constructor(message = "This step ran out of time and will be tried again straight away.") {
+    super(message);
+    this.name = "StepBudgetError";
+  }
+}
+
+/** Milliseconds left of this step's budget. */
+const remainingMs = (deps: PipelineDeps, start: number): number => STEP_BUDGET_MS - (deps.clock.now() - start);
+
+/**
+ * One model call inside the step budget: it gets at most the usual limit, and never more than the time left minus a margin. With less
+ * than MIN_CALL_MS to give it is not started at all. A call cut short by that reduced limit (not the usual one) is a budget stop, not
+ * a failed attempt; a call that used its full usual limit and still timed out is a real failure and counts as one.
+ */
+async function budgetedCall(deps: PipelineDeps, start: number, args: ClaudeCallArgs): Promise<ClaudeCallResult> {
+  const allowed = remainingMs(deps, start) - CALL_MARGIN_MS;
+  if (allowed < MIN_CALL_MS) throw new StepBudgetError();
+  const reduced = allowed < CALL_TIMEOUT_MS;
+  try {
+    return await deps.claude({ ...args, timeoutMs: Math.min(CALL_TIMEOUT_MS, allowed) });
+  } catch (e) {
+    if (reduced && e instanceof AiError && e.reason === "timeout") throw new StepBudgetError();
+    throw e;
+  }
 }
 
 async function sortPages(deps: PipelineDeps, file: InvoiceFileRow, bytes: Uint8Array, total: number, start: number): Promise<SortedPage[]> {
@@ -209,7 +240,7 @@ async function sortPages(deps: PipelineDeps, file: InvoiceFileRow, bytes: Uint8A
     const sorted = await callWithRetry(
       async (retryError) =>
         (
-          await deps.claude({
+          await budgetedCall(deps, start, {
             model: models.sort,
             system: SORT_SYSTEM,
             pdfBase64: b64,
@@ -218,7 +249,6 @@ async function sortPages(deps: PipelineDeps, file: InvoiceFileRow, bytes: Uint8A
             feature: "invoice_sort",
             venueId: file.venue_id,
             fileId: file.id,
-            timeoutMs: callTimeout(deps, start),
           })
         ).text,
       (text) => parseSorted(text, pages.length, { firstMayContinue: chunkIndex > 0 }),
@@ -241,7 +271,7 @@ async function readPages(
   const parsed = await callWithRetry(
     async (retryError) =>
       (
-        await deps.claude({
+        await budgetedCall(deps, start, {
           model,
           system: READ_SYSTEM,
           pdfBase64: b64,
@@ -251,7 +281,6 @@ async function readPages(
           venueId: file.venue_id,
           fileId: file.id,
           documentId: doc.id,
-          timeoutMs: callTimeout(deps, start),
         })
       ).text,
     (text) => parseExtracted(text, { pageCount: doc.pages.length }),
@@ -266,7 +295,6 @@ const idleResult = (): ProcessStepResult => ({ idle: true, fileId: null, stage: 
 
 export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
   const start = deps.clock.now();
-  const elapsed = () => deps.clock.now() - start;
   const { repo, storage } = deps;
 
   const file = await repo.claimFile({ stalledBefore: new Date(start - STALLED_AFTER_MS).toISOString(), nowIso: new Date(start).toISOString() });
@@ -287,8 +315,15 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
     let fileBytes: Uint8Array | null = null;
     const getBytes = async () => (fileBytes ??= await storage.download(INVOICE_BUCKET, file.storage_path));
 
-    let docs = await repo.listDocuments(file.id);
-    let sortedNow = false;
+    // A claim that made progress (a sort, a document read) is handed straight back: progress is not a failed attempt, otherwise a
+    // file of many invoices would run out of attempts just by being read one invoice per step.
+    const handBack = async () => {
+      await repo.updateFile(file.id, { status: "received", attempts: file.attempts });
+    };
+
+    const docs = await repo.listDocuments(file.id);
+
+    // ---- unit A: the page sort (one file, nothing else this step)
     if (docs.length === 0) {
       const bytes = await getBytes();
       const total = await countPages(bytes);
@@ -299,47 +334,47 @@ export async function runStep(deps: PipelineDeps): Promise<ProcessStepResult> {
         await repo.updateFile(file.id, { status: "done", processed_at: new Date(deps.clock.now()).toISOString(), error: null });
         return { idle: false, fileId: file.id, stage: "read", documents: [], message: "Every page in that file was blank, so there was nothing to read." };
       }
-      docs = await repo.createDocuments(
+      await repo.createDocuments(
         file.id,
         file.venue_id,
         groups.map((g) => ({ doc_type: g.doc_type, supplier_name_read: g.supplier_name, invoice_number: g.invoice_number, pages: g.pages })),
       );
-      sortedNow = true;
+      await handBack();
+      return { idle: false, fileId: file.id, stage: "sorted", documents: [], message: `Sorted the pages into ${groups.length} document${groups.length === 1 ? "" : "s"}. They are read next.` };
+    }
+
+    // ---- unit B: exactly ONE document
+    const todo = docs.filter((d) => d.read_model == null);
+    if (todo.length === 0) {
+      // everything was saved but the file was never marked done (a step ended between the last save and the mark)
+      await repo.updateFile(file.id, { status: "done", processed_at: new Date(deps.clock.now()).toISOString(), error: null });
+      return { idle: false, fileId: file.id, stage: "read", documents: [], message: "Every invoice in that file was already read." };
+    }
+    if (remainingMs(deps, start) < READ_MIN_REMAINING_MS) {
+      // not enough time left to read a document properly: go back to claimable, no attempt charged
+      await handBack();
+      return { idle: false, fileId: file.id, stage: "read", documents: [], message: "That step ran short of time before it could start reading. It will be tried again straight away." };
     }
     await repo.updateFile(file.id, { status: "reading" });
+    finished.push(await processDocument(deps, file, venueSlug, todo[0], getBytes, start));
 
-    const todo = docs.filter((d) => d.read_model == null);
-    let budgetHit = false;
-    for (const doc of todo) {
-      if (elapsed() >= STEP_BUDGET_MS) {
-        budgetHit = true;
-        break;
-      }
-      finished.push(await processDocument(deps, file, venueSlug, doc, getBytes, start));
+    if (todo.length > 1) {
+      await handBack();
+      return { idle: false, fileId: file.id, stage: "read", documents: finished, message: `Read 1 invoice. ${todo.length - 1} more ${todo.length - 1 === 1 ? "is" : "are"} waiting in this file.` };
     }
-
-    if (budgetHit) {
-      // claimable again straight away: the shells exist, so the next claim goes straight to reading. A step that made progress is
-      // not a failed attempt, so its claim is handed back (otherwise a long file would run out of attempts by being read in pieces).
-      await repo.updateFile(file.id, { status: "received", ...(finished.length > 0 || sortedNow ? { attempts: file.attempts } : {}) });
-      return {
-        idle: false,
-        fileId: file.id,
-        stage: finished.length === 0 && sortedNow ? "sorted" : "read",
-        documents: finished,
-        message: `Read ${finished.length} of ${todo.length} remaining invoices in this file. More are waiting.`,
-      };
-    }
-
     await repo.updateFile(file.id, { status: "done", processed_at: new Date(deps.clock.now()).toISOString(), error: null });
-    return {
-      idle: false,
-      fileId: file.id,
-      stage: "read",
-      documents: finished,
-      message: `${sortedNow ? `Sorted the pages into ${docs.length} document${docs.length === 1 ? "" : "s"}. ` : ""}Read ${finished.length} document${finished.length === 1 ? "" : "s"}.`,
-    };
+    return { idle: false, fileId: file.id, stage: "read", documents: finished, message: "Read the last invoice in this file." };
   } catch (e) {
+    if (e instanceof StepBudgetError) {
+      // The step ran out of time. Nothing failed: the claim goes straight back (no attempt used, no error written) so the next step
+      // picks the file up at once instead of waiting for it to look stalled.
+      try {
+        await repo.updateFile(file.id, { status: "received", attempts: file.attempts });
+      } catch {
+        // the claim goes stale after 10 minutes and the file is picked up again
+      }
+      return { idle: false, fileId: file.id, stage: "read", documents: finished, message: "That step ran out of time. The file goes back in the queue and is tried again straight away." };
+    }
     const attempts = file.attempts + 1;
     const dead = attempts >= MAX_ATTEMPTS;
     const text = e instanceof AiError || e instanceof ReadError || e instanceof PdfError ? safeError(e) : `Something went wrong reading this file: ${safeError(e)}`;
@@ -412,9 +447,10 @@ async function processDocument(deps: PipelineDeps, file: InvoiceFileRow, venueSl
   let { analysis, venueId: docVenueId } = await analyseWith(extracted);
 
   // not reconciled: read it once more with the next stronger model and keep whichever reading passes more checks
+  // (best effort inside the step: with less than READ_MIN_REMAINING_MS left the first reading stands and the engine asks about the totals)
   if (!analysis.reconciled) {
     const stronger = nextStrongerModel(readModel);
-    if (stronger && deps.clock.now() - start < STEP_BUDGET_MS) {
+    if (stronger && remainingMs(deps, start) >= READ_MIN_REMAINING_MS) {
       try {
         const failedChecks = analysis.recon_notes.filter((n) => !n.ok).map((n) => n.message);
         const second = await readPages(deps, file, doc, pdf, stronger, start, failedChecks.length ? failedChecks : ["The totals did not add up."]);

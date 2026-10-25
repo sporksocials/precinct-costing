@@ -7,6 +7,7 @@
  * text can only ever survive as a plain string in a description or a note.
  */
 import { extractJson } from "./method-assist";
+import { tidySupplierName } from "./invoice-names";
 import type { ExtractedInvoice, ExtractedLine, GstFlag, InvoiceDocType, LineClass, SortedPage } from "./invoice-types";
 
 // ---------------------------------------------------------------- limits and enums
@@ -37,7 +38,7 @@ export const SORT_SCHEMA = {
     {
       page: "integer, 1-based page number in the PDF you were given",
       doc_type: DOC_TYPES.join(" | "),
-      supplier_name: "string or null: the supplier printed on the page",
+      supplier_name: "string or null: the supplier's short trading name from the letterhead (the brand and place, 40 characters at most)",
       invoice_number: "string or null: the invoice or credit note number printed on the page",
       page_of: '{"page": integer, "of": integer} or null: only when the page prints "page 2 of 3" or similar',
       continues_previous: "boolean: true when this page carries on the invoice on the page before it (no new invoice header)",
@@ -47,8 +48,8 @@ export const SORT_SCHEMA = {
 
 export const READ_SCHEMA = {
   doc_type: "invoice | credit_note",
-  supplier_name: "string or null",
-  supplier_abn: "string of digits only, or null",
+  supplier_name: "string or null: the supplier's own short trading name from the letterhead, 40 characters at most",
+  supplier_abn: "string of digits only, or null: the SUPPLIER's ABN, never the customer's",
   invoice_number: "string or null",
   invoice_date: "yyyy-mm-dd or null",
   due_date: "yyyy-mm-dd or null",
@@ -81,7 +82,7 @@ export const SORT_SYSTEM = `You sort the pages of a scanned PDF from an Australi
 
 For EVERY page, in order, say what it is. Look at the page images; use any text layer only as a hint.
 - doc_type: invoice, credit_note, statement, delivery_docket, blank (nothing useful printed), or other.
-- supplier_name and invoice_number as printed on that page, or null if not shown.
+- supplier_name and invoice_number as printed on that page, or null if not shown. supplier_name is the supplier's short trading name from the letterhead (brand and place, about 40 characters), never "a division of" or "trading as" text, an address or an ABN.
 - page_of: only when the page prints its own page number such as "page 2 of 3".
 - continues_previous: true only when this page carries on the invoice on the page before it (a table of lines carrying over, a totals box with no new header). A page with its own supplier header and invoice number starts a new document, even if the supplier is the same as the page before. The first page is never a continuation.
 
@@ -100,7 +101,8 @@ How to read it:
 - Dates are day/month/year (Australian). Write them as yyyy-mm-dd. 14/10/26 and 14 Oct 2026 are both 2026-10-14.
 - Copy every number exactly as printed. Never calculate, correct or infer a number. If a number is missing, cut off or unreadable, use null. If a printed figure looks wrong, copy it anyway and say so in notes.
 - Return one entry per printed line item, in order. Include delivery, freight, fuel levy, fees, deposits, discounts, rounding and credit lines as their own lines. Credits and discounts are negative numbers (use the sign as printed, or negative when printed as "CR" or in brackets).
-- supplier_abn is the supplier's ABN with digits only (no spaces).
+- supplier_name is the supplier's own trading name as printed in the letterhead at the top of the invoice, kept SHORT: the brand and the place at most, about 40 characters. Never copy "a division of", "part of", "trading as" or "formerly" text, an address, a phone number, or the words ABN or ACN into it. "Bidfood Sunshine Coast (a division of Burleigh Marr Distributors)" is just "Bidfood Sunshine Coast". Leave off Pty Ltd.
+- supplier_abn is the SUPPLIER's own ABN with digits only (no spaces), from the supplier's letterhead or payment details. An ABN printed next to Bill To, Invoice To, Deliver To, Ship To, Sold To or a Customer Number belongs to the CUSTOMER (our venues; Drift's company ABN is 97 620 145 020), so ignore it. If the supplier's own ABN is not clearly printed, use null. Never guess an ABN.
 - basis says whether the printed unit price and line total include GST: "ex" when the invoice shows prices excluding GST, "inc" when they include it. gst says whether the line is taxable or GST free, from the invoice's GST column, a letter such as G or N, or a "GST free" note. Use "unknown" when you cannot tell.
 - class_hint is your own guess at what the line is. product is stock that is costed; delivery, fee, deposit, discount, credit and other are charges.
 - notes: record anything odd (handwriting, a stamp, a cut-off page, a total that does not match the lines, a price crossed out).
@@ -336,7 +338,11 @@ export function parseExtracted(raw: unknown, opts: { pageCount?: number } = {}):
 
   return {
     doc_type,
-    supplier_name: str(o.supplier_name, "supplier_name", 120),
+    // the letterhead text the reader copied is cut back to the supplier's own short name before anything else sees it
+    supplier_name: (() => {
+      const raw = str(o.supplier_name, "supplier_name", 200);
+      return raw ? tidySupplierName(raw) || null : null;
+    })(),
     supplier_abn: abn,
     invoice_number: str(o.invoice_number, "invoice_number", 40),
     invoice_date: date(o.invoice_date, "invoice_date"),

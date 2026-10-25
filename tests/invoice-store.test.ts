@@ -58,7 +58,7 @@ describe("saveAnalysis: suppliers", () => {
     const r = await saveAnalysis(f.sb, { ...base, extracted: extracted({ supplier_name: "CD Australia Pty Ltd" }), analysis: analysis(unknown) });
     expect(f.db.invoice_suppliers).toHaveLength(2);
     const created = f.db.invoice_suppliers[1];
-    expect(created).toMatchObject({ name: "CD Australia Pty Ltd", abn: "12345678901" });
+    expect(created).toMatchObject({ name: "CD Australia", abn: "12345678901" }); // Pty Ltd is not part of the saved name
     expect(f.db.invoice_documents.find((d) => d.id === r.documentId)!.supplier_id).toBe(created.id);
   });
 

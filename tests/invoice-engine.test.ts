@@ -345,13 +345,19 @@ describe("guards end to end (one invoice line, one broken thing at a time)", () 
     expect(kinds(a)).toContain("totals_mismatch");
   });
 
-  it("an unknown supplier is a new supplier: nothing applies, a question asks", () => {
+  it("an unknown supplier is added quietly under its short name: nothing applies, and no new supplier question is asked", () => {
     const a = run({ edit: (d) => (d.supplier_name = "Brand New Produce Pty Ltd") });
     expect(a.supplier_id).toBeNull();
-    expect(a.new_supplier).toEqual({ name: "Brand New Produce Pty Ltd", abn: null });
-    expect(kinds(a)).toContain("new_supplier");
+    expect(a.new_supplier).toEqual({ name: "Brand New Produce", abn: null });
+    expect(kinds(a)).not.toContain("new_supplier");
     expect(keg(a).match_state).toBe("unmatched");
     expect(keg(a).decision).toBe("none");
+  });
+
+  it("a messy letterhead copy becomes the short trading name for the new supplier row", () => {
+    const a = run({ edit: (d) => (d.supplier_name = "Bidfood Sunshine Coast (a division of Burleigh Marr Distributio)") });
+    expect(a.new_supplier).toEqual({ name: "Bidfood Sunshine Coast", abn: null });
+    expect(kinds(a)).not.toContain("new_supplier");
   });
 
   it("a supplier matched by name but with a different ABN is a question and nothing applies", () => {

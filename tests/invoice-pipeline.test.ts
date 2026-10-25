@@ -19,6 +19,7 @@ import {
   type ShellInput,
 } from "@/lib/invoice-pipeline";
 import { AiError, type ClaudeCallArgs, type ClaudeCallResult } from "@/lib/invoice-ai";
+import type { ProcessStepResult } from "@/lib/invoice-interfaces";
 import type { ExtractedInvoice, InvoiceAnalysis, InvoiceFileRow } from "@/lib/invoice-types";
 import { analyseInvoice } from "@/lib/invoice-engine";
 import { baseCtx, danielStreet51329Fixed } from "./fixtures/invoice-fixtures";
@@ -79,18 +80,21 @@ class World {
 
   repo: PipelineRepo = {
     claimFile: async ({ stalledBefore, nowIso }) => {
-      const c = this.files
+      // like the real repo: the oldest few candidates, tried in order with a compare and set; the first one still unchanged is won
+      const candidates = this.files
         .filter((f) => f.attempts >= 0 && f.attempts <= MAX_ATTEMPTS && (f.status === "received" || ((f.status === "sorting" || f.status === "reading") && f.updated_at < stalledBefore)))
-        .sort((a, b) => a.received_at.localeCompare(b.received_at))[0];
-      if (!c) return null;
-      const seenStatus = c.status;
-      const seenStamp = c.updated_at;
-      await Promise.resolve(); // let a second caller interleave: the compare and set below must still pick one winner
-      const still = this.files.find((f) => f.id === c.id)!;
-      if (still.status !== seenStatus || still.updated_at !== seenStamp) return null;
-      still.status = "sorting";
-      still.updated_at = nowIso;
-      return { ...still };
+        .sort((a, b) => a.received_at.localeCompare(b.received_at))
+        .slice(0, 5)
+        .map((f) => ({ id: f.id, status: f.status, stamp: f.updated_at }));
+      for (const c of candidates) {
+        await Promise.resolve(); // let a second caller interleave: the compare and set below must still pick one winner
+        const still = this.files.find((f) => f.id === c.id)!;
+        if (still.status !== c.status || still.updated_at !== c.stamp) continue;
+        still.status = "sorting";
+        still.updated_at = nowIso;
+        return { ...still };
+      }
+      return null;
     },
     updateFile: async (id, patch) => {
       Object.assign(this.files.find((f) => f.id === id)!, patch, { updated_at: new Date(this.now).toISOString() });
@@ -186,12 +190,40 @@ beforeEach(async () => {
   w.pdfs.set("incoming/drift/2026-10-24/abc.pdf", await makePdf(4));
 });
 
+/**
+ * One step does ONE unit of work now (the sort, or one document), so a file of three invoices takes four steps. This runs steps (a
+ * fresh deps each time, like a fresh request) until one answers idle, and gathers what they did. `stopAt` ends early on a stage.
+ */
+async function drain(mk: () => PipelineDeps = () => w.deps(), opts: { max?: number; stopAt?: ProcessStepResult["stage"] } = {}) {
+  const steps: ProcessStepResult[] = [];
+  for (let i = 0; i < (opts.max ?? 30); i++) {
+    const r = await runStep(mk());
+    steps.push(r);
+    if (r.idle || r.stage === opts.stopAt) break;
+  }
+  return { steps, documents: steps.flatMap((s) => s.documents), stages: steps.map((s) => s.stage) };
+}
+
 // ---------------------------------------------------------------- end to end
 describe("processStep end to end", () => {
   it("sorts a 4 page file into three documents, reads each, files the split PDFs and finishes the file", async () => {
     const file = w.addFile();
-    const result = await processStep(w.deps());
-    expect(result).toMatchObject({ idle: false, fileId: file.id, stage: "read" });
+    // step 1 only sorts: the pages become three shell documents and the claim goes straight back
+    const sort = await processStep(w.deps());
+    expect(sort).toMatchObject({ idle: false, fileId: file.id, stage: "sorted", documents: [] });
+    expect(w.docs).toHaveLength(3);
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0, page_count: 4 });
+    expect(w.claudeCalls.map((c) => c.feature)).toEqual(["invoice_sort"]);
+    // then ONE document per step, the last one marks the file done
+    const reads: ProcessStepResult[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await processStep(w.deps());
+      expect(r).toMatchObject({ idle: false, fileId: file.id, stage: "read" });
+      expect(r.documents).toHaveLength(1);
+      reads.push(r);
+      expect(w.files[0].status).toBe(i < 2 ? "received" : "done");
+    }
+    const result = { documents: reads.flatMap((r) => r.documents) };
     expect(result.documents.map((d) => d.invoiceNumber)).toEqual(["51329", "9764204", "ENV-34730"]);
     expect(result.documents[0]).toMatchObject({
       supplier: "Daniel Street Fish Market",
@@ -202,11 +234,12 @@ describe("processStep end to end", () => {
     });
     expect(result.documents[0].fileName).not.toMatch(/[\\/]/);
     expect(result.documents[0].downloadUrl).toBe("https://signed.example/drift/2026-10/2026-10-14_daniel-street-fish-market_51329.pdf?ttl=600");
-    expect(result.documents[2].fileName).toBe("2026-10-22 CD Australia Pty Ltd trading as Diablo Co ENV-34730.pdf");
+    // the reader's "CD Australia Pty Ltd trading as Diablo Co" is cut back to the supplier's own short name
+    expect(result.documents[2].fileName).toBe("2026-10-22 CD Australia ENV-34730.pdf");
     expect([...w.uploads.keys()].sort()).toEqual([
       "drift/2026-10/2026-10-14_daniel-street-fish-market_51329.pdf",
       "drift/2026-10/2026-10-17_daniel-street-fish-market_9764204.pdf",
-      "drift/2026-10/2026-10-22_cd-australia-pty-ltd-trading-as-diablo-c_env-34730.pdf",
+      "drift/2026-10/2026-10-22_cd-australia_env-34730.pdf",
     ]);
     for (const bytes of w.uploads.values()) expect(await countPages(bytes)).toBe(1);
     expect(w.files[0]).toMatchObject({ status: "done", page_count: 4, error: null });
@@ -221,7 +254,7 @@ describe("processStep end to end", () => {
     expect(w.claudeCalls[1]).toMatchObject({ venueId: 1, fileId: file.id, documentId: "d1" });
     // saved against the shell, with file page numbers and the PDF path
     expect(w.saves).toHaveLength(3);
-    expect(w.saves[2]).toMatchObject({ fileId: file.id, venueId: 1, documentId: "d3", readModel: "claude-sonnet-5-5", pagePdfPath: "drift/2026-10/2026-10-22_cd-australia-pty-ltd-trading-as-diablo-c_env-34730.pdf" });
+    expect(w.saves[2]).toMatchObject({ fileId: file.id, venueId: 1, documentId: "d3", readModel: "claude-sonnet-5-5", pagePdfPath: "drift/2026-10/2026-10-22_cd-australia_env-34730.pdf" });
     expect(w.saves[2].extracted.pages).toEqual([4]);
     expect(w.saves[2].extracted.lines[0].page).toBe(4);
     expect(w.notified).toEqual(["d1", "d2", "d3"]);
@@ -234,8 +267,8 @@ describe("processStep end to end", () => {
   it("asks the apply layer in auto mode too, as the invoice reader, and a notify hook that throws changes nothing", async () => {
     w.addFile();
     w.mode = "auto";
-    const result = await runStep(w.deps({ notify: async () => { throw new Error("slack is down"); } }));
-    expect(result.stage).toBe("read");
+    const { stages } = await drain(() => w.deps({ notify: async () => { throw new Error("slack is down"); } }));
+    expect(stages).toEqual(["sorted", "read", "read", "read", "idle"]);
     expect(w.autoApplied).toEqual(["d1", "d2", "d3"]);
     expect(w.files[0].status).toBe("done");
   });
@@ -243,7 +276,7 @@ describe("processStep end to end", () => {
   it("calls autoApply for every saved document with the actor 'invoice reader', in learning mode as well", async () => {
     w.addFile();
     const actors: string[] = [];
-    await runStep(w.deps({ autoApply: async (_sb, a) => { actors.push(a.actor); w.autoApplied.push(a.documentId); return []; } }));
+    await drain(() => w.deps({ autoApply: async (_sb, a) => { actors.push(a.actor); w.autoApplied.push(a.documentId); return []; } }));
     expect(actors).toEqual(["invoice reader", "invoice reader", "invoice reader"]);
   });
 
@@ -251,7 +284,7 @@ describe("processStep end to end", () => {
     w.addFile();
     const statuses = ["duplicate", "failed", "ignored"] as const;
     let n = 0;
-    await runStep(
+    await drain(() =>
       w.deps({
         save: async (_sb, args) => {
           const d = w.docs.find((x) => x.id === args.documentId)!;
@@ -267,7 +300,7 @@ describe("processStep end to end", () => {
   it("an autoApply failure does not fail the document", async () => {
     w.addFile();
     w.mode = "auto";
-    const result = await runStep(w.deps({ autoApply: async () => { throw new Error("apply broke"); } }));
+    const result = await drain(() => w.deps({ autoApply: async () => { throw new Error("apply broke"); } }));
     expect(result.documents).toHaveLength(3);
     expect(w.files[0].status).toBe("done");
   });
@@ -275,7 +308,7 @@ describe("processStep end to end", () => {
   it("files a statement without reading it", async () => {
     w.addFile();
     w.sortReply = () => ({ pages: [sortedEntry(1, { doc_type: "statement", supplier_name: "Star Group" }), sortedEntry(2, { supplier_name: "Daniel Street Fish Market", invoice_number: "51329" }), sortedEntry(3, { doc_type: "blank" }), sortedEntry(4, { doc_type: "blank" })] });
-    const result = await runStep(w.deps());
+    const result = await drain();
     expect(result.documents.map((d) => d.status)).toEqual(["nothing_to_apply", "needs_review"]);
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_read")).toHaveLength(1);
     expect(w.docs[0]).toMatchObject({ read_model: "not_read", status: "nothing_to_apply" });
@@ -302,12 +335,15 @@ describe("processStep end to end", () => {
         ),
       });
     w.readReply = () => EXTRACTS["51329"];
-    const result = await runStep(w.deps());
+    const sort = await runStep(w.deps());
+    expect(sort.stage).toBe("sorted"); // all three sort calls happen in the one sort step
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_sort")).toHaveLength(3);
     expect(w.docs).toHaveLength(1);
     expect(w.docs[0].pages).toEqual([40, 41]);
-    expect(result.stage).toBe("read");
     expect(w.files[0].page_count).toBe(101);
+    const rest = await drain();
+    expect(rest.stages).toEqual(["read", "idle"]);
+    expect(w.files[0].status).toBe("done");
   });
 });
 
@@ -316,18 +352,16 @@ describe("resuming, time budget and claim race", () => {
   it("resumes after a crash between documents: finished documents are skipped, nothing is sorted twice", async () => {
     const file = w.addFile();
     w.failSaveOn = 2; // the second save throws once
-    const first = await runStep(w.deps());
-    expect(first.stage).toBe("failed");
-    expect(first.documents.map((d) => d.invoiceNumber)).toEqual(["51329"]); // the script still gets the one that finished
-    expect(first.message).toMatch(/tried again/);
+    const first = await drain(undefined, { stopAt: "failed" });
+    expect(first.stages).toEqual(["sorted", "read", "failed"]);
+    expect(first.steps[1].documents.map((d) => d.invoiceNumber)).toEqual(["51329"]); // the script still got the one that finished
+    expect(first.steps[2].message).toMatch(/tried again/);
     expect(w.files[0]).toMatchObject({ status: "received", attempts: 1 });
     expect(w.files[0].error).toContain("database went away");
-    const readsBefore = w.claudeCalls.filter((c) => c.feature === "invoice_read").length;
-    expect(readsBefore).toBe(2);
+    expect(w.claudeCalls.filter((c) => c.feature === "invoice_read")).toHaveLength(2);
 
-    const second = await runStep(w.deps());
-    expect(second.fileId).toBe(file.id);
-    expect(second.stage).toBe("read");
+    const second = await drain();
+    expect(second.steps[0].fileId).toBe(file.id);
     expect(second.documents.map((d) => d.invoiceNumber)).toEqual(["9764204", "ENV-34730"]);
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_sort")).toHaveLength(1); // not sorted again
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_read")).toHaveLength(4); // 2 + the 2 left, document 1 not re-read
@@ -335,21 +369,122 @@ describe("resuming, time budget and claim race", () => {
     expect(w.files[0].status).toBe("done");
   });
 
-  it("stops starting new reads after 45 seconds and carries on in the next step", async () => {
+  it("one step reads exactly one document, however fast the model is", async () => {
     w.addFile();
-    w.callMs = 20_000;
-    const first = await runStep(w.deps());
-    // sort 20s, document 1 at 40s, document 2 starts (40 < 45) and ends at 60s, document 3 must wait
-    expect(first.stage).toBe("read");
-    expect(first.documents).toHaveLength(2);
-    expect(first.idle).toBe(false);
-    expect(w.files[0].status).toBe("received");
-    expect(w.claudeCalls.every((c) => (c.timeoutMs ?? 0) <= 40_000 && (c.timeoutMs ?? 0) >= 5_000)).toBe(true);
-    // the later calls were given less than 40 s so the step cannot pass the route's 60 s
-    expect(w.claudeCalls[2].timeoutMs).toBeLessThan(40_000);
-    const second = await runStep(w.deps());
-    expect(second.documents.map((d) => d.invoiceNumber)).toEqual(["ENV-34730"]);
-    expect(w.files[0].status).toBe("done");
+    await runStep(w.deps()); // the sort
+    const before = w.claudeCalls.length;
+    const r = await runStep(w.deps());
+    expect(r.documents).toHaveLength(1);
+    expect(w.claudeCalls.length - before).toBe(1);
+    expect(w.saves).toHaveLength(1);
+    expect(r.idle).toBe(false);
+    expect(w.files[0].status).toBe("received"); // handed back for the next step
+  });
+
+  it("every model call is given at most the usual 40 s and never more than the time left minus 5 s", async () => {
+    w.addFile();
+    w.callMs = 12_000;
+    await drain();
+    expect(w.claudeCalls.length).toBeGreaterThan(0);
+    for (const c of w.claudeCalls) {
+      expect(c.timeoutMs).toBeLessThanOrEqual(40_000);
+      expect(c.timeoutMs).toBeGreaterThanOrEqual(10_000);
+    }
+  });
+
+  it("a second model call in the same step gets only what is left of the budget", async () => {
+    w.addFile();
+    await runStep(w.deps()); // sort
+    // the first reading is rejected (so a second call is needed) and takes 30 s: 50 - 30 - 5 = 15 s left for the retry
+    w.callMs = 30_000;
+    w.readReply = (n, _m, attempt) => (n === "51329" && attempt === 1 ? { ...EXTRACTS[n], invoice_date: "14/10/2026" } : EXTRACTS[n]);
+    const before = w.claudeCalls.length;
+    const r = await runStep(w.deps());
+    const reads = w.claudeCalls.slice(before);
+    expect(reads).toHaveLength(2);
+    expect(reads[0].timeoutMs).toBe(40_000);
+    expect(reads[1].timeoutMs).toBe(15_000);
+    expect(r.stage).toBe("read");
+  });
+
+  it("does not start a document with less than 25 seconds left: the claim goes back, nothing is charged, nothing fails", async () => {
+    w.addFile();
+    await runStep(w.deps()); // sort
+    const calls = w.claudeCalls.length;
+    // looking the file up in the database takes 30 s
+    const slow = w.deps();
+    slow.repo = { ...w.repo, listDocuments: async (id) => { w.now += 30_000; return w.repo.listDocuments(id); } };
+    const r = await runStep(slow);
+    expect(r).toMatchObject({ idle: false, stage: "read", documents: [] });
+    expect(w.claudeCalls).toHaveLength(calls); // no read was started
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
+    expect(w.files[0].error).toBeNull();
+    // the very next step reads it
+    expect((await runStep(w.deps())).documents).toHaveLength(1);
+  });
+
+  it("a call cut short by the step budget hands the claim straight back: no failure, no attempt, readable again at once", async () => {
+    w.addFile();
+    await runStep(w.deps()); // sort
+    w.callMs = 0;
+    let slow = true;
+    const deps = () =>
+      w.deps({
+        claude: async (a) => {
+          w.claudeCalls.push(a);
+          if (slow) {
+            // 24 s already gone when the read call starts: the call is given 21 s (less than the usual 40) and runs into it
+            w.now += 21_000;
+            throw new AiError("The reader took too long to answer.", "timeout");
+          }
+          return w.claude(a);
+        },
+      });
+    // 25 s of the budget spent before the read starts (the check needs 25 left, so use 24 s: exactly allowed)
+    const first = deps();
+    first.repo = { ...w.repo, listDocuments: async (id) => { w.now += 24_000; return w.repo.listDocuments(id); } };
+    const r = await runStep(first);
+    expect(r).toMatchObject({ idle: false, stage: "read", documents: [] });
+    expect(w.claudeCalls.at(-1)!.timeoutMs).toBe(21_000);
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
+    expect(w.files[0].error).toBeNull();
+    expect(w.docs.every((d) => d.status !== "failed")).toBe(true);
+    slow = false;
+    const next = await runStep(deps());
+    expect(next.documents).toHaveLength(1);
+  });
+
+  it("a call that used its full usual limit and still timed out is a real failure and uses an attempt", async () => {
+    w.addFile();
+    await runStep(w.deps()); // sort
+    const r = await runStep(w.deps({ claude: async (a) => { w.claudeCalls.push(a); throw new AiError("The reader took too long to answer.", "timeout"); } }));
+    expect(r.stage).toBe("failed");
+    expect(w.claudeCalls.at(-1)!.timeoutMs).toBe(40_000);
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 1 });
+    expect(w.files[0].error).toMatch(/took too long/);
+  });
+
+  it("a retry that has under 10 seconds to run is not started; the step ends as a budget stop", async () => {
+    w.addFile();
+    await runStep(w.deps()); // sort
+    w.readReply = (n, _m, attempt) => (n === "51329" && attempt === 1 ? "not json" : EXTRACTS[n]);
+    w.callMs = 36_000; // the first call takes 36 s, leaving 14 s: 14 - 5 = 9 s, below the 10 s floor
+    const before = w.claudeCalls.length;
+    const r = await runStep(w.deps());
+    expect(w.claudeCalls.length - before).toBe(1);
+    expect(r).toMatchObject({ stage: "read", documents: [] });
+    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
+    expect(w.files[0].error).toBeNull();
+  });
+
+  it("a stalled claim (over 10 minutes) is still taken, and 3 genuine failures still fail the file", async () => {
+    w.addFile({ status: "reading", updated_at: new Date(NOW - STALLED_AFTER_MS - 1000).toISOString(), attempts: 1 });
+    expect((await runStep(w.deps())).fileId).toBe("f1");
+    w.claudeError = () => new AiError("The reader could not answer (error 500).", "http_500");
+    w.files[0].status = "received";
+    w.files[0].attempts = 0;
+    for (let i = 0; i < 3; i++) await runStep(w.deps());
+    expect(w.files[0]).toMatchObject({ status: "failed", attempts: 3 });
   });
 
   it("reports 'sorted' when the whole budget went on sorting", async () => {
@@ -371,6 +506,22 @@ describe("resuming, time budget and claim race", () => {
     expect(w.docs).toHaveLength(3);
   });
 
+  it("three steps at once (the script's parallel round) take three different files and each does one unit of work", async () => {
+    for (const n of ["a", "b", "c", "d"]) {
+      w.pdfs.set(`p/${n}.pdf`, await makePdf(4));
+      w.addFile({ id: n, storage_path: `p/${n}.pdf`, received_at: `2026-10-24T0${["a", "b", "c", "d"].indexOf(n)}:30:00.000Z` });
+    }
+    const round = await Promise.all([runStep(w.deps()), runStep(w.deps()), runStep(w.deps())]);
+    expect(round.map((r) => r.fileId).sort()).toEqual(["a", "b", "c"]);
+    expect(round.every((r) => r.stage === "sorted")).toBe(true);
+    expect(w.claudeCalls.filter((c) => c.feature === "invoice_sort")).toHaveLength(3);
+    // a second round: the three handed-back files are read one document each, and nobody read a document twice
+    const second = await Promise.all([runStep(w.deps()), runStep(w.deps()), runStep(w.deps())]);
+    expect(second.map((r) => r.fileId).sort()).toEqual(["a", "b", "c"]);
+    expect(w.saves).toHaveLength(3);
+    expect(new Set(w.saves.map((s) => s.documentId)).size).toBe(3);
+  });
+
   it("claims the oldest file first, takes a stalled one, and leaves fresh, finished and awaiting-upload files alone", async () => {
     w.pdfs.set("p/new.pdf", await makePdf(4));
     w.pdfs.set("p/old.pdf", await makePdf(4));
@@ -379,9 +530,11 @@ describe("resuming, time budget and claim race", () => {
     w.addFile({ id: "busy", status: "reading", updated_at: new Date(NOW - 60_000).toISOString(), received_at: "2026-10-23T00:00:00.000Z" });
     w.addFile({ id: "waiting", attempts: AWAITING_UPLOAD, received_at: "2026-10-22T00:00:00.000Z" });
     w.addFile({ id: "finished", status: "done", received_at: "2026-10-21T00:00:00.000Z" });
-    expect((await runStep(w.deps())).fileId).toBe(older.id);
-    expect((await runStep(w.deps())).fileId).toBe(newer.id);
-    expect((await runStep(w.deps())).idle).toBe(true);
+    // each file takes a sort step and then one step per document; the oldest is always worked first, and handed back between steps
+    const { steps } = await drain();
+    const order = steps.filter((s) => !s.idle).map((s) => s.fileId);
+    expect(order).toEqual([older.id, older.id, older.id, older.id, newer.id, newer.id, newer.id, newer.id]);
+    expect(steps.at(-1)!.idle).toBe(true);
     // ten minutes later the 'reading' file is stalled and gets picked up
     w.files.find((f) => f.id === "busy")!.updated_at = new Date(NOW - STALLED_AFTER_MS - 1000).toISOString();
     w.pdfs.set("incoming/drift/2026-10-24/abc.pdf", await makePdf(4));
@@ -394,7 +547,7 @@ describe("reconcile retry with a stronger model", () => {
   it("re-reads once with Opus when the analysis does not reconcile, and keeps the reading that passes more checks", async () => {
     w.addFile();
     w.readReply = (n, model) => (n === "51329" && model === "claude-sonnet-5-5" ? { ...EXTRACTS[n], notes: ["BAD"] } : EXTRACTS[n]);
-    await runStep(w.deps());
+    await drain();
     const reread = w.claudeCalls.filter((c) => c.feature === "invoice_reread");
     expect(reread).toHaveLength(1);
     expect(reread[0].model).toBe("claude-opus-5-5");
@@ -407,7 +560,7 @@ describe("reconcile retry with a stronger model", () => {
   it("keeps the first reading when the stronger one is no better, and does not try a third time", async () => {
     w.addFile();
     w.readReply = (n) => ({ ...EXTRACTS[n], notes: ["BAD"] });
-    await runStep(w.deps());
+    await drain();
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_reread")).toHaveLength(3); // once per document
     expect(w.saves.every((s) => s.readModel === "claude-sonnet-5-5")).toBe(true);
     expect(w.saves.every((s) => !s.analysis.reconciled)).toBe(true); // saved as is for the engine to hold back and ask
@@ -416,15 +569,15 @@ describe("reconcile retry with a stronger model", () => {
   it("a failing re-read leaves the first reading standing", async () => {
     w.addFile();
     w.readReply = (n, model) => (model === "claude-opus-5-5" ? "not json" : { ...EXTRACTS[n], notes: ["BAD"] });
-    const r = await runStep(w.deps());
-    expect(r.stage).toBe("read");
+    const r = await drain();
+    expect(r.stages.at(-1)).toBe("idle");
     expect(w.saves).toHaveLength(3);
   });
 
   it("does not re-read when the read model is already Opus, or when the time budget is spent", async () => {
     w.addFile();
     w.readReply = (n) => ({ ...EXTRACTS[n], notes: ["BAD"] });
-    await runStep(w.deps({ models: { sort: "claude-haiku-5-5", read: "claude-opus-5-5" } }));
+    await drain(() => w.deps({ models: { sort: "claude-haiku-5-5", read: "claude-opus-5-5" } }));
     expect(w.claudeCalls.filter((c) => c.feature === "invoice_reread")).toHaveLength(0);
   });
 });
@@ -434,7 +587,7 @@ describe("bad replies and failures", () => {
   it("sends a rejected reading back once with the reason, then accepts the corrected one", async () => {
     w.addFile();
     w.readReply = (n, _m, attempt) => (n === "51329" && attempt === 1 ? { ...EXTRACTS[n], invoice_date: "14/10/2026" } : EXTRACTS[n]);
-    await runStep(w.deps());
+    await drain();
     const reads = w.claudeCalls.filter((c) => c.documentId === "d1");
     expect(reads).toHaveLength(2);
     expect(reads[1].text).toContain("rejected");
@@ -445,7 +598,7 @@ describe("bad replies and failures", () => {
   it("fails the step when the reply is rejected twice", async () => {
     w.addFile();
     w.readReply = () => "I cannot read this";
-    const r = await runStep(w.deps());
+    const r = (await drain(undefined, { stopAt: "failed" })).steps.at(-1)!;
     expect(r.stage).toBe("failed");
     expect(r.message).toMatch(/did not pass the checks twice/);
     expect(w.files[0]).toMatchObject({ status: "received", attempts: 1 });
@@ -495,7 +648,7 @@ describe("a hinted re-read is never automatic", () => {
   it("analyses the kept re-read again with hintedReread set, and leaves a normal read alone", async () => {
     w.addFile();
     w.readReply = (n, model) => (n === "51329" && model === "claude-sonnet-5-5" ? { ...EXTRACTS[n], notes: ["BAD"] } : EXTRACTS[n]);
-    await runStep(w.deps());
+    await drain();
     const flagged = w.analyseCtxs.filter((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread === true);
     expect(flagged).toHaveLength(1);
     expect((flagged[0] as { marker: string }).marker).toBe("ctx"); // the rest of the context is carried over
@@ -508,13 +661,13 @@ describe("a hinted re-read is never automatic", () => {
   it("does not set the flag when the first reading is kept", async () => {
     w.addFile();
     w.readReply = (n) => ({ ...EXTRACTS[n], notes: ["BAD"] });
-    await runStep(w.deps());
+    await drain();
     expect(w.analyseCtxs.some((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread)).toBe(false);
   });
 
   it("does not set the flag when nothing needed a re-read", async () => {
     w.addFile();
-    await runStep(w.deps());
+    await drain();
     expect(w.analyseCtxs.some((c) => (c as { hintedReread?: boolean } | undefined)?.hintedReread)).toBe(false);
   });
 });
@@ -562,9 +715,11 @@ describe("a step that never finishes still uses up an attempt", () => {
   it("a long file read in several steps is not charged an attempt for each step", async () => {
     w.addFile();
     w.callMs = 20_000;
-    await runStep(w.deps());
-    expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
-    await runStep(w.deps());
+    for (let i = 0; i < 3; i++) {
+      await runStep(w.deps()); // the sort, then the first two documents
+      expect(w.files[0]).toMatchObject({ status: "received", attempts: 0 });
+    }
+    await runStep(w.deps()); // the last document
     expect(w.files[0]).toMatchObject({ status: "done" });
   });
 
@@ -573,7 +728,7 @@ describe("a step that never finishes still uses up an attempt", () => {
     expect((await runStep(w.deps())).idle).toBe(true);
     expect(w.files[0].attempts).toBe(AWAITING_UPLOAD);
     w.files[0].attempts = 0; // the upload route releases it
-    await runStep(w.deps());
+    await drain();
     expect(w.files[0]).toMatchObject({ status: "done", attempts: 1 });
   });
 });
@@ -634,15 +789,14 @@ describe("venue attribution", () => {
     loads.length = 0;
     w.sortReply = () => ({ pages: oneDoc });
     w.addFile({ venue_id: 2 });
-    return runStep(
-      w.deps({
-        loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => {
-          loads.push({ venueId: a.venueId, folderVenueId: a.folderVenueId });
-          return { venueId: a.venueId, folderVenueId: a.folderVenueId, venueNames } as never;
-        }) as never,
-        ...over,
-      }),
-    );
+    const deps = w.deps({
+      loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => {
+        loads.push({ venueId: a.venueId, folderVenueId: a.folderVenueId });
+        return { venueId: a.venueId, folderVenueId: a.folderVenueId, venueNames } as never;
+      }) as never,
+      ...over,
+    });
+    return drain(() => deps);
   }
 
   it("an invoice naming Drift in a Chiobu-folder file is filed under Drift: saved, analysed and notified as Drift", async () => {
@@ -696,7 +850,7 @@ describe("venue attribution with the real engine", () => {
     w.sortReply = () => ({ pages: sortOne });
     w.readReply = reading("DRIFT BAR AND DINING");
     w.addFile({ venue_id: 2 });
-    await runStep(deps());
+    await drain(deps);
     const { venueId, analysis } = w.saves[0];
     expect(venueId).toBe(1);
     expect(analysis.venue_check).toBe("ok");
@@ -710,7 +864,7 @@ describe("venue attribution with the real engine", () => {
     w.sortReply = () => ({ pages: sortOne });
     w.readReply = reading("Some Company Pty Ltd");
     w.addFile({ venue_id: 2 });
-    await runStep(deps());
+    await drain(deps);
     const { venueId, analysis } = w.saves[0];
     expect(venueId).toBe(2);
     expect(analysis.venue_check).toBe("unknown");
@@ -724,13 +878,13 @@ describe("venue attribution with the real engine", () => {
     w.sortReply = () => ({ pages: sortOne });
     w.readReply = reading("DRIFT BAR AND DINING");
     w.addFile({ venue_id: 2 });
-    await runStep(deps());
+    await drain(deps);
     const first = w.saves[0];
     // what the database now holds for the first, which the second scan's context sees across all venues
     const filed = { id: "d1", venue_id: first.venueId, supplier_id: first.analysis.supplier_id, invoice_number: "51329", status: first.analysis.status, invoice_date: "2026-10-14", total_inc: 216.8 };
     w.docs = [];
     w.addFile({ venue_id: 1, sha256: "second" });
-    await runStep(
+    await drain(() =>
       w.deps({
         analyse: analyseInvoice,
         loadContext: (async (_sb: unknown, a: { venueId: number; folderVenueId: number }) => baseCtx({ venueId: a.venueId, folderVenueId: a.folderVenueId, existingDocs: [filed] as never })) as never,

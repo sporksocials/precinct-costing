@@ -14,6 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "./invoice-context";
 import { insertRow, insertRows } from "./invoice-insert";
 import type { SaveAnalysis } from "./invoice-interfaces";
+import { sameSupplierName, tidySupplierName } from "./invoice-names";
 import type { DocStatus, InvoiceAnalysis, InvoiceLineRow, InvoiceQuestionRow, LineState } from "./invoice-types";
 
 /** A line in one of these states has had a price written (or undone); re-analysis never replaces it. */
@@ -54,23 +55,27 @@ export async function recomputeDocumentStatus(sb: SupabaseClient, documentId: st
 }
 
 const digits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
-const nameKey = (s: string) => s.trim().toLowerCase();
 
-/** The invoice_suppliers id for an analysis: the one it matched, else the one with that ABN or name, else a new row. */
+type SupplierLite = { id: string; name: string; abn: string | null; aliases?: string[] | null };
+const SUPPLIER_COLS = "id,name,abn,aliases";
+
+/** The invoice_suppliers id for an analysis: the one it matched, else the one with that ABN or name (tidied, aliases too), else a new row. */
 async function resolveSupplier(sb: SupabaseClient, analysis: InvoiceAnalysis): Promise<string | null> {
   if (analysis.supplier_id) return analysis.supplier_id;
   const ns = analysis.new_supplier;
-  if (!ns || !ns.name.trim()) return null;
+  // the name saved is always the tidied one (the engine already tidied it; tidying twice changes nothing)
+  const name = ns ? tidySupplierName(ns.name) : "";
+  if (!ns || !name) return null;
   const abn = digits(ns.abn) || null;
-  const all = await fetchAll<{ id: string; name: string; abn: string | null }>(sb, "invoice_suppliers", "id,name,abn");
-  const find = () => all.find((s) => (abn && s.abn === abn) || nameKey(s.name) === nameKey(ns.name));
-  const found = find();
+  const same = (s: SupplierLite) => (abn && s.abn === abn) || sameSupplierName(s.name, name) || (s.aliases ?? []).some((al) => sameSupplierName(al, name));
+  const all = await fetchAll<SupplierLite>(sb, "invoice_suppliers", SUPPLIER_COLS);
+  const found = all.find(same);
   if (found) return found.id;
-  const { data, error } = await insertRow(sb, "invoice_suppliers", { name: ns.name.trim(), abn }).select("id").single();
+  const { data, error } = await insertRow(sb, "invoice_suppliers", { name, abn }).select("id").single();
   if (!error && data) return (data as { id: string }).id;
   // lost a race with another reader: the unique index (ABN or lower(name)) says it now exists
-  const again = await fetchAll<{ id: string; name: string; abn: string | null }>(sb, "invoice_suppliers", "id,name,abn");
-  const hit = again.find((s) => (abn && s.abn === abn) || nameKey(s.name) === nameKey(ns.name));
+  const again = await fetchAll<SupplierLite>(sb, "invoice_suppliers", SUPPLIER_COLS);
+  const hit = again.find(same);
   if (hit) return hit.id;
   throw new Error(`Could not save the supplier: ${error?.message ?? "unknown error"}`);
 }

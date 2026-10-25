@@ -221,10 +221,11 @@ describe("M7: a switched off supplier is not a match", () => {
     expect(m.supplier?.id).toBe("sup-ds-2");
   });
 
-  it("an invoice from an inactive supplier asks about a new supplier and applies nothing", () => {
+  it("an invoice from an inactive supplier is treated as a new supplier (added quietly, no question) and applies nothing", () => {
     const a = analyseInvoice(danielStreet51329Fixed(), baseCtx({ suppliers: [supplierDS({ active: false })] }));
     expect(a.supplier_id).toBeNull();
-    expect(a.questions.some((q) => q.kind === "new_supplier")).toBe(true);
+    expect(a.new_supplier).not.toBeNull();
+    expect(a.questions.some((q) => q.kind === "new_supplier")).toBe(false);
     expect(a.lines.every((l) => l.decision !== "apply")).toBe(true);
   });
 });

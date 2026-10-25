@@ -48,15 +48,84 @@ function nameKey(part: string): string {
   return words.join(" ");
 }
 
+// ---------------------------------------------------------------- the supplier's own short name
+/** Phrases that start text about who OWNS or used to own the supplier: everything from here on is not the name. */
+const OWNERSHIP_CUTS: RegExp[] = [
+  /\(\s*(?:a\s+division\s+of|a\s+subsidiary\s+of|a\s+member\s+of|part\s+of|trading\s+as|t\/as?|formerly)\b/i,
+  /\b(?:a\s+division\s+of|a\s+subsidiary\s+of|a\s+member\s+of|trading\s+as|t\/as?|formerly)\b/i,
+];
+/** Text that is an ABN, ACN or an address, not a name. A bare "Street" is NOT a cut: "Daniel Street Fish Market" is a real name. */
+const NOT_A_NAME_CUTS: RegExp[] = [
+  /\s(?:ABN|ACN)\b/,
+  /\sA\.?B\.?N\.?\s*:?\s*\d/i,
+  /\s(?:Street|Postal|Mailing|Registered|Business)\s+Add/i,
+  /\s(?:P\.?\s?O\.?\s+Box|Locked\s+Bag)\b/i,
+  /\s\d+[A-Za-z]?\s+[A-Za-z][A-Za-z'.-]*(?:\s+[A-Za-z][A-Za-z'.-]*)?\s+(?:Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Highway|Hwy|Court|Ct|Place|Pl|Lane|Ln|Parade|Pde|Crescent|Cres|Boulevard|Blvd)\b/i,
+];
+const COMPANY_SUFFIX = /[\s,;.]*(?:\bpty\.?\s+ltd\.?|\bpty\.?\s+limited|\bproprietary\s+limited|\blimited|\bltd\.?|\bpty\.?)\s*$/i;
+const TRAILING_JUNK = /[\s,;:\-(]+$/;
+const KEEP_UPPER = new Set(["QLD", "NSW", "VIC", "TAS", "ACT", "NT", "WA", "SA", "AU", "NZ", "USA", "UK", "ABN", "ACN", "BBQ", "IGA"]);
+const TWO_LETTER_WORDS = new Set(["CO", "ST", "MT", "BY", "MY"]);
+const SMALL_WORDS = new Set(["and", "of", "the", "for", "to", "in", "on", "at", "a", "an"]);
+export const SUPPLIER_NAME_MAX = 50;
+
+/** One word of a name that was printed in capitals, in Title Case. Acronyms, initials and anything with a digit stay as they are. */
+function titleWord(w: string, first: boolean): string {
+  if (w === "&" || KEEP_UPPER.has(w) || /\d/.test(w)) return w;
+  const lower = w.toLowerCase();
+  if (SMALL_WORDS.has(lower)) return first ? lower.replace(/^[a-z]/, (c) => c.toUpperCase()) : lower;
+  if (w.length <= 2 && /^[A-Z]+$/.test(w) && !TWO_LETTER_WORDS.has(w)) return w; // CD, JB: initials stay
+  return lower.replace(/(^|[-/(])([a-z])/g, (_m, pre: string, c: string) => pre + c.toUpperCase()).replace(/^[a-z]/, (c) => c.toUpperCase());
+}
+
+/**
+ * The supplier's own short trading name, tidied from whatever the reader copied off the letterhead. Cuts at "(a division of", "(part of",
+ * "trading as", an ABN or ACN, a street address line and any unbalanced "(" (the reader's text is sometimes cut off mid-bracket), takes
+ * off Pty Ltd / Limited / Ltd, collapses spaces, and turns a name printed in capitals into Title Case (keeping QLD, NSW and initials such
+ * as CD). A name that was not all capitals keeps its own capitals. Returns "" when nothing name-like is left.
+ *   "Bidfood Sunshine Coast (a division of Burleigh Marr Distributio)" -> "Bidfood Sunshine Coast"
+ *   "PRONTO PACKAGING QLD PTY LTD ABN 34147663750 Street Add"         -> "Pronto Packaging QLD"
+ */
+export function tidySupplierName(raw: string | null | undefined): string {
+  let s = plain(raw);
+  if (s === "") return "";
+  let cut = s.length;
+  for (const re of [...OWNERSHIP_CUTS, ...NOT_A_NAME_CUTS]) {
+    const m = re.exec(s);
+    if (m && m.index > 0 && m.index < cut) cut = m.index;
+  }
+  s = s.slice(0, cut);
+  // an unbalanced "(" is a cut-off bracket: drop it and what follows
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "(") depth++;
+    else if (ch === ")" && depth > 0) depth--;
+  }
+  if (depth > 0) s = s.slice(0, s.lastIndexOf("("));
+  s = s.replace(TRAILING_JUNK, "");
+  for (let k = 0; k < 3; k++) {
+    const next = s.replace(COMPANY_SUFFIX, "").replace(TRAILING_JUNK, "");
+    if (next === s) break;
+    s = next;
+  }
+  s = s.replace(/\s+/g, " ").trim();
+  if (s.length > SUPPLIER_NAME_MAX) {
+    const at = s.lastIndexOf(" ", SUPPLIER_NAME_MAX);
+    s = (at > 10 ? s.slice(0, at) : s.slice(0, SUPPLIER_NAME_MAX)).replace(TRAILING_JUNK, "");
+  }
+  if (s !== "" && s === s.toUpperCase() && /[A-Z]/.test(s)) s = s.split(" ").map((w, i) => titleWord(w, i === 0)).join(" ");
+  return s;
+}
+
 /**
  * The comparable keys of a supplier name. "CD Australia Pty Ltd trading as Diablo Co" gives both "cd australia" and
- * "diablo co", so an invoice that prints either one matches a supplier saved under the other as an alias.
+ * "diablo co", so an invoice that prints either one matches a supplier saved under the other as an alias. The tidied name
+ * (`tidySupplierName`) is compared too, so a messy copy of a letterhead ("Bidfood Sunshine Coast (a division of ...)") and the
+ * clean name share a key whichever of them is the supplier's saved name or alias.
  */
 export function supplierNameKeys(name: string | null | undefined): string[] {
-  const keys = String(name ?? "")
-    .split(TRADING_AS)
-    .map(nameKey)
-    .filter((k) => k !== "");
+  const raw = String(name ?? "");
+  const keys = [...raw.split(TRADING_AS).map(nameKey), nameKey(tidySupplierName(raw))].filter((k) => k !== "");
   return Array.from(new Set(keys));
 }
 

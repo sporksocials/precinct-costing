@@ -30,7 +30,7 @@ import { classifyLine, isChargeClass, type Classified } from "./invoice-classify
 import { buildMatcher, checkVenue, findDuplicate, matchSupplier, type LineMatch } from "./invoice-match";
 import { allocateLanded, attachDiscounts, type LandedLineResult, type LandedProduct, type LandedCredit } from "./invoice-landed";
 import { decideLine, isSamePrice, type DecideInput, type LineVerdict } from "./invoice-guards";
-import { abnDigits, plain, round4, round6, tidyLabel } from "./invoice-names";
+import { abnDigits, plain, round4, round6, tidyLabel, tidySupplierName } from "./invoice-names";
 import {
   ambiguousQuestion,
   bigChangeQuestion,
@@ -159,7 +159,8 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
   const sm = matchSupplier(extracted, ctx.suppliers);
   const supplier = sm.supplier;
   const supplierId = supplier?.id ?? null;
-  const readName = plain(extracted.supplier_name);
+  // the supplier's short trading name: letterhead text such as "(a division of ...)" or an ABN never becomes part of a name
+  const readName = tidySupplierName(extracted.supplier_name);
   const supplierLabel = plain(supplier?.name) || readName || "The supplier";
   // informational only (stored on the document, nothing reads it to block): the venue is attributed before the analysis, from the
   // invoice's own bill-to and ship-to, and prices are shared across venues, so which venue it is for never stops or asks anything
@@ -416,8 +417,9 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
 
   // ----- document level questions
   if (!isDuplicate) {
-    if (sm.status === "new") docQuestions.push(newSupplierQuestion({ name: readName || `Supplier ${plain(extracted.supplier_abn)}`, abn: abnDigits(extracted.supplier_abn), candidates: [] }));
-    else if (sm.status === "ambiguous") docQuestions.push(newSupplierQuestion({ name: readName, abn: null, candidates: sm.candidates.map((c) => ({ id: c.id, name: c.name })) }));
+    // A brand new supplier is added quietly (Troy, 25 Oct 2026: he can rename it in Settings > Invoices), so "new" asks nothing. Only a
+    // name that fits several suppliers, or the same name with a different ABN, still needs a person.
+    if (sm.status === "ambiguous") docQuestions.push(newSupplierQuestion({ name: readName, abn: null, candidates: sm.candidates.map((c) => ({ id: c.id, name: c.name })) }));
     else if (sm.status === "abn_mismatch" && supplier && !supplierSure) docQuestions.push(supplierAbnQuestion({ name: supplier.name, readAbn: plain(extracted.supplier_abn), knownAbn: plain(supplier.abn) }));
     else if (sm.status === "unreadable") docQuestions.push(unreadableSupplierQuestion(extracted.invoice_number));
 

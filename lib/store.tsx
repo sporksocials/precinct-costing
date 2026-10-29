@@ -326,6 +326,17 @@ export interface StoreValue extends StoreData {
    * (ignoring capitals, spaces and "Pty Ltd") is returned as it is, with nothing written: `created` says which happened.
    */
   insertSupplier: (name: string) => Promise<{ supplier: Supplier; created: boolean }>;
+  /**
+   * Changes a supplier's name, portal link, notes or Active flag (cost_suppliers). The database copies a new name to the ordering
+   * lists. Returns the saved row. Name clashes are checked by the caller in plain words before this runs.
+   */
+  updateSupplier: (id: number, patch: Partial<Pick<Supplier, "name" | "portal_url" | "notes" | "active">>) => Promise<Supplier>;
+  /**
+   * Moves ingredients from one supplier to another in as few writes as possible (Troy, 29 Oct 2026: retire a supplier by moving its
+   * items). Only ingredients that still have `from` are touched (a guard against a change made meanwhile). The database then moves
+   * every venue's order list. Returns the ids that really moved, which is what Undo sends back.
+   */
+  moveIngredientsSupplier: (ids: readonly string[], from: number | null, to: number | null) => Promise<string[]>;
   updateSetting: (key: keyof CostingSettings, value: number) => Promise<void>;
   /** saves a text setting (cost_settings.text_value; value is 0), for example the cross-contact line of a venue. Blank text removes the line. */
   updateTextSetting: (key: string, text: string) => Promise<void>;
@@ -1531,13 +1542,56 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const name = cleanSupplierName(rawName);
       if (!name) throw new Error("Type the supplier name first.");
       const dupe = findSupplier(dataRef.current.suppliers, name);
-      if (dupe) return { supplier: dupe, created: false };
+      if (dupe) {
+        // a retired supplier typed again comes back (one list, no second copy under the same name)
+        if (dupe.active === false) {
+          const { data: rows, error } = await sb.from("cost_suppliers").update({ active: true }).eq("id", dupe.id).select("*");
+          if (error) throw new Error(error.message);
+          assertSaved(rows);
+          const back = rows?.[0] as Supplier;
+          setData((d) => ({ ...d, suppliers: d.suppliers.map((s) => (s.id === back.id ? back : s)) }));
+          return { supplier: back, created: false };
+        }
+        return { supplier: dupe, created: false };
+      }
       const { data: rows, error } = await insertRow(sb, "cost_suppliers", { name }).select("*");
       if (error) throw new Error(error.message);
       const fresh = rows?.[0] as Supplier | undefined;
       if (!fresh) throw new Error(NOT_SAVED);
       setData((d) => (d.suppliers.some((x) => x.id === fresh.id) ? d : { ...d, suppliers: [...d.suppliers, fresh].sort((a, b) => a.name.localeCompare(b.name)) }));
       return { supplier: fresh, created: true };
+    },
+    [sb, setData],
+  );
+
+  const updateSupplier = useCallback(
+    async (id: number, patch: Partial<Pick<Supplier, "name" | "portal_url" | "notes" | "active">>) => {
+      const { data: rows, error } = await sb.from("cost_suppliers").update(patch).eq("id", id).select("*");
+      if (error) throw new Error(/unique|duplicate/i.test(error.message) ? "Another supplier already has that name." : error.message);
+      assertSaved(rows);
+      const fresh = rows?.[0] as Supplier;
+      setData((d) => ({ ...d, suppliers: d.suppliers.map((s) => (s.id === id ? fresh : s)).sort((a, b) => a.name.localeCompare(b.name)) }));
+      return fresh;
+    },
+    [sb, setData],
+  );
+
+  const moveIngredientsSupplier = useCallback(
+    async (ids: readonly string[], from: number | null, to: number | null) => {
+      const moved: string[] = [];
+      // chunks keep the request address short; each write is guarded on the supplier the ingredient is meant to still have
+      for (let at = 0; at < ids.length; at += 100) {
+        const chunk = ids.slice(at, at + 100);
+        let q = sb.from("cost_ingredients").update({ supplier_id: to }).in("id", chunk as string[]);
+        q = from == null ? q.is("supplier_id", null) : q.eq("supplier_id", from);
+        const { data: rows, error } = await q.select("*");
+        if (error) throw new Error(error.message);
+        const fresh = (rows ?? []) as Ingredient[];
+        moved.push(...fresh.map((r) => r.id));
+        const byId = new Map(fresh.map((r) => [r.id, r]));
+        setData((d) => ({ ...d, ingredients: d.ingredients.map((i) => byId.get(i.id) ?? i) }));
+      }
+      return moved;
     },
     [sb, setData],
   );
@@ -2014,6 +2068,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     undoConfirmIngredientPrice,
     insertIngredient,
     insertSupplier,
+    updateSupplier,
+    moveIngredientsSupplier,
     updateSetting,
     updateTextSetting,
     upsertTarget,

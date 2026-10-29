@@ -10,6 +10,7 @@ import { indexDoc, search } from "@/lib/search";
 import { blankIngredient, IngredientSheet } from "@/components/ingredient-sheet";
 import { AddButton, Chips, cx, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { PrepsList } from "@/components/preps-list";
+import { SuppliersList } from "@/components/suppliers-list";
 import { useNewRecipe } from "@/components/new-recipe";
 import { useVenue } from "@/components/venue";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,7 +22,7 @@ import { IngredientsNeedCheckRow } from "@/components/ingredient-review/need-che
 
 const PAGE = 100;
 
-type Tab = "ingredients" | "preps";
+type Tab = "ingredients" | "preps" | "suppliers";
 
 /** Ingredients and Preps live together: the things you buy, and the batches you make from them. */
 export default function IngredientsPage() {
@@ -29,14 +30,18 @@ export default function IngredientsPage() {
   const params = useSearchParams();
   const newRecipe = useNewRecipe();
   const { venue } = useVenue();
-  const tab: Tab = params.get("type") === "preps" ? "preps" : "ingredients";
+  const type = params.get("type");
+  const tab: Tab = type === "preps" ? "preps" : type === "suppliers" ? "suppliers" : "ingredients";
   const [adding, setAdding] = useState(false);
+  const [addingSupplier, setAddingSupplier] = useState(false);
   const go = (t: Tab) => {
     if (t === tab) return;
     const p = new URLSearchParams();
     if (t === "preps") {
       p.set("type", "preps");
       if (venue) p.set("venue", venue.slug);
+    } else if (t === "suppliers") {
+      p.set("type", "suppliers");
     }
     const q = p.toString();
     router.replace(q ? `/ingredients?${q}` : "/ingredients", { scroll: false });
@@ -48,22 +53,25 @@ export default function IngredientsPage() {
         trailing={
           tab === "preps" ? (
             <AddButton label="New Prep" onClick={() => newRecipe.open({ venueId: venue?.id ?? null, type: "prep" })} />
+          ) : tab === "suppliers" ? (
+            <AddButton label="Add Supplier" onClick={() => setAddingSupplier(true)} />
           ) : (
             <AddButton label="New Ingredient" onClick={() => setAdding(true)} />
           )
         }
       />
       <Segmented
-        ariaLabel="Ingredients or preps"
-        className="mb-3 lg:w-80"
+        ariaLabel="Ingredients, preps or suppliers"
+        className="mb-3 lg:w-[28rem]"
         value={tab}
         onChange={go}
         options={[
           { value: "ingredients", label: "Ingredients" },
           { value: "preps", label: "Preps" },
+          { value: "suppliers", label: "Suppliers" },
         ]}
       />
-      {tab === "preps" ? <PrepsList /> : <IngredientsList adding={adding} setAdding={setAdding} />}
+      {tab === "preps" ? <PrepsList /> : tab === "suppliers" ? <SuppliersList adding={addingSupplier} setAdding={setAddingSupplier} /> : <IngredientsList adding={adding} setAdding={setAdding} />}
     </div>
   );
 }

@@ -8,7 +8,10 @@ import { suggestCategory } from "@/lib/ingredient-categories";
 import { applyKegHint, looksLikeKeg } from "@/lib/keg";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
-import { Banner, Segmented, Sheet, Toggle } from "./ui";
+import { Banner, Segmented, Sheet, Toggle, useToast } from "./ui";
+import { createOrderingForNewIngredient, OrderAtPicker, type OrderAtState } from "./ingredient-ordering";
+import { addedToast } from "@/lib/ordering-link";
+import { supplierChoices } from "@/lib/suppliers";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
 import { CategoryChips } from "./ingredient-category-picker";
 import { AddSupplier } from "./add-supplier";
@@ -79,6 +82,8 @@ export function IngredientSheet({
   note?: string;
 }) {
   const store = useStore();
+  const toast = useToast();
+  const [orderAt, setOrderAt] = useState<OrderAtState>({});
   const [f, setF] = useState<IngredientDraft>(initial);
   const [sizeText, setSizeText] = useState(String(initial.pack_size));
   const [priceText, setPriceText] = useState(initial.pack_price ? String(initial.pack_price) : "");
@@ -124,6 +129,14 @@ export function IngredientSheet({
     try {
       const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: price, last_price_update: new Date().toISOString().slice(0, 10) };
       const id = await store.insertIngredient(payload);
+      // nothing is put on an order list unless a venue was ticked; a problem there never undoes the ingredient
+      if (Object.keys(orderAt).length) {
+        const r = await createOrderingForNewIngredient({ id, name: payload.name }, orderAt, (vid) => store.venues.find((v) => v.id === vid)?.name ?? "that venue");
+        const parts: string[] = r.added.map((a) => addedToast(a.venue, a.supplierName));
+        for (const x of r.failed) parts.push(`Not added to ${x.venue}'s order list. ${x.message}`);
+        if (r.unfinished) parts.push("Pick a category for each venue you ticked to add it to an order list.");
+        if (parts.length) toast.show({ message: parts.join(" ") }, 8000);
+      }
       onSaved({ id, pack_unit: payload.pack_unit, name: payload.name });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -161,7 +174,7 @@ export function IngredientSheet({
           <p className="section-label !px-1">Supplier</p>
           <select className="field appearance-none" value={f.supplier_id ?? ""} onChange={(e) => set("supplier_id", e.target.value ? Number(e.target.value) : null)} aria-label="Supplier">
             <option value="">No supplier</option>
-            {store.suppliers.map((s) => (
+            {supplierChoices(store.suppliers, f.supplier_id).map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -169,6 +182,7 @@ export function IngredientSheet({
           </select>
           <AddSupplier className="mt-1" onAdded={(s) => set("supplier_id", s.id)} />
         </div>
+        <OrderAtPicker ing={{ name: f.name, pack_unit: f.pack_unit, category: f.category }} value={orderAt} onChange={setOrderAt} />
         <div>
           <p className="section-label !px-1">Pack</p>
           <div className="flex items-center gap-2">

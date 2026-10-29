@@ -35,7 +35,7 @@ export interface BackRules {
   /** the remembered address must carry this query value (preps live at /ingredients?type=preps) */
   require?: { key: string; value: string };
   /** the remembered address must NOT carry this query value (the Ingredients tab, not Preps) */
-  forbid?: { key: string; value: string };
+  forbid?: { key: string; value: string } | { key: string; value: string }[];
 }
 
 /** Pure part: whether a remembered address can be used for this record. Exported for tests. */
@@ -48,7 +48,8 @@ export function usableList(remembered: string | null, path: string, rules: BackR
   const v = sp.get("venue");
   if (rules.venue && v && v !== rules.venue) return false;
   if (rules.require && sp.get(rules.require.key) !== rules.require.value) return false;
-  if (rules.forbid && sp.get(rules.forbid.key) === rules.forbid.value) return false;
+  const forbidden = rules.forbid ? (Array.isArray(rules.forbid) ? rules.forbid : [rules.forbid]) : [];
+  if (forbidden.some((f) => sp.get(f.key) === f.value)) return false;
   return true;
 }
 

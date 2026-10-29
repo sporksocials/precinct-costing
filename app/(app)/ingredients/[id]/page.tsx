@@ -28,6 +28,9 @@ import { ActiveToggle, InactiveTag, useRecordImpact } from "@/components/active-
 import { RenameTitle } from "@/components/rename-title";
 import { useLinkedRename } from "@/components/linked-rename";
 import { AddSupplier } from "@/components/add-supplier";
+import { IngredientOrdering } from "@/components/ingredient-ordering";
+import { SUPPLIER_EVERYWHERE_LINE } from "@/lib/ordering-link";
+import { isSupplierActive, supplierChoices } from "@/lib/suppliers";
 import { clashMessage, findClash } from "@/lib/rename";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
@@ -167,7 +170,7 @@ function Detail({ ing }: { ing: Ingredient }) {
   return (
     <div className="lg:pt-6">
       <div className="bar-blur sticky top-0 z-30 -mx-4 flex h-11 items-center px-2 sm:-mx-6 lg:static lg:mx-0 lg:bg-transparent lg:px-0 lg:backdrop-blur-none">
-        <BackLink path="/ingredients" fallback="/ingredients" rules={{ forbid: { key: "type", value: "preps" } }} className="btn-text -ml-1 !gap-0">
+        <BackLink path="/ingredients" fallback="/ingredients" rules={{ forbid: [{ key: "type", value: "preps" }, { key: "type", value: "suppliers" }] }} className="btn-text -ml-1 !gap-0">
           <ChevronLeft className="h-6 w-6" strokeWidth={2.25} />
           Ingredients
         </BackLink>
@@ -232,6 +235,31 @@ function Detail({ ing }: { ing: Ingredient }) {
             }}
           />
 
+          <Group title="Supplier" className="mt-4" footer={SUPPLIER_EVERYWHERE_LINE}>
+            <FieldRow label="Supplier">
+              <select
+                aria-label="Supplier"
+                className="min-h-[44px] max-w-[12rem] bg-transparent text-right text-[17px] text-label-2 outline-none sm:text-[15px]"
+                value={ing.supplier_id ?? ""}
+                onChange={(e) => patch({ supplier_id: e.target.value ? Number(e.target.value) : null })}
+              >
+                <option value="">None</option>
+                {supplierChoices(store.suppliers, ing.supplier_id).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {isSupplierActive(s) ? "" : " (Inactive)"}
+                  </option>
+                ))}
+              </select>
+            </FieldRow>
+            <div className="px-4">
+              <AddSupplier onAdded={(s) => patch({ supplier_id: s.id })} />
+            </div>
+            {supplier ? <Row href={`/ingredients/suppliers/${supplier.id}`} title={`About ${supplier.name}`} sub="Rename it, move its items, see who orders it" chevron /> : null}
+          </Group>
+
+          <IngredientOrdering ing={ing} />
+
           <div className="group-list mt-4">
             <ActiveToggle checked={ing.active} record="ingredient" name={ing.name} impact={impact} undo onChange={(v) => store.updateIngredient(ing.id, { active: v })} onError={setError} />
           </div>
@@ -289,19 +317,6 @@ function Detail({ ing }: { ing: Ingredient }) {
 
           <Disclosure title="Advanced" hint="Pack, GST, yield, supplier code">
             <div className="group-list">
-              <FieldRow label="Supplier">
-                <select className="max-w-[12rem] bg-transparent text-right text-[17px] text-label-2 outline-none sm:text-[15px]" value={ing.supplier_id ?? ""} onChange={(e) => patch({ supplier_id: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">None</option>
-                  {store.suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </FieldRow>
-              <div className="px-4">
-                <AddSupplier onAdded={(s) => patch({ supplier_id: s.id })} />
-              </div>
               <FieldRow label="Supplier Code">
                 <InlineInput value={ing.supplier_code ?? ""} placeholder="None" inputMode="text" width="w-36" onCommit={(t) => patch({ supplier_code: t.trim() || null })} />
               </FieldRow>

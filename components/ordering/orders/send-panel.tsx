@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, ExternalLink, LogIn, Mail, type LucideIcon } from "lucide-react";
+import { Check, Copy, LogIn, Mail, type LucideIcon } from "lucide-react";
 import { cx } from "@/components/ui";
 import { sendReasons, type SendAction, type SendActionId, type SupplierSend } from "@/lib/ordering-orders-ui";
 import type { OrderingSupplier } from "@/lib/ordering-types";
 import { copyText } from "./clipboard";
 import { Notice, btnPlain, btnPrimary } from "./parts";
 
-const ICON: Record<SendActionId, LucideIcon> = { email: Mail, outlook: ExternalLink, copy: Copy, login: LogIn };
+const ICON: Record<SendActionId, LucideIcon> = { email: Mail, copy: Copy, login: LogIn };
 
 /**
  * The send panel of one order: one button for every way of sending, and a separate, deliberate Mark As Sent. The lines

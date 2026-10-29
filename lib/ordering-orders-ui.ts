@@ -18,7 +18,6 @@ import {
   mailtoUrl,
   minimumWarning,
   orderTotals,
-  outlookWebUrl,
   plainText,
   qtyText,
   qtyWithUnit,
@@ -363,7 +362,6 @@ export interface SupplierSend {
   /** the exact text, \n line breaks */
   body: string;
   mailto: ComposeLink;
-  outlook: ComposeLink;
   totals: OrderTotals;
   /** "Order is $120.00 short of the $650.00 minimum", or null */
   warning: string | null;
@@ -375,14 +373,15 @@ export interface SupplierSend {
 /** Everything the send panel needs from the lines as they stand: the exact text, both draft links, totals and the minimum warning. */
 export function buildSupplierSend(i: SupplierSendInput): SupplierSend {
   const textLines = textLinesFromDraft(i.lines);
-  const text = buildOrderText({ venueName: i.venueName, supplier: i.supplier, lines: textLines, showPrices: i.showPrices, senderName: i.senderName });
+  // Order emails never carry prices (Troy, 29 Oct 2026: "turn off all prices on email orders"): the text is each product and its quantity.
+  // `showPrices` only decides whether the screen shows line prices.
+  const text = buildOrderText({ venueName: i.venueName, supplier: i.supplier, lines: textLines, showPrices: false, senderName: i.senderName });
   const totals = orderTotals(textLines);
   const warning = minimumWarning({ totals: { ...totals, units: minimumUnits(textLines) }, unitName: commonUnit(textLines) }, i.supplier);
   return {
     subject: text.subject,
     body: text.body,
     mailto: mailtoUrl({ to: i.supplier.email_to, subject: text.subject, body: text.body }),
-    outlook: outlookWebUrl({ to: i.supplier.email_to, subject: text.subject, body: text.body }),
     totals,
     warning,
     lineCount: textLines.length,
@@ -390,7 +389,7 @@ export function buildSupplierSend(i: SupplierSendInput): SupplierSend {
   };
 }
 
-export type SendActionId = "email" | "outlook" | "copy" | "login";
+export type SendActionId = "email" | "copy" | "login";
 
 export interface SendAction {
   id: SendActionId;
@@ -411,18 +410,18 @@ export interface SendAction {
 export const NO_EMAIL_REASON = "No email address is saved for this supplier.";
 export const NO_LOGIN_REASON = "No login link is saved for this supplier.";
 export const NO_LINES_REASON = "Add a quantity to at least one product first.";
-/** Shown under the buttons when the order is too long for an email link (Open Email and Open In Outlook then copy it first). */
+/** Shown under the buttons when the order is too long for an email link (Open Email then copies it first). */
 export const LONG_ORDER_NOTE = "This order is too long to fit in an email link. Open Email copies it for you, then opens an empty email: paste the order in.";
 
 /**
  * Every way of sending, in the order they are drawn, each with its own button. The supplier's method decides which button is
  * filled (and which ones apply), nothing is hidden in a menu.
- *   email    Open Email (filled), Open In Outlook, Copy Order
+ *   email    Open Email (filled), Copy Order (no Open In Outlook button since 29 Oct 2026)
  *   website  Open Login (filled), Copy Order
  *   app      Copy Order (filled), plus Open Login when a link is saved
  * A button that cannot work is kept, disabled, with its reason in words.
  */
-export function sendActions(supplier: Pick<OrderingSupplier, "method" | "email_to" | "login_url">, send: Pick<SupplierSend, "mailto" | "outlook" | "lineCount">): SendAction[] {
+export function sendActions(supplier: Pick<OrderingSupplier, "method" | "email_to" | "login_url">, send: Pick<SupplierSend, "mailto" | "lineCount">): SendAction[] {
   const hasLines = send.lineCount > 0;
   const email = (supplier.email_to ?? "").trim().length > 0;
   const login = (supplier.login_url ?? "").trim().length > 0;
@@ -433,15 +432,10 @@ export function sendActions(supplier: Pick<OrderingSupplier, "method" | "email_t
     const long = send.mailto.tooLong;
     return { id: "email", label: long ? "Copy And Open Email" : "Open Email", primary: method === "email", enabled: reason == null, reason, href: reason == null ? (long ? send.mailto.shortUrl : send.mailto.url) : null, newTab: false, copiesOrder: long };
   })();
-  const outlookAction: SendAction = (() => {
-    const reason = !hasLines ? NO_LINES_REASON : !email ? NO_EMAIL_REASON : null;
-    const long = send.outlook.tooLong;
-    return { id: "outlook", label: long ? "Copy And Open In Outlook" : "Open In Outlook", primary: false, enabled: reason == null, reason, href: reason == null ? (long ? send.outlook.shortUrl : send.outlook.url) : null, newTab: true, copiesOrder: long };
-  })();
   const copyAction: SendAction = { id: "copy", label: "Copy Order", primary: method === "app", enabled: hasLines, reason: hasLines ? null : NO_LINES_REASON, href: null, newTab: false };
   const loginAction: SendAction = { id: "login", label: "Open Login", primary: method === "website", enabled: login, reason: login ? null : NO_LOGIN_REASON, href: login ? (supplier.login_url ?? "").trim() : null, newTab: true };
 
-  if (method === "email") return [emailAction, outlookAction, copyAction];
+  if (method === "email") return [emailAction, copyAction];
   if (method === "website") return [loginAction, copyAction];
   return login ? [copyAction, loginAction] : [copyAction];
 }
@@ -456,11 +450,10 @@ export function sendReasons(actions: readonly SendAction[]): string[] {
 
 /**
  * The way the order went out, decided for the person (there is no "how did you send it" question): the last button pressed on
- * the card (Open Email, Open In Outlook, Copy Order, Open Login), else the supplier's own method.
+ * the card (Open Email, Copy Order, Open Login), else the supplier's own method.
  */
 export function defaultSendMethod(last: SendActionId | null, supplierMethod: OrderingMethod): OrderSendMethod {
   if (last === "email") return "email";
-  if (last === "outlook") return "outlook";
   if (last === "copy") return "copy";
   if (last === "login") return "website";
   return supplierMethod === "email" ? "email" : supplierMethod === "website" ? "website" : "other";

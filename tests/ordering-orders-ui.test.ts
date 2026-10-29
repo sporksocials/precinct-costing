@@ -230,15 +230,17 @@ describe("card groups", () => {
 });
 
 describe("the text, prices and minimum of a supplier order", () => {
-  it("builds the exact text, with prices only when the switch is on", () => {
+  it("builds the exact text, and never prints prices in it (Troy, 29 Oct 2026), whatever the supplier switch says", () => {
     const star = sup("Star");
     const lines = draftLinesFromGroup(groupFor("Star")).slice(0, 2);
     const on = buildSupplierSend({ venueName: "Drift", supplier: star, lines, showPrices: true, senderName: "Troy" });
     expect(on.subject).toBe("Drift Order");
     expect(on.body).toContain("Hi Mark,");
     expect(on.body).toContain("Order for Drift, account A1001:");
-    expect(on.body).toContain("Lager Cans - 3 ctns (item 100101) @ $56.36 ex GST / $62.00 inc GST = $169.09 ex GST / $186.00 inc GST");
-    expect(on.body).toContain("Total inc GST: $418.00");
+    expect(on.body).toContain("Lager Cans - 3 ctns");
+    expect(on.body).not.toContain("$");
+    expect(on.body).not.toContain("item ");
+    expect(on.body).not.toContain("Total");
     expect(on.body.endsWith("Thanks,\nTroy")).toBe(true);
     const off = buildSupplierSend({ venueName: "Drift", supplier: star, lines, showPrices: false, senderName: "Troy" });
     expect(off.body).not.toContain("$");
@@ -250,17 +252,15 @@ describe("the text, prices and minimum of a supplier order", () => {
     expect(lion.body).toContain("Pale Ale Keg - 3 kegs");
     expect(lion.body.endsWith("Abbey")).toBe(true);
   });
-  it("makes a mailto and an Outlook link with CRLF line breaks and the supplier's address", () => {
+  it("makes a mailto link with CRLF line breaks and the supplier's address", () => {
     const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: draftLinesFromGroup(groupFor("Star")).slice(0, 1), showPrices: false, senderName: "Troy" });
     expect(send.mailto.url.startsWith("mailto:orders@star.example.com?subject=Drift%20Order&body=Hi%20Mark%2C%0D%0A")).toBe(true);
-    expect(send.outlook.url.startsWith("https://outlook.office.com/mail/deeplink/compose?to=orders%40star.example.com&subject=Drift%20Order&body=")).toBe(true);
     expect(send.mailto.tooLong).toBe(false);
   });
   it("flags a long order for Copy", () => {
     const many = Array.from({ length: 40 }, (_, i) => line({ key: `k${i}`, name: `A long product name number ${i}`, qty: 12 }));
     const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: many, showPrices: true, senderName: "Troy" });
     expect(send.mailto.tooLong).toBe(true);
-    expect(send.outlook.tooLong).toBe(true);
   });
   it("warns about a minimum in dollars (ex GST), with the supplier note kept for the screen", () => {
     const coke = sup("Coke");
@@ -296,19 +296,16 @@ describe("the text, prices and minimum of a supplier order", () => {
 
 describe("which send buttons exist and work", () => {
   const send = (supplier: OrderingSupplier, lines: DraftLine[] = [line({ qty: 2, price: 10 })]) => buildSupplierSend({ venueName: "Drift", supplier, lines, showPrices: false, senderName: "Troy" });
-  it("an email supplier: Open Email (filled), Open In Outlook (new tab), Copy Order", () => {
+  it("an email supplier: Open Email (filled) and Copy Order, with no Open In Outlook button", () => {
     const star = sup("Star");
     const a = sendActions(star, send(star));
     expect(a.map((x) => [x.id, x.label, x.primary, x.enabled])).toEqual([
       ["email", "Open Email", true, true],
-      ["outlook", "Open In Outlook", false, true],
       ["copy", "Copy Order", false, true],
     ]);
     expect(a[0].href?.startsWith("mailto:orders@star.example.com")).toBe(true);
     expect(a[0].newTab).toBe(false);
-    expect(a[1].href?.startsWith("https://outlook.office.com/")).toBe(true);
-    expect(a[1].newTab).toBe(true);
-    expect(a[2].href).toBeNull();
+    expect(a[1].href).toBeNull();
     expect(sendReasons(a)).toEqual([]);
   });
   it("a website supplier: Open Login (filled, new tab) next to Copy Order, no email buttons", () => {
@@ -333,20 +330,18 @@ describe("which send buttons exist and work", () => {
     const star = { ...sup("Star"), email_to: null };
     const a = sendActions(star, send(star));
     expect(a[0]).toMatchObject({ enabled: false, reason: NO_EMAIL_REASON });
-    expect(a[1]).toMatchObject({ enabled: false, reason: NO_EMAIL_REASON });
-    expect(a[2].enabled).toBe(true);
+    expect(a[1].enabled).toBe(true);
     expect(sendReasons(a)).toEqual([NO_EMAIL_REASON]);
   });
-  it("a long order keeps both email buttons working: they copy the order, then open an empty draft", () => {
+  it("a long order keeps Open Email working: it copies the order, then opens an empty draft", () => {
     const star = sup("Star");
     const many = Array.from({ length: 40 }, (_, i) => line({ key: `k${i}`, name: `A long product name number ${i}`, qty: 12 }));
     const long = buildSupplierSend({ venueName: "Drift", supplier: star, lines: many, showPrices: true, senderName: "Troy" });
     const a = sendActions(star, long);
     expect(a[0]).toMatchObject({ id: "email", label: "Copy And Open Email", enabled: true, reason: null, copiesOrder: true });
     expect(a[0].href).toBe("mailto:orders@star.example.com?subject=Drift%20Order");
-    expect(a[1]).toMatchObject({ id: "outlook", label: "Copy And Open In Outlook", enabled: true, copiesOrder: true });
-    expect(a[1].href).toBe("https://outlook.office.com/mail/deeplink/compose?to=orders%40star.example.com&subject=Drift%20Order");
-    expect(a[2]).toMatchObject({ id: "copy", enabled: true });
+    expect(a.some((x) => (x.id as string) === "outlook")).toBe(false);
+    expect(a[1]).toMatchObject({ id: "copy", enabled: true });
     expect(sendReasons(a)).toEqual([LONG_ORDER_NOTE]);
     expect(long.mailto.url.length).toBeGreaterThan(1900);
   });
@@ -368,7 +363,6 @@ describe("which send buttons exist and work", () => {
 describe("how an order is recorded as sent", () => {
   it("is the last button used, else the supplier's own way", () => {
     expect(defaultSendMethod("email", "email")).toBe("email");
-    expect(defaultSendMethod("outlook", "email")).toBe("outlook");
     expect(defaultSendMethod("copy", "website")).toBe("copy");
     expect(defaultSendMethod("login", "website")).toBe("website");
     expect(defaultSendMethod(null, "email")).toBe("email");
@@ -376,9 +370,9 @@ describe("how an order is recorded as sent", () => {
     expect(defaultSendMethod(null, "app")).toBe("other");
   });
   it("is decided for the person: every send button maps to a method and the last one pressed wins", () => {
-    const ids = ["email", "outlook", "copy", "login"] as const;
+    const ids = ["email", "copy", "login"] as const;
     const methods = ids.map((id) => defaultSendMethod(id, "email"));
-    expect(methods).toEqual(["email", "outlook", "copy", "website"]);
+    expect(methods).toEqual(["email", "copy", "website"]);
     // the card keeps only the last id: Open Email then Copy Order records a copy
     let last: (typeof ids)[number] | null = null;
     for (const id of ["email", "copy"] as const) last = id;

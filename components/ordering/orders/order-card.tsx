@@ -161,7 +161,7 @@ export function OrderCard(p: OrderCardProps) {
         orderId = made.order.id;
         setSavedDraft({ id: orderId, sig });
       }
-      const order = await markOrderSent(sb, orderId, { by: p.userEmail, method, subject: send.subject, bodyText: send.body, warningText: send.warning, showPrices });
+      const order = await markOrderSent(sb, orderId, { by: p.userEmail, method, subject: send.subject, bodyText: send.body, warningText: send.warning, showPrices: false });
       const saved = draftsToOrderLines(lines).map((l) => ({ ordered_qty: l.ordered_qty, price_inc_gst: l.price_inc_gst, unit_name: l.unit_name }));
       setLocalSent((s) => [{ order, lines: saved }, ...s]);
       setConfirming(false);

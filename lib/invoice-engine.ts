@@ -54,7 +54,7 @@ import {
  * stored reading, at no AI cost. BUMP IT WHENEVER the engine, reconciliation or reading rules change in a way that should re-check
  * stored invoices. Version 2: a printed Discount column the price already includes, and an unlabelled discount judged in dollars.
  */
-export const ENGINE_VERSION = 2;
+export const ENGINE_VERSION = 3; // 3: the one supplier list (29 Oct 2026) links invoice suppliers to costing suppliers, so code matches and the costed-supplier check start working
 
 interface Work {
   i: number;

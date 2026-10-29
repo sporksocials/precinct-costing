@@ -125,7 +125,7 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
       "id,venue_id,name,supplier_id,supplier_item_code,unit_name,price_inc_gst,ingredient_id,costing_packs_per_unit,deal_buy_qty,deal_free_qty,active",
       (q) => q.eq("venue_id", venueId),
     ),
-    fetchAll<{ id: string; name: string }>(sb, "ordering_suppliers", "id,name", (q) => q.eq("venue_id", venueId)),
+    fetchAll<{ id: string; name: string; cost_supplier_id: number | null }>(sb, "ordering_suppliers", "id,name,cost_supplier_id", (q) => q.eq("venue_id", venueId)),
     fetchAll<AnalyseContext["existingDocs"][number]>(sb, "invoice_documents", "id,venue_id,supplier_id,invoice_number,status,invoice_date,total_inc"), // every venue: the same invoice scanned into two piles is one invoice
   ]);
 
@@ -149,12 +149,14 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
   }));
 
   const supplierName = new Map(orderingSuppliers.map((s) => [s.id, s.name]));
+  const supplierCostId = new Map(orderingSuppliers.map((s) => [s.id, s.cost_supplier_id ?? null]));
   const products: AnalyseProduct[] = productRows.map((r) => ({
     id: r.id,
     venue_id: r.venue_id,
     name: r.name,
     supplier_item_code: r.supplier_item_code ?? null,
     supplier_name: r.supplier_id ? supplierName.get(r.supplier_id) ?? null : null,
+    supplier_cost_id: r.supplier_id ? supplierCostId.get(r.supplier_id) ?? null : null,
     unit_name: r.unit_name,
     price_inc_gst: r.price_inc_gst === null || r.price_inc_gst === undefined ? null : num(r.price_inc_gst, 0),
     ingredient_id: r.ingredient_id ?? null,

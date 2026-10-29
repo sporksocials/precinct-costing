@@ -372,6 +372,8 @@ export interface AnalyseProduct {
   name: string;
   supplier_item_code: string | null;
   supplier_name: string | null;
+  /** the supplier (cost_suppliers id) the product is ordered from; matches `InvoiceSupplierRow.cost_supplier_id` (one supplier list, 29 Oct 2026) */
+  supplier_cost_id?: number | null;
   unit_name: string;
   price_inc_gst: number | null;
   ingredient_id: string | null;

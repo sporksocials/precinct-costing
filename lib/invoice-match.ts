@@ -185,7 +185,10 @@ export function buildMatcher(ctx: AnalyseContext, supplier: InvoiceSupplierRow |
     ...supplierNameKeys(readSupplierName),
     ...(supplier ? [supplier.name, ...(supplier.aliases ?? [])].flatMap(supplierNameKeys) : []),
   ]);
-  const productsOfSupplier = venueProducts.filter((p) => supplierNameKeys(p.supplier_name).some((k) => supplierKeys.has(k)));
+  // one supplier list: a product belongs to the invoice's supplier when they point at the same supplier; names are only the fallback
+  const productsOfSupplier = venueProducts.filter((p) =>
+    p.supplier_cost_id != null && supplier?.cost_supplier_id != null ? p.supplier_cost_id === supplier.cost_supplier_id : supplierNameKeys(p.supplier_name).some((k) => supplierKeys.has(k)),
+  );
 
   /** a map row as a target; null when it points at something that no longer exists */
   const mapTarget = (m: InvoiceItemMapRow): MatchTarget | null => {

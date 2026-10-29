@@ -71,7 +71,7 @@ describe("loadAnalyseContext", () => {
     const ctx = await loadAnalyseContext(seeded().sb, args);
     expect(ctx.products).toHaveLength(1);
     expect(ctx.products[0]).toEqual({
-      id: IDS.kingfishProduct, venue_id: 1, name: "Kingfish Fillets", supplier_item_code: "15026", supplier_name: "Daniel Street", unit_name: "kg", price_inc_gst: 65,
+      id: IDS.kingfishProduct, venue_id: 1, name: "Kingfish Fillets", supplier_item_code: "15026", supplier_name: "Daniel Street", supplier_cost_id: null, unit_name: "kg", price_inc_gst: 65,
       ingredient_id: IDS.kingfish, costing_packs_per_unit: 1, deal_buy_qty: 8, deal_free_qty: 1, active: true,
     });
   });

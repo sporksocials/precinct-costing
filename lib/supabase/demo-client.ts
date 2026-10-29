@@ -6,7 +6,8 @@
  * Implements just the query-builder surface the app uses.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { orderingDemoTables } from "../ordering-fixture";
+import { FIXTURE_MASTER_SUPPLIERS, orderingDemoTables } from "../ordering-fixture";
+import { supplierKey } from "../suppliers";
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
@@ -62,6 +63,7 @@ function loadTables(): Promise<Tables> {
         for (const [table, key] of Object.entries(TABLE_KEYS)) t[table] = json[key] ?? [];
         // Ordering example data (Drift and Greedy), only when the demo data has none: invented names and prices, memory only
         if (!(t.ordering_products ?? []).length) Object.assign(t, orderingDemoTables());
+        linkOrderingSuppliers(t);
         return t;
       });
   }
@@ -134,7 +136,7 @@ class DemoError extends Error {
 }
 /** Unique indexes on the restorable tables (live database): a clash is refused with 23505. */
 const UNIQUE_KEYS: Record<string, string[]> = { cost_menu_items: ["name", "venue_id"], cost_preps: ["name", "venue_id"], cost_beers: ["venue_id", "name"], cost_gelato_serves: ["venue_id", "name"], cost_beer_prices: ["beer_id", "serve_id"],
-  ordering_suppliers: ["venue_id", "name"], ordering_categories: ["venue_id", "name"], ordering_products: ["venue_id", "category_id", "name"], ordering_count_lines: ["session_id", "product_id"] };
+  ordering_suppliers: ["venue_id", "cost_supplier_id"], ordering_categories: ["venue_id", "name"], ordering_products: ["venue_id", "category_id", "name"], ordering_count_lines: ["session_id", "product_id"] };
 /** ON DELETE CASCADE children (delete rows are logged before the parent's, in the same transaction, like the live triggers). */
 const CASCADES: Record<string, { table: string; fk: string }[]> = {
   cost_beers: [{ table: "cost_beer_prices", fk: "beer_id" }],
@@ -182,6 +184,101 @@ function orderingChecks(table: string, row: Row, rows: Row[]) {
     throw new DemoError('duplicate key value violates unique constraint "ordering_count_lines_client_uuid_key"', "23505");
   }
 }
+/**
+ * DEMO ONLY: the one supplier list (migration 20261029200000_one_supplier_list.sql). cost_suppliers is the list; an
+ * ordering_suppliers row is a venue's TERMS for one of them. These mimic the database pieces the screens rely on:
+ *   ordering_terms_row(venue, supplier)   finds or creates the terms row, filled from the same supplier at another venue
+ *   ordering_suppliers_link trigger       a terms row always points at a supplier and carries that supplier's name
+ *   cost_suppliers_rename trigger         renaming a supplier renames every terms row
+ *   ordering_products_follow_ingredient   a product linked to an ingredient takes its supplier from the ingredient
+ *   cost_ingredients_supplier_moved       changing an ingredient's supplier moves every venue's product for it
+ */
+function resolveMaster(tables: Tables, name: string): number {
+  const masters = (tables.cost_suppliers ??= []);
+  const k = supplierKey(name);
+  const same = masters.find((m) => supplierKey(String(m.name)) === k);
+  if (same) return same.id as number;
+  const prefix = masters
+    .filter((m) => supplierKey(String(m.name)).length >= 4 && k.startsWith(supplierKey(String(m.name))))
+    .sort((a, b) => String(b.name).length - String(a.name).length)[0];
+  if (prefix) return prefix.id as number;
+  const id = Math.max(0, ...masters.map((m) => Number(m.id) || 0)) + 1;
+  masters.push({ id, name: name.trim(), portal_url: null, portal_username: null, active: true });
+  return id;
+}
+const NO_SUPPLIER = 'insert or update on table "ordering_suppliers" violates foreign key constraint "ordering_suppliers_cost_supplier_id_fkey"';
+/** Before insert / update of a terms row: point it at a supplier (by name when none is given) and copy that supplier's name onto it. */
+function linkTerms(tables: Tables, row: Row) {
+  if (row.cost_supplier_id == null) row.cost_supplier_id = resolveMaster(tables, String(row.name ?? ""));
+  const master = (tables.cost_suppliers ?? []).find((m) => m.id === row.cost_supplier_id);
+  if (!master) throw new DemoError(NO_SUPPLIER, "23503");
+  row.name = master.name;
+}
+/** ordering_terms_row(): the (venue, supplier) terms row's id, made and filled from the same supplier at another venue when it is not there. */
+function termsRow(tables: Tables, venueId: number, supplierId: number): string {
+  const rows = (tables.ordering_suppliers ??= []);
+  const have = rows.find((r) => r.venue_id === venueId && r.cost_supplier_id === supplierId);
+  if (have) return have.id as string;
+  const master = (tables.cost_suppliers ?? []).find((m) => m.id === supplierId);
+  if (!master) throw new DemoError(NO_SUPPLIER, "23503");
+  const other = rows.filter((r) => r.cost_supplier_id === supplierId && r.venue_id !== venueId).sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")))[0];
+  const here = rows.filter((r) => r.venue_id === venueId);
+  const fresh = orderingNewRow("ordering_suppliers", {
+    venue_id: venueId, name: master.name, cost_supplier_id: supplierId, method: other?.method ?? "email", email_to: other?.email_to ?? null, login_url: other?.login_url ?? null,
+    rep_name: other?.rep_name ?? null, rep_phone: other?.rep_phone ?? null, min_order_value: other?.min_order_value ?? null, min_order_units: other?.min_order_units ?? null,
+    show_prices_on_order: false, notes: other?.notes ?? null, active: true, sort: here.length ? Math.max(...here.map((r) => Number(r.sort) || 0)) + 1 : 0,
+  });
+  rows.push(fresh);
+  logHistory(tables, "ordering_suppliers", "insert", null, fresh);
+  return fresh.id as string;
+}
+/** Before insert / update of an ordering product: a linked product's supplier is the ingredient's (null when the ingredient has none). */
+function followIngredient(tables: Tables, row: Row) {
+  if (row.ingredient_id == null) return;
+  const ing = (tables.cost_ingredients ?? []).find((i) => String(i.id) === String(row.ingredient_id));
+  const s = ing?.supplier_id ?? null;
+  row.supplier_id = s == null ? null : termsRow(tables, row.venue_id as number, Number(s));
+}
+/** The BEFORE triggers on the ordering tables. `patch` is the update's columns (an update fires a trigger only when it names one of its columns). */
+function applyBefore(tables: Tables, table: string, row: Row, patch?: Row) {
+  if (table === "ordering_suppliers" && (!patch || "name" in patch || "cost_supplier_id" in patch)) linkTerms(tables, row);
+  if (table === "ordering_products" && (!patch || "ingredient_id" in patch || "supplier_id" in patch)) followIngredient(tables, row);
+}
+/** The AFTER UPDATE triggers: a renamed supplier renames its terms rows; a moved ingredient moves every venue's product for it. */
+function applyAfterUpdate(tables: Tables, table: string, before: Row, after: Row) {
+  if (table === "cost_suppliers" && before.name !== after.name) {
+    for (const r of tables.ordering_suppliers ?? []) {
+      if (r.cost_supplier_id !== after.id || r.name === after.name) continue;
+      const was = { ...r };
+      Object.assign(r, orderingStamp("ordering_suppliers", { ...r, name: after.name }));
+      logHistory(tables, "ordering_suppliers", "update", was, r);
+    }
+  }
+  if (table === "cost_ingredients" && before.supplier_id !== after.supplier_id) {
+    for (const r of tables.ordering_products ?? []) {
+      if (String(r.ingredient_id) !== String(after.id)) continue;
+      const was = { ...r };
+      const next = { ...r };
+      followIngredient(tables, next);
+      if (next.supplier_id === r.supplier_id) continue;
+      Object.assign(r, orderingStamp("ordering_products", next));
+      logHistory(tables, "ordering_products", "update", was, r);
+    }
+  }
+}
+/** Demo data load: the example suppliers join the supplier list (reusing one of the same name), and every terms row points at its supplier. */
+function linkOrderingSuppliers(t: Tables) {
+  const masters = (t.cost_suppliers ??= []);
+  const terms = (t.ordering_suppliers ??= []);
+  for (const f of FIXTURE_MASTER_SUPPLIERS) {
+    if (!terms.some((r) => r.cost_supplier_id === f.id)) continue;
+    const found = masters.find((m) => supplierKey(String(m.name)) === supplierKey(f.name));
+    if (!found) masters.push({ id: f.id, name: f.name, portal_url: null, portal_username: null, active: true });
+    else if (found.id !== f.id) for (const r of terms) if (r.cost_supplier_id === f.id) r.cost_supplier_id = found.id;
+  }
+  for (const r of terms) linkTerms(t, r);
+}
+
 function logHistory(tables: Tables, table: string, op: "insert" | "update" | "delete", before: Row | null, after: Row | null, tx: number = nextTx()) {
   const spec = HISTORY_KEYS[table];
   if (!spec) return;
@@ -331,6 +428,8 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
         const added = this.payload.map((r) => {
           const row: Row = ORDERING_DEFAULTS[this.table] ? orderingNewRow(this.table, r) : { ...r };
           if (HAS_CREATED_AT.has(this.table) && row.created_at == null) row.created_at = new Date().toISOString(); // the live column default
+          if (this.table === "cost_suppliers" && row.active == null) row.active = true; // the live column default
+          applyBefore(tables, this.table, row);
           if (row.id == null) row.id = Math.max(0, ...rows.map((x) => Number(x.id) || 0)) + 1;
           if (rows.some((x) => x.id === row.id)) throw new DemoError(`duplicate key value violates unique constraint "${this.table}_pkey"`, "23505");
           const uk = UNIQUE_KEYS[this.table];
@@ -401,10 +500,12 @@ class DemoQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
               notes: null,
             });
           }
+          applyBefore(tables, this.table, next, this.patch);
           const stamped = orderingStamp(this.table, next);
           orderingChecks(this.table, stamped, rows);
           rows[i] = stamped;
           logHistory(tables, this.table, "update", before, stamped);
+          applyAfterUpdate(tables, this.table, before, stamped);
           out.push(stamped);
         }
         stampParents(tables, this.table, out, DEMO_USER);
@@ -446,7 +547,15 @@ export function createDemoClient(): SupabaseClient {
   const user = { email: "demo@precinct.local" };
   const client = {
     from: (table: string) => new DemoQuery(table),
-    rpc: async (name: string, args?: { p_since?: string }) => {
+    rpc: async (name: string, args?: { p_since?: string; p_venue?: number; p_supplier?: number }) => {
+      if (name === "ordering_terms_row") {
+        const t = await loadTables();
+        try {
+          return { data: termsRow(t, Number(args?.p_venue), Number(args?.p_supplier)), error: null };
+        } catch (e) {
+          return { data: null, error: { message: e instanceof Error ? e.message : String(e), ...(e instanceof DemoError && e.code ? { code: e.code } : {}) } };
+        }
+      }
       if (name !== "cost_data_fingerprint" || FAULT === "rpc") return { data: null, error: { code: "42883", message: "function does not exist" } };
       const t = await loadTables();
       const out: Record<string, unknown> = { generated_at: new Date().toISOString() };

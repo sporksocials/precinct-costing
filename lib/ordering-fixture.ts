@@ -28,6 +28,18 @@ export function fixtureId(kind: "sup" | "cat" | "prd" | "ses" | "cnt", venueId: 
   return `${k}${String(venueId).padStart(2, "0")}0000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 }
 
+/**
+ * The example suppliers in the one supplier list (cost_suppliers). Their ids are high numbers so they cannot collide with a
+ * real list; the demo client reuses a supplier of the same name when the demo data already has one (see demo-client.ts).
+ */
+export const FIXTURE_MASTER_SUPPLIERS: readonly { id: number; name: string }[] = [
+  { id: 9001, name: "Star" },
+  { id: 9002, name: "Lion" },
+  { id: 9003, name: "Diablo" },
+  { id: 9004, name: "Coke" },
+];
+const masterId = (n: number): number => FIXTURE_MASTER_SUPPLIERS[n - 1].id;
+
 const FINALISED_AT = "2026-09-28T00:30:00.000Z"; // Monday 28 Sep 2026, 10:30 Brisbane
 
 type P = [name: string, category: number, unit: string, supplier: number | null, par: number, multiple: number, price: number | null, code: string | null];
@@ -35,7 +47,7 @@ type P = [name: string, category: number, unit: string, supplier: number | null,
 export function orderingFixture(venueId: number): OrderingFixture {
   const greedy = venueId === 3;
   const sup = (n: number, name: string, over: Partial<OrderingSupplier>): OrderingSupplier => ({
-    id: fixtureId("sup", venueId, n), venue_id: venueId, name, method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null,
+    id: fixtureId("sup", venueId, n), venue_id: venueId, name, cost_supplier_id: masterId(n), method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null,
     min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: n, ...over,
   });
   const suppliers: OrderingSupplier[] = [

@@ -41,6 +41,7 @@ import {
   sentSummary,
   setLineQty,
   stepQty,
+  unassignedAction,
   unitsText,
   type DraftLine,
 } from "@/lib/ordering-orders-ui";
@@ -505,5 +506,14 @@ describe("sign-off", () => {
     const src = readFileSync("components/ordering/orders/orders-screen.tsx", "utf8");
     expect(src).toContain("const senderName = ORDER_SIGN_OFF;");
     expect(src).not.toMatch(/senderName\s*=\s*nameOf/);
+  });
+});
+
+describe("the Unassigned card", () => {
+  it("a product linked to an ingredient sends you to the ingredient to set its supplier", () => {
+    expect(unassignedAction({ id: "p1", ingredient_id: "ing-9" }, "/ordering/drift")).toEqual({ label: "Set A Supplier On The Ingredient", href: "/ingredients/ing-9" });
+  });
+  it("any other product sends you to the product, where its supplier is chosen from the supplier list", () => {
+    expect(unassignedAction({ id: "p1", ingredient_id: null }, "/ordering/drift")).toEqual({ label: "Choose A Supplier", href: "/ordering/drift/setup/products/p1" });
   });
 });

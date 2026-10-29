@@ -9,7 +9,7 @@ import { VenueAccent } from "@/components/venue";
 import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
 import { ORDER_SIGN_OFF, buildSupplierOrders, orderingVenueName } from "@/lib/ordering";
-import { brisbaneTime, countLabel, draftLinesFromGroup, orderCardGroups, pickCount, plural, sentOrdersFor } from "@/lib/ordering-orders-ui";
+import { brisbaneTime, countLabel, draftLinesFromGroup, orderCardGroups, pickCount, plural, sentOrdersFor, unassignedAction } from "@/lib/ordering-orders-ui";
 import type { SuggestedLine, SupplierOrderGroup } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
@@ -141,7 +141,7 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
                   />
                 );
               })}
-              {cards.unassigned ? <UnassignedCard group={cards.unassigned} slug={venue.slug} /> : null}
+              {cards.unassigned ? <UnassignedCard group={cards.unassigned} base={`/ordering/${venue.slug}`} /> : null}
             </div>
           ) : null}
 
@@ -153,29 +153,34 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
 }
 
 /** Products with no supplier: they cannot be ordered until a supplier is set, so this is a warning and a list, never a send. */
-function UnassignedCard({ group, slug }: { group: SupplierOrderGroup; slug: string }) {
+function UnassignedCard({ group, base }: { group: SupplierOrderGroup; base: string }) {
   return (
     <section aria-label="Products with no supplier" className="overflow-hidden rounded-2xl bg-surface">
       <div className="px-4 pt-4">
         <h3 className="text-[20px] font-semibold text-label">Unassigned</h3>
         <Notice tone="warn" className="mt-3" role="status">
           <p className="font-medium">{plural(group.lines.length + group.uncountedLines.length, "product")} with no supplier.</p>
-          <p className="mt-0.5 text-[14px] text-label-2">These are not on any order. Set a supplier on each product in the Ordering setup, then come back.</p>
-          <Link href={`/ordering/${slug}`} className="mt-1 inline-flex min-h-[44px] items-center gap-1.5 text-[15px] font-medium text-accent">
-            <AlertTriangle aria-hidden className="h-4 w-4" strokeWidth={2.5} />
-            Open Ordering
-          </Link>
+          <p className="mt-0.5 text-[14px] text-label-2">These are not on any order. A product linked to an ingredient takes its supplier from the ingredient. Any other product has its supplier set on the product.</p>
         </Notice>
       </div>
       <ul className="mt-2 pb-2">
-        {[...group.lines.map((l) => ({ l, note: `Suggested ${l.suggestion.orderQty}` })), ...group.uncountedLines.map((l) => ({ l, note: "Not counted" }))].map(({ l, note }) => (
-          <li key={l.product.id} className="flex items-center gap-3 border-t border-[color:var(--separator)] px-4 py-2.5 first:border-t-0">
-            <span className="min-w-0 flex-1 truncate text-[15px] text-label">{l.product.name}</span>
-            <span className="shrink-0 text-[13px] text-label-2 tnum">
-              {l.product.unit_name} · {note}
-            </span>
-          </li>
-        ))}
+        {[...group.lines.map((l) => ({ l, note: `Suggested ${l.suggestion.orderQty}` })), ...group.uncountedLines.map((l) => ({ l, note: "Not counted" }))].map(({ l, note }) => {
+          const action = unassignedAction(l.product, base);
+          return (
+            <li key={l.product.id} className="border-t border-[color:var(--separator)] px-4 py-2 first:border-t-0">
+              <div className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate text-[15px] text-label">{l.product.name}</span>
+                <span className="shrink-0 text-[13px] text-label-2 tnum">
+                  {l.product.unit_name} · {note}
+                </span>
+              </div>
+              <Link href={action.href} className="inline-flex min-h-[44px] items-center gap-1.5 text-[15px] font-medium text-accent">
+                <AlertTriangle aria-hidden className="h-4 w-4" strokeWidth={2.5} />
+                {action.label}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

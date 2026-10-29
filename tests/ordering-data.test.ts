@@ -8,6 +8,7 @@ import {
   blankCategory,
   blankProduct,
   blankSupplier,
+  ensureTermsRow,
   createCategory,
   createOrder,
   createProduct,
@@ -26,11 +27,15 @@ import {
   updateProduct,
   updateSupplier,
 } from "@/lib/ordering-data";
+import { insertRow } from "@/lib/store";
 import { buildSupplierOrders, draftLinesFromSuggestions } from "@/lib/ordering";
+import { copyVenueSetup } from "@/lib/ordering-screens-data";
+import { copyIsEmpty, planVenueCopy } from "@/lib/ordering-setup";
 import { fixtureId } from "@/lib/ordering-fixture";
 import type { CountEdit, OrderingProduct } from "@/lib/ordering-types";
 
 let sb: SupabaseClient;
+let testSupplierId = 0;
 beforeAll(async () => {
   // the demo client is the in-memory stand-in for the database: it needs a window and the (empty) demo data endpoint
   vi.stubGlobal("window", {});
@@ -67,13 +72,15 @@ describe("loading one venue", () => {
 });
 
 describe("suppliers, categories and products", () => {
-  it("creates a supplier with the defaults a null key lets the database apply", async () => {
-    const s = await createSupplier(sb, 2, blankSupplier("Test Supplier"));
+  it("creates a supplier's terms with the defaults a null key lets the database apply", async () => {
+    const master = ((await insertRow(sb, "cost_suppliers", { name: "Test Supplier" }).select("*")).data ?? [])[0] as { id: number };
+    testSupplierId = master.id;
+    const s = await createSupplier(sb, 2, blankSupplier(master.id, "Test Supplier"));
     expect(s).toMatchObject({ venue_id: 2, name: "Test Supplier", method: "email", show_prices_on_order: false, active: true, min_order_value: null });
     expect(s.updated_by).toBe("demo@precinct.local");
   });
   it("refuses a duplicate supplier or category name at the same venue, with a plain message", async () => {
-    await expect(createSupplier(sb, 2, blankSupplier("Test Supplier"))).rejects.toMatchObject({ name: "OrderingError", code: "23505", message: "A supplier called Test Supplier already exists at this venue." });
+    await expect(createSupplier(sb, 2, blankSupplier(testSupplierId, "Test Supplier"))).rejects.toMatchObject({ name: "OrderingError", code: "23505", message: "A supplier called Test Supplier already exists at this venue." });
     await createCategory(sb, 2, blankCategory("Wine"));
     await expect(createCategory(sb, 2, blankCategory("Wine"))).rejects.toThrow("A category called Wine already exists at this venue.");
     // the same name at another venue is fine: everything is separate per venue
@@ -100,7 +107,7 @@ describe("suppliers, categories and products", () => {
   it("a bookkeeping-only update is not a change", async () => {
     const before = (await history("ordering_suppliers")).length;
     const s = (await loadVenueOrdering(sb, 2)).suppliers[0];
-    await updateSupplier(sb, s.id, { name: s.name });
+    await updateSupplier(sb, s.id, { notes: s.notes });
     expect((await history("ordering_suppliers")).length).toBe(before);
   });
   it("an update that touches nothing is a failure, not a silent success", async () => {
@@ -249,6 +256,88 @@ describe("orders", () => {
   });
 });
 
+describe("one supplier list (the demo client stands in for the database)", () => {
+  const STAR = 9001;
+  const LION = 9002;
+  const COKE = 9004;
+  const terms = async (venue: number) => (await loadVenueOrdering(sb, venue)).suppliers;
+
+  it("ordering_terms_row makes a venue's terms row from the same supplier at another venue, once", async () => {
+    const row = await ensureTermsRow(sb, 8, STAR);
+    expect(row).toMatchObject({ venue_id: 8, cost_supplier_id: STAR, name: "Star", method: "email", email_to: "orders@star.example.com", rep_name: "Mark Holden", active: true, show_prices_on_order: false, account_no: null });
+    expect((await ensureTermsRow(sb, 8, STAR)).id).toBe(row.id);
+    expect((await terms(8)).filter((t) => t.cost_supplier_id === STAR)).toHaveLength(1);
+    // another venue's row is untouched
+    expect((await terms(1)).find((t) => t.cost_supplier_id === STAR)).toMatchObject({ account_no: "A1001" });
+  });
+  it("a supplier that is not in the list is refused, not invented", async () => {
+    await expect(ensureTermsRow(sb, 8, 424242)).rejects.toMatchObject({ name: "OrderingError", code: "23503" });
+  });
+  it("renaming the supplier in the list renames it at every venue, and the name cannot be edited on the terms row", async () => {
+    await ensureTermsRow(sb, 8, COKE);
+    await sb.from("cost_suppliers").update({ name: "Coca-Cola" }).eq("id", COKE);
+    try {
+      for (const v of [1, 3, 8]) expect((await terms(v)).find((t) => t.cost_supplier_id === COKE)?.name).toBe("Coca-Cola");
+      const t = (await terms(8)).find((x) => x.cost_supplier_id === COKE)!;
+      const edited = await sb.from("ordering_suppliers").update({ name: "Something Else", notes: "n" }).eq("id", t.id).select("*");
+      expect((edited.data as { name: string }[])[0].name).toBe("Coca-Cola");
+    } finally {
+      await sb.from("cost_suppliers").update({ name: "Coke" }).eq("id", COKE);
+    }
+    expect((await terms(1)).find((t) => t.cost_supplier_id === COKE)?.name).toBe("Coke");
+  });
+  it("a product linked to an ingredient takes its supplier from the ingredient, at every venue, and follows it", async () => {
+    await insertRow(sb, "cost_ingredients", { id: "ing-keg", name: "Test Keg", supplier_id: LION });
+    const cat8 = await createCategory(sb, 8, blankCategory("Kegs"));
+    const cat1 = (await loadVenueOrdering(sb, 1)).categories.find((c) => c.name === "Kegs")!;
+    const mine = await createProduct(sb, 8, { ...blankProduct(cat8.id, "Test Keg", "keg"), ingredient_id: "ing-keg" });
+    const drift = await createProduct(sb, 1, { ...blankProduct(cat1.id, "Test Keg Drift", "keg"), ingredient_id: "ing-keg" });
+    const lionAt = async (v: number) => (await terms(v)).find((t) => t.cost_supplier_id === LION)!.id;
+    expect(mine.supplier_id).toBe(await lionAt(8));
+    expect(drift.supplier_id).toBe(await lionAt(1));
+
+    // the supplier cannot be chosen on a linked product: the ingredient's wins
+    const forced = await updateProduct(sb, mine.id, { supplier_id: null });
+    expect(forced.supplier_id).toBe(await lionAt(8));
+
+    // change the ingredient's supplier and every venue's product moves with it
+    await sb.from("cost_ingredients").update({ supplier_id: STAR }).eq("id", "ing-keg");
+    const after = (await loadVenueOrdering(sb, 8)).products.find((p) => p.id === mine.id)!;
+    const afterDrift = (await loadVenueOrdering(sb, 1)).products.find((p) => p.id === drift.id)!;
+    expect(after.supplier_id).toBe((await terms(8)).find((t) => t.cost_supplier_id === STAR)!.id);
+    expect(afterDrift.supplier_id).toBe((await terms(1)).find((t) => t.cost_supplier_id === STAR)!.id);
+
+    // an ingredient with no supplier leaves the product with none
+    await sb.from("cost_ingredients").update({ supplier_id: null }).eq("id", "ing-keg");
+    expect((await loadVenueOrdering(sb, 8)).products.find((p) => p.id === mine.id)!.supplier_id).toBeNull();
+  });
+  it("an order-only product has its supplier chosen directly", async () => {
+    const cat = (await loadVenueOrdering(sb, 8)).categories.find((c) => c.name === "Kegs")!;
+    const straws = await createProduct(sb, 8, blankProduct(cat.id, "Straws", "carton"));
+    expect(straws.supplier_id).toBeNull();
+    const row = await ensureTermsRow(sb, 8, COKE);
+    expect((await updateProduct(sb, straws.id, { supplier_id: row.id })).supplier_id).toBe(row.id);
+    expect((await updateProduct(sb, straws.id, { supplier_id: null })).supplier_id).toBeNull();
+  });
+  it("Copy Products matches suppliers by the supplier, copies the source venue's terms, and never mixes venues", async () => {
+    const src = await loadVenueOrdering(sb, 1);
+    const empty = await loadVenueOrdering(sb, 9);
+    const plan = planVenueCopy(src, empty);
+    const result = await copyVenueSetup(sb, 9, plan, { categories: empty.categories, suppliers: empty.suppliers });
+    expect(result.suppliers).toBe(plan.suppliers.length);
+    const copied = await loadVenueOrdering(sb, 9);
+    expect(copied.suppliers.every((t) => t.venue_id === 9)).toBe(true);
+    const star = copied.suppliers.find((t) => t.cost_supplier_id === STAR)!;
+    expect(star).toMatchObject({ email_to: "orders@star.example.com", show_prices_on_order: true, account_no: null, name: "Star" });
+    // every copied product points at the target venue's own terms row for the same supplier
+    const vodka = copied.products.find((p) => p.name === "Vodka Bottle")!;
+    expect(vodka.supplier_id).toBe(star.id);
+    for (const p of copied.products) if (p.supplier_id) expect(copied.suppliers.some((t) => t.id === p.supplier_id)).toBe(true);
+    // a second copy has nothing left to add
+    expect(copyIsEmpty(planVenueCopy(src, copied))).toBe(true);
+  });
+});
+
 describe("inserts", () => {
   const fake = () => {
     const sent: unknown[] = [];
@@ -257,10 +346,10 @@ describe("inserts", () => {
   };
   it("strips null keys so a column default applies", async () => {
     const f = fake();
-    await createSupplier(f.client, 1, blankSupplier("X"), "id-1");
+    await createSupplier(f.client, 1, blankSupplier(5, "X"), "id-1");
     const payload = f.sent[0] as Record<string, unknown>;
     expect(Object.values(payload).some((v) => v === null || v === undefined)).toBe(false);
-    expect(payload).toMatchObject({ id: "id-1", venue_id: 1, name: "X", method: "email" });
+    expect(payload).toMatchObject({ id: "id-1", venue_id: 1, name: "X", cost_supplier_id: 5, method: "email" });
     expect("min_order_value" in payload).toBe(false);
   });
   it("this file has no raw insert: every insert goes through insertRow/insertRows from lib/store.tsx", () => {

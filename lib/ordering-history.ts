@@ -79,6 +79,7 @@ const LABELS: Record<string, string> = {
   deal_buy_qty: "Free Unit Deal: Buy",
   deal_free_qty: "Free Unit Deal: Free",
   supplier_id: "Supplier",
+  cost_supplier_id: "Supplier",
   category_id: "Category",
   supplier_item_code: "Supplier Item Code",
   ingredient_id: "Costing Ingredient",
@@ -133,6 +134,7 @@ export function orderingFmt(field: string, v: unknown, lk: OrderingLookups): str
   if (v == null || v === "") return "None";
   if (field === "venue_id") return lk.venueName(Number(v)) ?? "A venue";
   if (field === "supplier_id") return lk.recordName("ordering_suppliers", str(v)) ?? "A supplier";
+  if (field === "cost_supplier_id") return lk.recordName("cost_suppliers", str(v)) ?? "A supplier";
   if (field === "category_id") return lk.recordName("ordering_categories", str(v)) ?? "A category";
   if (field === "ingredient_id") return lk.ingredientName(str(v)) ?? "An ingredient";
   if (typeof v === "boolean") return v ? "Yes" : "No";

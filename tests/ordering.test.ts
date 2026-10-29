@@ -22,7 +22,7 @@ const prod = (over: Partial<OrderingProduct> = {}): OrderingProduct => ({
   price_inc_gst: null, ingredient_id: null, costing_packs_per_unit: null, par: 18, notes: null, active: true, ...over,
 });
 const supplier = (over: Partial<OrderingSupplier> = {}): OrderingSupplier => ({
-  id: "s1", venue_id: 1, name: "Star", method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null,
+  id: "s1", venue_id: 1, name: "Star", cost_supplier_id: 7, method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null,
   min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: 1, ...over,
 });
 const cat = (id: string, sort: number, name = id): OrderingCategory => ({ id, venue_id: 1, name, sort, second_location_label: null, unit_name: "carton" });

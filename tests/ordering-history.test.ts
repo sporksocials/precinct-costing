@@ -52,6 +52,15 @@ describe("ordering wording in the Change Log", () => {
     const evs = describeHistoryRow(row({ table_name: "ordering_suppliers", op: "update", old_row: { id: "s", venue_id: 1, name: "Star", show_prices_on_order: false, min_order_value: null }, new_row: { id: "s", venue_id: 1, name: "Star", show_prices_on_order: true, min_order_value: 650 }, changed_fields: ["min_order_value", "show_prices_on_order"] }), lk);
     expect(evs.map((x) => [x.title.split(": ")[1], x.oldValue, x.newValue])).toEqual([["Minimum Order Value", "None", "$650.00"], ["Show Prices On Order", "No", "Yes"]]);
   });
+  it("a terms row pointing at a different supplier reads as Supplier, with the supplier's name", () => {
+    const withMasters: HistoryLookups = { ...lk, recordName: (t, k) => (t === "cost_suppliers" ? ({ "7": "Star", "9": "Lion" } as Record<string, string>)[k] : lk.recordName(t, k)) };
+    const [e] = describeHistoryRow(row({ table_name: "ordering_suppliers", op: "update", old_row: { id: "s", venue_id: 1, name: "Star", cost_supplier_id: 7 }, new_row: { id: "s", venue_id: 1, name: "Lion", cost_supplier_id: 9 }, changed_fields: ["cost_supplier_id"] }), withMasters);
+    expect(e.title).toContain(": Supplier");
+    expect([e.oldValue, e.newValue]).toEqual(["Star", "Lion"]);
+    // no name known: still a readable word, never a number or an unknown field
+    expect(orderingFmt("cost_supplier_id", 7, { venueName: () => undefined, ingredientName: () => undefined, recordName: () => undefined })).toBe("A supplier");
+    expect(orderingFieldLabel("ordering_suppliers", "cost_supplier_id")).toBe("Supplier");
+  });
   it("an edit to a finalised count says the product, the place and the old value", () => {
     const base = { id: "l1", venue_id: 1, session_id: "ses", product_name: "Jim Beam", unit_name: "bottle" };
     const evs = describeHistoryRow(

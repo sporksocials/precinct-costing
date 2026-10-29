@@ -6,6 +6,7 @@
 import { cleanEmailList, cleanUrl, exGst, plainText, qtyText, supplierMethodFromContact } from "./ordering";
 import type { CategoryDraft, ProductDraft, SupplierDraft } from "./ordering-data";
 import type { OrderingCategory, OrderingMethod, OrderingProduct, OrderingSupplier } from "./ordering-types";
+import { cleanSupplierName, findSupplier } from "./suppliers";
 
 /* ------------------------------------------------------------------ labels and choices */
 
@@ -163,6 +164,93 @@ export function supplierSub(s: OrderingSupplier, productCount?: number): string 
   return bits.join(" · ");
 }
 
+/* ------------------------------------------------------------------ one supplier list */
+
+/** A supplier in the one list (cost_suppliers). `active` is missing on rows read before the column existed: those count as active. */
+export interface MasterSupplier {
+  id: number;
+  name: string;
+  active?: boolean;
+}
+
+/** Rows read before the active column existed have no `active`: they count as active. */
+export const isActiveMaster = (s: object): boolean => (s as { active?: boolean }).active !== false;
+
+const byName = <T extends { name: string }>(rows: readonly T[]): T[] => [...rows].sort((a, b) => a.name.localeCompare(b.name));
+
+/**
+ * The suppliers the Add Supplier sheet offers: active suppliers from the one list that this venue has no terms row for yet
+ * (a terms row switched off still counts as "at this venue": turn it back on from the list instead of adding it twice).
+ */
+export function suppliersNotAtVenue(masters: readonly MasterSupplier[], terms: readonly Pick<OrderingSupplier, "cost_supplier_id">[]): MasterSupplier[] {
+  const have = new Set(terms.map((t) => t.cost_supplier_id));
+  return byName(masters.filter((m) => isActiveMaster(m) && !have.has(m.id)));
+}
+
+export type AddSupplierPlan =
+  | { kind: "empty"; message: string }
+  /** this venue already has the supplier (maybe switched off) */
+  | { kind: "at_venue"; message: string; terms: OrderingSupplier }
+  /** the name belongs to a supplier that is switched off in the list */
+  | { kind: "inactive"; message: string }
+  /** the supplier is in the list but not at this venue yet */
+  | { kind: "existing"; master: MasterSupplier }
+  /** nobody has this supplier: it is added to the list first */
+  | { kind: "new"; name: string };
+
+/**
+ * What typing a name in "Add A New Supplier" does. The same duplicate-safe rule as Add New Supplier on an ingredient
+ * (lib/suppliers.ts): "Bid Food Pty Ltd" is Bidfood, so a supplier is never added to the list twice.
+ */
+export function planAddSupplier(typed: string, masters: readonly MasterSupplier[], terms: readonly OrderingSupplier[]): AddSupplierPlan {
+  const name = cleanSupplierName(typed);
+  if (!name) return { kind: "empty", message: "Type the supplier's name." };
+  const match = findSupplier(masters, name);
+  if (!match) return { kind: "new", name };
+  const here = terms.find((t) => t.cost_supplier_id === match.id);
+  if (here) return { kind: "at_venue", terms: here, message: `${match.name} is already one of this venue's suppliers.` };
+  if (!isActiveMaster(match)) return { kind: "inactive", message: `${match.name} is switched off on the Suppliers tab of Ingredients. Turn it on there to use it.` };
+  return { kind: "existing", master: match };
+}
+
+/** The chips for choosing the supplier of an order-only product: the active suppliers, plus the current one even if it is switched off. */
+export function supplierChoices(masters: readonly MasterSupplier[], currentCostSupplierId: number | null): { value: string; label: string }[] {
+  const rows = byName(masters.filter((m) => isActiveMaster(m) || m.id === currentCostSupplierId));
+  return [{ value: "", label: "No Supplier" }, ...rows.map((m) => ({ value: String(m.id), label: isActiveMaster(m) ? m.name : `${m.name} (inactive)` }))];
+}
+
+export type ProductSupplierView =
+  /** linked to an ingredient: the supplier is the ingredient's and is changed there */
+  | { kind: "ingredient"; ingredientId: string; ingredientName: string | null; supplierName: string | null; costSupplierId: number | null }
+  /** not linked: the supplier is chosen on the product */
+  | { kind: "direct"; supplierName: string | null; costSupplierId: number | null };
+
+/**
+ * How a product's supplier is shown and set. A product linked to an ingredient takes its supplier from the ingredient (the
+ * database keeps them in step), so the screen reads the ingredient's supplier and offers a link instead of a choice. The
+ * ingredient may be missing from the loaded list; the terms row's name is then the best that is known.
+ */
+export function productSupplierView(
+  product: Pick<OrderingProduct, "ingredient_id" | "supplier_id">,
+  ingredient: { id: string; name: string; supplier_id: number | null } | null,
+  masters: readonly MasterSupplier[],
+  terms: readonly Pick<OrderingSupplier, "id" | "name" | "cost_supplier_id">[],
+): ProductSupplierView {
+  const row = product.supplier_id ? terms.find((t) => t.id === product.supplier_id) ?? null : null;
+  if (product.ingredient_id) {
+    const costId = ingredient ? ingredient.supplier_id : row?.cost_supplier_id ?? null;
+    const name = costId != null ? masters.find((m) => m.id === costId)?.name ?? row?.name ?? null : null;
+    return { kind: "ingredient", ingredientId: product.ingredient_id, ingredientName: ingredient?.name ?? null, supplierName: name, costSupplierId: costId };
+  }
+  return { kind: "direct", supplierName: row?.name ?? null, costSupplierId: row?.cost_supplier_id ?? null };
+}
+
+/** The sentence under a linked product's supplier. */
+export function ingredientSupplierSentence(v: Extract<ProductSupplierView, { kind: "ingredient" }>): string {
+  if (v.supplierName == null) return "No supplier yet. Set one on the ingredient.";
+  return `${v.supplierName} is the supplier of ${v.ingredientName ?? "the linked ingredient"}. It is changed there, and every venue's order list follows.`;
+}
+
 /* ------------------------------------------------------------------ product pricing */
 
 export interface ProductPricing {
@@ -295,14 +383,18 @@ export interface CopySource {
 export interface CopyPlan {
   suppliers: SupplierDraft[];
   categories: CategoryDraft[];
-  /** category and supplier are named, not identified: the ids are only known once those rows exist in the target venue */
-  products: { categoryName: string; supplierName: string | null; draft: Omit<ProductDraft, "category_id" | "supplier_id"> }[];
+  /**
+   * The category is named, not identified: its id is only known once the row exists in the target venue. The supplier is the
+   * one in the supplier list (`costSupplierId`), never matched by name: the target's terms row for it is made when needed.
+   */
+  products: { categoryName: string; costSupplierId: number | null; draft: Omit<ProductDraft, "category_id" | "supplier_id"> }[];
   /** rows the target venue already has (matched by name), left alone */
   skipped: { suppliers: number; categories: number; products: number };
 }
 
 /**
- * What copying one venue's list into another would add. Matches by name (case-insensitive), so running it twice, or into a
+ * What copying one venue's list into another would add. Categories and products match by name (case-insensitive) and suppliers by the supplier
+ * they are (cost_supplier_id), never by name, so running it twice, or into a
  * venue that already has some of the list, adds only what is missing and never duplicates.
  * Copied: categories (name, order, second place, default unit), suppliers (name, how orders go out, email, login link, rep,
  * minimums, price switch, notes) and ACTIVE products (name, unit, supplier, item code, pack multiple, notes).
@@ -311,7 +403,7 @@ export interface CopyPlan {
  */
 export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan {
   const haveCat = new Set(target.categories.map((c) => norm(c.name)));
-  const haveSup = new Set(target.suppliers.map((s) => norm(s.name)));
+  const haveSup = new Set(target.suppliers.map((s) => s.cost_supplier_id));
   const targetCatName = new Map(target.categories.map((c) => [c.id, norm(c.name)]));
   const haveProd = new Set(target.products.map((p) => `${targetCatName.get(p.category_id) ?? ""}|${norm(p.name)}`));
   const nextCatSort = Math.max(0, ...target.categories.map((c) => c.sort)) + 1;
@@ -331,12 +423,13 @@ export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan 
   const srcSups = bySortThenName(source.suppliers);
   const suppliers: SupplierDraft[] = [];
   srcSups.forEach((s) => {
-    if (haveSup.has(norm(s.name))) {
+    if (haveSup.has(s.cost_supplier_id)) {
       skipped.suppliers += 1;
       return;
     }
     suppliers.push({
       name: s.name,
+      cost_supplier_id: s.cost_supplier_id,
       method: s.method,
       email_to: s.email_to,
       login_url: s.login_url,
@@ -353,7 +446,7 @@ export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan 
   });
 
   const catName = new Map(source.categories.map((c) => [c.id, c.name]));
-  const supName = new Map(source.suppliers.map((s) => [s.id, s.name]));
+  const supCostId = new Map(source.suppliers.map((s) => [s.id, s.cost_supplier_id]));
   const targetMaxSort = new Map<string, number>();
   for (const p of target.products) targetMaxSort.set(norm(targetCatName.get(p.category_id)), Math.max(targetMaxSort.get(norm(targetCatName.get(p.category_id))) ?? 0, p.sort));
   const perCat = new Map<string, number>();
@@ -377,7 +470,7 @@ export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan 
     perCat.set(key, n);
     products.push({
       categoryName: cn,
-      supplierName: p.supplier_id ? supName.get(p.supplier_id) ?? null : null,
+      costSupplierId: p.supplier_id ? supCostId.get(p.supplier_id) ?? null : null,
       draft: {
         sort: (targetMaxSort.get(key) ?? 0) + n,
         name: p.name,

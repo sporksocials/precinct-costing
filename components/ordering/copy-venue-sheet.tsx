@@ -24,7 +24,7 @@ export function CopyVenueSheet({ target, open, onClose, onDone }: { target: Venu
   const others = useMemo(() => venues.filter((v) => v.id !== target.id).sort((a, b) => a.sort - b.sort), [venues, target.id]);
   const [sourceId, setSourceId] = useState<number | null>(null);
   const [plan, setPlan] = useState<CopyPlan | null>(null);
-  const [targetData, setTargetData] = useState<{ categories: { id: string; name: string }[]; suppliers: { id: string; name: string }[] } | null>(null);
+  const [targetData, setTargetData] = useState<{ categories: { id: string; name: string }[]; suppliers: { id: string; cost_supplier_id: number }[] } | null>(null);
   const [busy, setBusy] = useState<"loading" | "copying" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +51,7 @@ export function CopyVenueSheet({ target, open, onClose, onDone }: { target: Venu
       .then(([src, tgt]) => {
         if (!live) return;
         setPlan(planVenueCopy(src, tgt));
-        setTargetData({ categories: tgt.categories, suppliers: tgt.suppliers });
+        setTargetData({ categories: tgt.categories, suppliers: tgt.suppliers.map((x) => ({ id: x.id, cost_supplier_id: x.cost_supplier_id })) });
       })
       .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
       .finally(() => live && setBusy(null));

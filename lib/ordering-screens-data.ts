@@ -10,9 +10,11 @@ import {
   ORDERING_UNAVAILABLE,
   OrderingError,
   T,
+  ensureTermsRow,
   updateCategory,
   updateProduct,
   updateSupplier,
+  type SupplierDraft,
 } from "./ordering-data";
 import type { CopyPlan } from "./ordering-setup";
 import { insertRows, newId } from "./store";
@@ -105,20 +107,21 @@ export interface CopyResult {
 }
 
 /**
- * Adds what the plan says to the target venue: categories and suppliers first, then products pointing at them by name. Rows
- * the venue already has are matched by name, never duplicated, so a copy that stopped half way can simply be run again.
- * `existing` is the target venue's current categories and suppliers (to find ids for products whose category or supplier
- * already existed).
+ * Adds what the plan says to the target venue: categories and suppliers first, then products pointing at them. Rows the venue
+ * already has are matched (categories by name, suppliers by the supplier they are, never by name), never duplicated, so a copy
+ * that stopped half way can simply be run again. A supplier is added by making the venue's terms row for it (the database finds
+ * or creates it), then the source venue's terms are written over it. `existing` is the target venue's current categories and
+ * suppliers (to find ids for products whose category or supplier already existed).
  */
 export async function copyVenueSetup(
   sb: SupabaseClient,
   targetVenueId: number,
   plan: CopyPlan,
-  existing: { categories: readonly { id: string; name: string }[]; suppliers: readonly { id: string; name: string }[] },
+  existing: { categories: readonly { id: string; name: string }[]; suppliers: readonly { id: string; cost_supplier_id: number }[] },
 ): Promise<CopyResult> {
   const key = (s: string) => s.trim().toLowerCase();
   const catId = new Map(existing.categories.map((c) => [key(c.name), c.id]));
-  const supId = new Map(existing.suppliers.map((s) => [key(s.name), s.id]));
+  const supId = new Map<number, string>(existing.suppliers.map((s) => [s.cost_supplier_id, s.id]));
 
   if (plan.categories.length) {
     const rows = plan.categories.map((c) => ({ ...c, id: newId(), venue_id: targetVenueId }));
@@ -126,20 +129,27 @@ export async function copyVenueSetup(
     if (error) fail(error);
     for (const r of rows) catId.set(key(r.name), r.id);
   }
-  if (plan.suppliers.length) {
-    const rows = plan.suppliers.map((s) => ({ ...s, id: newId(), venue_id: targetVenueId }));
-    const { error } = await insertRows(sb, T.suppliers, rows).select("id");
-    if (error) fail(error);
-    for (const r of rows) supId.set(key(r.name), r.id);
+  for (const draft of plan.suppliers) {
+    const row = await ensureTermsRow(sb, targetVenueId, draft.cost_supplier_id);
+    // the name and the supplier are the list's; everything else is the source venue's terms
+    const terms: Partial<SupplierDraft> = { ...draft };
+    delete terms.name;
+    delete terms.cost_supplier_id;
+    await updateSupplier(sb, row.id, terms);
+    supId.set(draft.cost_supplier_id, row.id);
+  }
+  // a product's supplier that this venue has no terms row for yet (it is in neither list above): made now, once each
+  for (const p of plan.products) {
+    if (p.costSupplierId != null && !supId.has(p.costSupplierId)) supId.set(p.costSupplierId, (await ensureTermsRow(sb, targetVenueId, p.costSupplierId)).id);
   }
   let products = 0;
   for (let i = 0; i < plan.products.length; i += 100) {
-    const rows = plan.products.slice(i, i + 100).map((p) => ({
-      ...p.draft,
+    const rows = plan.products.slice(i, i + 100).map(({ categoryName, costSupplierId, draft }) => ({
+      ...draft,
       id: newId(),
       venue_id: targetVenueId,
-      category_id: catId.get(key(p.categoryName)),
-      supplier_id: p.supplierName ? supId.get(key(p.supplierName)) ?? null : null,
+      category_id: catId.get(key(categoryName)),
+      supplier_id: costSupplierId != null ? supId.get(costSupplierId) ?? null : null,
     }));
     const { error } = await insertRows(sb, T.products, rows).select("id");
     if (error) fail(error);

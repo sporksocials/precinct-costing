@@ -3,12 +3,12 @@
 import { useParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import { updateProduct, type ProductDraft } from "@/lib/ordering-data";
+import { ensureTermsRow, updateProduct, type ProductDraft } from "@/lib/ordering-data";
 import { exGst, qtyText } from "@/lib/ordering";
 import { brisbaneToday } from "@/lib/deals";
 import { dateShort } from "@/lib/format";
 import { compareSentence } from "@/lib/supplier-compare";
-import { bySortThenName, moneyInput, nameTaken, packsSentence, parseMoney, parseQuantity, parseWhole, UNIT_CHOICE_OPTIONS, unitChoice, unitTitle, type UnitChoice } from "@/lib/ordering-setup";
+import { bySortThenName, ingredientSupplierSentence, isActiveMaster, moneyInput, nameTaken, packsSentence, parseMoney, parseQuantity, parseWhole, productSupplierView, supplierChoices, UNIT_CHOICE_OPTIONS, unitChoice, unitTitle, type UnitChoice } from "@/lib/ordering-setup";
 import { Banner, Empty, Group, PageHeader } from "@/components/ui";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
 import { upsertById, useVenueData } from "@/components/ordering/use-venue-data";
@@ -31,7 +31,10 @@ export default function OrderingProductPage() {
   const categories = useMemo(() => bySortThenName(data?.categories ?? []), [data?.categories]);
   const category = categories.find((c) => c.id === product?.category_id) ?? null;
   const ingredient = product?.ingredient_id ? store.ingredients.find((i) => i.id === product.ingredient_id) ?? null : null;
-  const suppliers = useMemo(() => bySortThenName((data?.suppliers ?? []).filter((s) => s.active || s.id === product?.supplier_id)), [data?.suppliers, product?.supplier_id]);
+  // the one supplier list: a linked product's supplier is its ingredient's; an order-only product picks one from the list
+  const masters = store.suppliers;
+  const supplierView = useMemo(() => (product ? productSupplierView(product, ingredient, masters, data?.suppliers ?? []) : null), [product, ingredient, masters, data?.suppliers]);
+  const ownSupplierId = supplierView?.costSupplierId ?? null;
   const setError = (k: string, v: string | null) => setErrors((e) => ({ ...e, [k]: v }));
 
   const persist = useCallback(
@@ -50,6 +53,19 @@ export default function OrderingProductPage() {
     [sb, id, apply],
   );
 
+  /** An order-only product's supplier: make this venue's terms row for it (or find it), then point the product at it. */
+  async function chooseSupplier(value: string) {
+    setError("supplier", null);
+    if (!value) return void persist({ supplier_id: null });
+    try {
+      const row = await ensureTermsRow(sb, venue.id, Number(value));
+      apply((d) => ({ ...d, suppliers: upsertById(d.suppliers, row) }));
+      await persist({ supplier_id: row.id });
+    } catch (e) {
+      setError("supplier", e instanceof Error ? e.message : String(e));
+    }
+  }
+
   if (!product) {
     return (
       <div className="max-w-2xl lg:pt-6">
@@ -64,6 +80,11 @@ export default function OrderingProductPage() {
   const nullable = (t: string) => (t.trim() === "" ? null : t.trim());
   const unitPick: UnitChoice = (otherUnit ?? unitChoice(product.unit_name) === "other") ? "other" : unitChoice(product.unit_name);
   const priceEx = product.price_inc_gst != null ? exGst(Number(product.price_inc_gst)) : null;
+  // the other supplier is any active supplier in the list except this product's own
+  const otherSupplierNames = masters
+    .filter((m) => (isActiveMaster(m) && m.id !== ownSupplierId) || m.name === product.alt_supplier_name)
+    .map((m) => m.name)
+    .sort((x, y) => x.localeCompare(y));
   const sentence = ingredient ? packsSentence(product.unit_name, product.price_inc_gst, product.costing_packs_per_unit) : null;
 
   return (
@@ -127,9 +148,25 @@ export default function OrderingProductPage() {
       </Group>
 
       <Group title="Supplier">
-        <ChoiceBlock label="Supplier">
-          <TouchChips wrap ariaLabel="Supplier" value={product.supplier_id ?? ""} onChange={(v) => void persist({ supplier_id: v || null })} options={[{ value: "", label: "No Supplier" }, ...suppliers.map((s) => ({ value: s.id, label: s.active ? s.name : `${s.name} (inactive)` }))]} />
-        </ChoiceBlock>
+        {supplierView?.kind === "ingredient" ? (
+          <div className="px-4 py-3">
+            <p className="text-[13px] font-medium text-label-2">Supplier</p>
+            <p className="mt-0.5 text-[17px]">{supplierView.supplierName ?? "No supplier yet"}</p>
+            <p className="mt-0.5 text-[13px] text-label-2">{ingredientSupplierSentence(supplierView)}</p>
+            <TouchLink href={`/ingredients/${supplierView.ingredientId}`} className="mt-3 w-full sm:w-auto">
+              Change It On The Ingredient
+            </TouchLink>
+          </div>
+        ) : (
+          <ChoiceBlock label="Supplier" hint="Pick from the supplier list. A product linked to an ingredient takes its supplier from the ingredient instead.">
+            <TouchChips wrap ariaLabel="Supplier" value={ownSupplierId == null ? "" : String(ownSupplierId)} onChange={(v) => void chooseSupplier(v)} options={supplierChoices(masters, ownSupplierId)} />
+            {errors.supplier ? (
+              <p role="alert" className="mt-2 text-[13px] text-danger">
+                {errors.supplier}
+              </p>
+            ) : null}
+          </ChoiceBlock>
+        )}
         <TextField label="Supplier Item Code" value={product.supplier_item_code ?? ""} placeholder="Star item number" onCommit={(t) => void persist({ supplier_item_code: nullable(t) })} />
         <TextField
           label="Pack Multiple"
@@ -153,7 +190,7 @@ export default function OrderingProductPage() {
             ariaLabel="Other supplier"
             value={product.alt_supplier_name ?? ""}
             onChange={(v) => void persist({ alt_supplier_name: v || null, ...(v ? {} : { alt_item_code: null, alt_price_inc_gst: null, alt_price_on: null }) })}
-            options={[{ value: "", label: "None" }, ...suppliers.filter((s) => s.id !== product.supplier_id).map((s) => ({ value: s.name, label: s.name }))]}
+            options={[{ value: "", label: "None" }, ...otherSupplierNames.map((n) => ({ value: n, label: n }))]}
           />
         </ChoiceBlock>
         {product.alt_supplier_name ? (

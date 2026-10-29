@@ -4,6 +4,12 @@ import path from "node:path";
 import {
   applySort,
   contactTarget,
+  ingredientSupplierSentence,
+  isActiveMaster,
+  planAddSupplier,
+  productSupplierView,
+  supplierChoices,
+  suppliersNotAtVenue,
   copyImpactLines,
   copyIsEmpty,
   moneyInput,
@@ -212,11 +218,11 @@ describe("Copy Products From Another Venue", () => {
       expect(p.draft.costing_packs_per_unit).toBeNull();
     }
     const vodka = plan.products.find((p) => p.draft.name === "Vodka Bottle")!;
-    expect(vodka).toMatchObject({ categoryName: "Spirits", supplierName: "Star" });
+    expect(vodka).toMatchObject({ categoryName: "Spirits", costSupplierId: 9001 });
     expect(vodka.draft.pack_multiple).toBe(12);
     expect(vodka.draft.supplier_item_code).toBe("300303");
   });
-  it("the plan holds names, not ids, so nothing from the source venue can leak into the target", () => {
+  it("the plan holds names and supplier list ids, not venue row ids, so nothing from the source venue can leak into the target", () => {
     const json = JSON.stringify(planVenueCopy(drift, empty));
     expect(json).not.toContain("venue_id");
     for (const p of drift.products) expect(json).not.toContain(p.id);
@@ -226,7 +232,7 @@ describe("Copy Products From Another Venue", () => {
     const off = { ...drift, products: drift.products.map((p, i) => (i < 2 ? { ...p, active: false } : p)) };
     expect(planVenueCopy(off, empty).products).toHaveLength(drift.products.length - 2);
   });
-  it("matches by name, so a second copy adds nothing and a partial venue only gets what is missing", () => {
+  it("matches categories and products by name and suppliers by the supplier they are, so a second copy adds nothing and a partial venue only gets what is missing", () => {
     // Greedy already has its own list: copying Drift adds only the Star supplier and the 15 L Lift bag (Greedy's is 5 L)
     const plan = planVenueCopy(drift, greedy);
     expect(plan.categories).toEqual([]);
@@ -238,6 +244,25 @@ describe("Copy Products From Another Venue", () => {
     expect(plan.skipped.products).toBe(drift.products.length - 1);
     // the new product goes after the last product Greedy already has in Post-Mix
     expect(plan.products[0].draft.sort).toBe(13);
+  });
+  it("suppliers match by the supplier list, never by name: a renamed terms row is still the same supplier", () => {
+    // Greedy's Lion row carries an old name; it is still supplier 9002, so Lion is not offered again
+    const renamed = { ...greedy, suppliers: greedy.suppliers.map((s) => (s.name === "Lion" ? { ...s, name: "Lion Nathan" } : s)) };
+    const plan = planVenueCopy(drift, renamed);
+    expect(plan.suppliers.map((s) => s.cost_supplier_id)).toEqual([9001]);
+    expect(plan.suppliers.map((s) => s.cost_supplier_id)).not.toContain(9002);
+    // and a name that happens to match is not enough: another supplier called Star is a different supplier
+    const other = { ...greedy, suppliers: [{ ...greedy.suppliers[0], name: "Star", cost_supplier_id: 4242 }] };
+    expect(planVenueCopy(drift, other).suppliers.map((s) => s.cost_supplier_id)).toContain(9001);
+  });
+  it("each copied product names the supplier list id of its supplier (null when it has none)", () => {
+    const plan = planVenueCopy(drift, empty);
+    const byName = new Map(plan.products.map((p) => [p.draft.name, p.costSupplierId]));
+    expect(byName.get("XXXX Gold Keg")).toBe(9002);
+    expect(byName.get("Ginger Beer Keg")).toBe(9003);
+    expect(byName.get("Coke")).toBe(9004);
+    const none = planVenueCopy({ ...drift, products: drift.products.map((p) => ({ ...p, supplier_id: null })) }, empty);
+    expect(none.products.every((p) => p.costSupplierId === null)).toBe(true);
   });
   it("new rows continue the target's sort order", () => {
     const target = { suppliers: [], categories: [{ ...drift.categories[0], id: "t1", sort: 7, name: "Kegs" }], products: [] };
@@ -263,6 +288,85 @@ describe("Copy Products From Another Venue", () => {
   });
   it("fixture ids differ per venue", () => {
     expect(fixtureId("prd", 1, 1)).not.toBe(fixtureId("prd", 3, 1));
+  });
+});
+
+/* ------------------------------------------------------------------ one supplier list */
+
+describe("the one supplier list on the ordering screens", () => {
+  const masters = [
+    { id: 9001, name: "Star" },
+    { id: 9002, name: "Lion" },
+    { id: 9003, name: "Diablo", active: false },
+    { id: 9004, name: "Coke" },
+    { id: 9005, name: "Bidfood" },
+  ];
+  const here = greedy.suppliers.filter((s) => s.name !== "Diablo"); // Lion and Coke at this venue
+
+  it("Add Supplier offers the active suppliers this venue has no terms row for, A to Z", () => {
+    expect(suppliersNotAtVenue(masters, here).map((m) => m.name)).toEqual(["Bidfood", "Star"]);
+    expect(suppliersNotAtVenue(masters, [])).toHaveLength(4); // the switched off Diablo is never offered
+    expect(suppliersNotAtVenue(masters, drift.suppliers).map((m) => m.name)).toEqual(["Bidfood"]);
+  });
+  it("a terms row that is switched off still counts as at this venue", () => {
+    const off = here.map((s) => (s.name === "Lion" ? { ...s, active: false } : s));
+    expect(suppliersNotAtVenue(masters, off).map((m) => m.name)).not.toContain("Lion");
+  });
+  it("a supplier with no active flag (read before the column existed) counts as active", () => {
+    expect(isActiveMaster({ id: 1, name: "X" })).toBe(true);
+    expect(isActiveMaster({ id: 1, name: "X", active: true })).toBe(true);
+    expect(isActiveMaster({ id: 1, name: "X", active: false })).toBe(false);
+  });
+  describe("typing a name in Add A New Supplier", () => {
+    it("asks for a name when there is none", () => {
+      expect(planAddSupplier("   ", masters, here)).toMatchObject({ kind: "empty" });
+    });
+    it("uses a supplier the list already has, however it is typed, instead of adding it twice", () => {
+      expect(planAddSupplier("bid food pty ltd", masters, here)).toEqual({ kind: "existing", master: masters[4] });
+      expect(planAddSupplier("STAR", masters, here)).toEqual({ kind: "existing", master: masters[0] });
+    });
+    it("says so when this venue already has the supplier", () => {
+      const r = planAddSupplier("lion", masters, here);
+      expect(r).toMatchObject({ kind: "at_venue", message: "Lion is already one of this venue's suppliers." });
+    });
+    it("does not quietly use a supplier that is switched off", () => {
+      const r = planAddSupplier("Diablo", masters, here);
+      expect(r.kind).toBe("inactive");
+      expect((r as { message: string }).message).toMatch(/Suppliers tab of Ingredients/);
+    });
+    it("adds a name nobody has to the list, tidied like every other name", () => {
+      expect(planAddSupplier("  new   wine  co ", masters, here)).toEqual({ kind: "new", name: "New Wine Co" });
+    });
+  });
+  describe("the supplier of a product", () => {
+    const linked = { ingredient_id: "ing1", supplier_id: "t-lion" };
+    const direct = { ingredient_id: null, supplier_id: "t-lion" };
+    const terms = [{ id: "t-lion", name: "Lion", cost_supplier_id: 9002 }];
+    it("a product linked to an ingredient shows the ingredient's supplier and where to change it", () => {
+      const v = productSupplierView(linked, { id: "ing1", name: "XXXX Gold Keg", supplier_id: 9001 }, masters, terms);
+      expect(v).toMatchObject({ kind: "ingredient", ingredientId: "ing1", ingredientName: "XXXX Gold Keg", supplierName: "Star", costSupplierId: 9001 });
+      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toBe("Star is the supplier of XXXX Gold Keg. It is changed there, and every venue's order list follows.");
+    });
+    it("a linked product whose ingredient has no supplier says to set one on the ingredient", () => {
+      const v = productSupplierView({ ingredient_id: "ing1", supplier_id: null }, { id: "ing1", name: "XXXX Gold Keg", supplier_id: null }, masters, terms);
+      expect(v).toMatchObject({ kind: "ingredient", supplierName: null, costSupplierId: null });
+      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toBe("No supplier yet. Set one on the ingredient.");
+    });
+    it("when the ingredient is not loaded, the terms row says what is known", () => {
+      const v = productSupplierView(linked, null, masters, terms);
+      expect(v).toMatchObject({ kind: "ingredient", ingredientName: null, supplierName: "Lion", costSupplierId: 9002 });
+      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toContain("the linked ingredient");
+    });
+    it("an order-only product reads its supplier from its terms row", () => {
+      expect(productSupplierView(direct, null, masters, terms)).toEqual({ kind: "direct", supplierName: "Lion", costSupplierId: 9002 });
+      expect(productSupplierView({ ingredient_id: null, supplier_id: null }, null, masters, terms)).toEqual({ kind: "direct", supplierName: null, costSupplierId: null });
+    });
+    it("the picker for an order-only product lists the active suppliers, None first, and keeps a switched off current one", () => {
+      expect(supplierChoices(masters, null).map((c) => c.label)).toEqual(["No Supplier", "Bidfood", "Coke", "Lion", "Star"]);
+      const withOff = supplierChoices(masters, 9003);
+      expect(withOff.find((c) => c.value === "9003")?.label).toBe("Diablo (inactive)");
+      expect(supplierChoices(masters, null)[0]).toEqual({ value: "", label: "No Supplier" });
+    });
   });
 });
 
@@ -297,6 +401,18 @@ describe("Ordering home, Setup and History screens: house rules", () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+  it("one supplier list: the supplier name is read only on a terms page, and a linked product's supplier is changed on its ingredient", () => {
+    const supplierPage = readFileSync(path.join("app", "(app)", "ordering", "[venue]", "setup", "suppliers", "[id]", "page.tsx"), "utf8");
+    expect(supplierPage).toContain("/ingredients?type=suppliers");
+    expect(supplierPage).toContain("Renamed on the Suppliers tab of Ingredients");
+    expect(supplierPage).not.toMatch(/persist\(\{\s*name/);
+    const productPage = readFileSync(path.join("app", "(app)", "ordering", "[venue]", "setup", "products", "[id]", "page.tsx"), "utf8");
+    expect(productPage).toContain("Change It On The Ingredient");
+    expect(productPage).toContain("/ingredients/${supplierView.ingredientId}");
+    expect(productPage).toContain("ensureTermsRow");
+    // the supplier is never written for a linked product from this page
+    expect(productPage).toContain('supplierView?.kind === "ingredient"');
   });
   it("no bare delete: Ordering uses Active switches, never deletes a record", () => {
     for (const f of MY_FILES) expect(readFileSync(f, "utf8"), f).not.toMatch(/\.delete\(\)/);

@@ -95,9 +95,9 @@ export function SuppliersList({ adding, setAdding }: { adding: boolean; setAddin
               initialSort={{ key: "name", dir: "asc" }}
               columns={[
                 { key: "name", label: "Supplier", render: (s) => <span className="font-medium"><TitleWithTag name={s.name} active={s.active} /></span>, sort: (s) => s.name },
-                { key: "n", label: "Ingredients", align: "right", render: (s) => <span className="text-label-2">{s.ingredients || "—"}</span>, sort: (s) => s.ingredients },
+                { key: "n", label: "Ingredients", align: "right", render: (s) => <span className="text-label-2">{s.ingredients}</span>, sort: (s) => s.ingredients },
                 { key: "venues", label: "Ordered At", render: venuesCell },
-                { key: "inv", label: "Invoices", render: (s) => tag(s) ?? <span className="text-label-3">—</span> },
+                { key: "inv", label: "Invoices", render: (s) => tag(s) ?? <span className="text-label-3">None</span> },
               ]}
             />
           </div>

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { batchLineDisplay, batchServesText, batchTotalText, bottleMl, bottleSizeText, bottlesText, clampBottles, MAX_BOTTLES, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
+import { batchLineDisplay, batchServesText, batchTotalText, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, makesText, MAX_BOTTLES, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
 import { syncedLabel } from "@/lib/bar";
 import { cx } from "../ui";
 import { BottleIcon } from "./glass-icon";
@@ -141,14 +141,21 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
   const size = bottleSizeText(p, slug);
   // how many bottles the team is making right now; lives on the card only (nothing is saved), and a refresh keeps it because the card keeps its key
   const [bottles, setBottles] = useState(1);
-  const total = batchTotalText(p, bottles);
+  const drinks = drinksPerBottle(p);
+  const total = batchTotalText(p, bottles, drinks);
   return (
     <section id={anchorId(p)} className={cx(CARD, "scroll-mt-4 px-5 py-5")}>
       <div className="flex items-start gap-4">
         <BottleIcon size={40} className="mt-[2px] shrink-0 text-[color:var(--bar-text)]" />
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-[40px] leading-[1.02] tracking-[0.5px]">{p.name}</h2>
-          {size ? <p className="mt-[6px] text-[20px] font-medium text-[color:var(--bar-text)]">{size}</p> : null}
+          {size || drinks ? (
+            <p className="mt-[6px] text-[20px] font-medium text-[color:var(--bar-text)]">
+              {size}
+              {size && drinks ? <span aria-hidden className="mx-2 text-[#9B9890]">&middot;</span> : null}
+              {drinks ? <span className="text-[#D9C3A0]">{makesText(drinks)}</span> : null}
+            </p>
+          ) : null}
         </div>
       </div>
 

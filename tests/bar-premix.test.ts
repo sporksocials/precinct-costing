@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { shotsFor } from "@/lib/bar";
-import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
+import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, makesText, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
 import { stationWorkerSource } from "@/lib/sw-source";
 
 const NOW = "2026-10-04T08:00:00.000Z";
@@ -66,16 +66,38 @@ describe("parseBarPremix", () => {
   });
 });
 
+describe("drinks per bottle", () => {
+  const p = (yieldQty: number, ...pours: number[]) => ({ yieldQty, yieldUnit: "L", usedIn: pours.map((qty, i) => ({ drink: `D${i}`, qty, unit: "ml" })) });
+  it("is the batch volume over the pour, whole drinks only", () => {
+    expect(drinksPerBottle(p(0.63, 90))).toBe(7);
+    expect(drinksPerBottle(p(0.665, 95))).toBe(7);
+    expect(drinksPerBottle(p(0.675, 75))).toBe(9);
+    expect(drinksPerBottle(p(0.7, 70))).toBe(10);
+    expect(drinksPerBottle(p(0.66, 60))).toBe(11);
+  });
+  it("is null when no drink uses it or the drinks disagree", () => {
+    expect(drinksPerBottle(p(0.7))).toBeNull();
+    expect(drinksPerBottle(p(0.7, 70, 100))).toBeNull();
+  });
+  it("reads as words and adds to the batch total", () => {
+    expect(makesText(7)).toBe("Makes 7 drinks");
+    expect(makesText(1)).toBe("Makes 1 drink");
+    expect(batchTotalText({ yieldQty: 0.63, yieldUnit: "L" }, 4, 7)).toBe("4 bottles, 28 drinks, 2.52 L");
+    expect(batchTotalText({ yieldQty: 0.63, yieldUnit: "L" }, 1, 7)).toBeNull();
+    expect(batchTotalText({ yieldQty: 0.7, yieldUnit: "L" }, 4)).toBe("4 bottles, 2.8 L");
+  });
+});
+
 describe("bottle size", () => {
   it("reads 700 ml from 0.7 L", () => {
     expect(bottleMl({ yieldQty: 0.7, yieldUnit: "L" })).toBe(700);
     expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" })).toBe("700 ml bottle");
   });
-  it("Chiobu's pre-mixes are 700 ml bottles like the other venues, and the serves come from the 700 ml", () => {
+  it("Chiobu's pre-mixes are 700 ml bottles that hold a whole number of drinks, so the batch inside is a little under 700 ml", () => {
+    // Pretty Lady: 7 drinks of 90 ml is 630 ml, still a "700 ml bottle"
+    expect(bottleSizeText({ yieldQty: 0.63, yieldUnit: "L" }, "chiobu")).toBe("700 ml bottle");
     expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" }, "chiobu")).toBe("700 ml bottle");
-    // 700 ml at 90 ml a drink is 7 drinks, at 60 ml is 11
-    expect(servesPerBottle(bottleMl({ yieldQty: 0.7, yieldUnit: "L" }), 90, "ml")).toBe(7);
-    expect(servesPerBottle(bottleMl({ yieldQty: 0.7, yieldUnit: "L" }), 60, "ml")).toBe(11);
+    expect(servesPerBottle(bottleMl({ yieldQty: 0.63, yieldUnit: "L" }), 90, "ml")).toBe(7);
     expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" }, "drift")).toBe("700 ml bottle");
     expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" })).toBe("700 ml bottle");
     // a batch bigger than the fixed bottle falls back to the normal wording

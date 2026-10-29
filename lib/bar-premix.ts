@@ -89,18 +89,18 @@ export function bottleMl(p: Pick<Premix, "yieldQty" | "yieldUnit">): number | nu
 }
 
 /**
- * A venue whose bottle is a fixed size whatever the batch inside is (it then reads "<size> L bottle"). Empty now: Chiobu used to be
- * "1 L bottle" with 600 to 950 ml batches in it (Troy, 10 Oct 2026), which never added up; on 29 Oct 2026 Chiobu moved to 700 ml
- * bottles and every Chiobu pre-mix was scaled to fill one (same ratios), so all three venues read the batch volume as the bottle.
+ * A venue whose bottle is a fixed size whatever the batch inside is. Chiobu's pre-mixes are 700 ml bottles (Troy, 29 Oct 2026), but
+ * each holds a WHOLE number of drinks at the recipe's own pour, so the batch inside is a little under 700 ml (Pretty Lady is 7
+ * drinks of 90 ml, 630 ml): the card says "700 ml bottle" and "Makes 7 drinks". The recipes never change to fill a bottle.
  */
-export const BOTTLE_ML_BY_VENUE: Record<string, number> = {};
+export const BOTTLE_ML_BY_VENUE: Record<string, number> = { chiobu: 700 };
 
 /** "700 ml bottle". Anything past a litre is a batch, not a bottle; a non-volume yield reads "Makes 2 kg". */
 export function bottleSizeText(p: Pick<Premix, "yieldQty" | "yieldUnit">, venueSlug?: string): string {
   const ml = bottleMl(p);
   if (ml == null) return p.yieldQty > 0 ? `Makes ${qtyText(p.yieldQty, p.yieldUnit).replace(/(\d)([a-z])/i, "$1 $2")}` : "";
   const fixed = venueSlug ? BOTTLE_ML_BY_VENUE[venueSlug] : undefined;
-  if (fixed && ml <= fixed) return `${(fixed / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L bottle`;
+  if (fixed && ml <= fixed) return fixed < 1000 ? `${fixed.toLocaleString("en-AU")} ml bottle` : `${(fixed / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L bottle`;
   const n = Math.round(ml * 10) / 10;
   if (ml <= 1000) return `${n.toLocaleString("en-AU", { maximumFractionDigits: 1 })} ml bottle`;
   return `${(Math.round(ml) / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L batch`;
@@ -166,6 +166,23 @@ export interface PremixUseDisplay {
   serves: string | null;
 }
 
+/**
+ * How many whole drinks one bottle makes, when every drink that uses it agrees ("Makes 7 drinks"). The batch inside holds exactly
+ * that many pours, so this is the batch volume divided by the pour. Null when no drink uses it or they disagree.
+ */
+export function drinksPerBottle(p: Pick<Premix, "yieldQty" | "yieldUnit" | "usedIn">): number | null {
+  const bottle = bottleMl(p);
+  const counts = new Set(p.usedIn.map((u) => servesPerBottle(bottle, u.qty, u.unit)));
+  if (counts.size !== 1) return null;
+  const n = [...counts][0];
+  return n != null && n >= 1 ? n : null;
+}
+
+/** "Makes 7 drinks" / "Makes 1 drink". */
+export function makesText(n: number): string {
+  return `Makes ${n} ${n === 1 ? "drink" : "drinks"}`;
+}
+
 export function premixUseDisplay(u: PremixUse, bottle: number | null): PremixUseDisplay {
   const n = servesPerBottle(bottle, u.qty, u.unit);
   return { drink: u.drink, pour: shotsText(u.qty, u.unit) ?? premixAmount(u.qty, u.unit), serves: n == null || n < 1 ? null : `${n} ${n === 1 ? "serve" : "serves"} per bottle` };
@@ -227,11 +244,12 @@ export function batchLineDisplay(l: PremixLine, bottles: number): BatchLineDispl
 }
 
 /** The whole batch: "4 bottles, 2.8 L" (a non-volume yield reads "4 bottles"). Null for one bottle, where the card already says its size. */
-export function batchTotalText(p: Pick<Premix, "yieldQty" | "yieldUnit">, bottles: number): string | null {
+export function batchTotalText(p: Pick<Premix, "yieldQty" | "yieldUnit">, bottles: number, drinksEach?: number | null): string | null {
   const n = clampBottles(bottles);
   if (n === 1) return null;
   const ml = bottleMl(p);
-  return ml == null ? bottlesText(n) : `${bottlesText(n)}, ${volumeText(ml * n)}`;
+  const drinks = drinksEach ? `, ${drinksEach * n} drinks` : "";
+  return ml == null ? `${bottlesText(n)}${drinks}` : `${bottlesText(n)}${drinks}, ${volumeText(ml * n)}`;
 }
 
 /** "36 serves from 4 bottles" for one drink's line (each bottle makes whole serves). Null for one bottle or when serves cannot be worked out. */

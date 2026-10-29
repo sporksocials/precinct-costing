@@ -5,6 +5,11 @@ import {
   linkedProductDraft,
   notOrderedSentence,
   orderableVenues,
+  orderDefaults,
+  fallbackUnit,
+  noListSentence,
+  resolvePick,
+  unitForCategory,
   orderedAtSentence,
   orderingProductName,
   parsePar,
@@ -50,13 +55,89 @@ describe("venues", () => {
   });
 });
 
+describe("venue rows", () => {
+  const withGreedy = [...venues.slice(0, 2), { id: 3, slug: "greedy", name: "Greedy Gringo's", sort: 3 }, venues[2]];
+  it("hides Gelato and keeps a venue with no order list as a disabled row", () => {
+    const rows = venueLinks({ venues: withGreedy, categories: cats, products: [], terms });
+    expect(rows.map((r) => r.venue.slug)).toEqual(["drift", "chiobu", "greedy"]);
+    expect(rows.map((r) => r.hasList)).toEqual([true, true, false]);
+    expect(noListSentence("Greedy")).toBe("Greedy has no order list set up yet");
+  });
+});
+
+describe("orderDefaults", () => {
+  const venueCats: LinkCategory[] = [
+    { id: "sp", venue_id: 1, name: "Spirits", unit_name: "bottle", sort: 0 },
+    { id: "li", venue_id: 1, name: "Liqueurs", unit_name: "bottle", sort: 1 },
+    { id: "wi", venue_id: 1, name: "Wine", unit_name: "carton", sort: 2 },
+    { id: "bm", venue_id: 1, name: "Bar Mixers", unit_name: "carton", sort: 3 },
+    { id: "kg", venue_id: 1, name: "Kegs", unit_name: "keg", sort: 4 },
+  ];
+  const ingCat: Record<string, string> = { a: "Spirits", b: "Spirits", c: "Spirits", d: "Liqueurs", e: "Wine", f: "Bar consumable" };
+  const of = (id: string) => ingCat[id];
+  const prods = [
+    { category_id: "sp", unit_name: "bottle", ingredient_id: "a" },
+    { category_id: "sp", unit_name: "bottle", ingredient_id: "b" },
+    { category_id: "li", unit_name: "bottle", ingredient_id: "c" }, // a spirit filed under Liqueurs: the minority
+    { category_id: "li", unit_name: "bottle", ingredient_id: "d" },
+    { category_id: "wi", unit_name: "carton", ingredient_id: "e" },
+    { category_id: "bm", unit_name: "carton", ingredient_id: "f" },
+    { category_id: "bm", unit_name: "carton", ingredient_id: null },
+    { category_id: "bm", unit_name: "can", ingredient_id: null },
+  ];
+  const run = (ingredient: Parameters<typeof orderDefaults>[0]["ingredient"], products = prods, categories = venueCats) => orderDefaults({ ingredient, categories, products, ingredientCategoryOf: of });
+
+  it("uses the category most used at the venue by ingredients of the same category", () => {
+    const d = run({ name: "Gin", category: "Spirits", pack_unit: "L", pack_size: 0.7 });
+    expect(d).toMatchObject({ categoryId: "sp", unit: "bottle", confident: true, basis: "same-ingredient-category" });
+  });
+  it("breaks a tie with the category whose name fits", () => {
+    const tie = [{ category_id: "sp", unit_name: "bottle", ingredient_id: "a" }, { category_id: "li", unit_name: "bottle", ingredient_id: "b" }];
+    expect(run({ name: "Rum", category: "Spirits" }, tie).categoryId).toBe("sp");
+  });
+  it("falls back to a category name that matches the ingredient category when nothing is linked yet", () => {
+    expect(run({ name: "Merlot", category: "Wine" }, []).categoryId).toBe("wi");
+    expect(run({ name: "Jager", category: "Liqueurs" }, []).basis).toBe("category-name");
+  });
+  it("matches a keg to a keg category by pack", () => {
+    const d = run({ name: "Super Crisp Keg", category: "Beer Keg", pack_unit: "L", pack_size: 49.5 }, []);
+    expect(d).toMatchObject({ categoryId: "kg", unit: "keg", confident: true });
+  });
+  it("never guesses: a weak word like Bar does not match Bar Mixers", () => {
+    const d = run({ name: "Napkins", category: "Bar consumable" }, []);
+    expect(d).toMatchObject({ categoryId: null, confident: false, basis: "none" });
+  });
+  it("does not guess when two categories fit equally", () => {
+    const two: LinkCategory[] = [{ id: "w1", venue_id: 1, name: "Red Wine", unit_name: "carton", sort: 0 }, { id: "w2", venue_id: 1, name: "White Wine", unit_name: "carton", sort: 1 }];
+    expect(run({ name: "Shiraz", category: "Wine" }, [], two).categoryId).toBeNull();
+  });
+  it("gives the most used unit in the category, then keg, bottle, carton", () => {
+    expect(run({ name: "Cordial", category: "Bar consumable" }, prods, [venueCats[3]]).unit).toBe("carton");
+    const noCat = run({ name: "Napkins", category: "Bar consumable" }, []);
+    expect(noCat.unit).toBe("carton");
+    expect(fallbackUnit({ name: "Gin (700ml)", category: "Spirits", pack_unit: "L", pack_size: 0.7 })).toBe("bottle");
+    expect(fallbackUnit({ name: "Keg Lager", category: "Food" })).toBe("keg");
+    expect(fallbackUnit({ name: "Flour", category: "Food", pack_unit: "kg", pack_size: 25 })).toBe("carton");
+  });
+  it("a unit tie goes to the category's own unit", () => {
+    const cat = { id: "x", unit_name: "Carton" };
+    expect(unitForCategory({ name: "X" }, cat, [{ category_id: "x", unit_name: "bottle" }, { category_id: "x", unit_name: "carton" }])).toBe("carton");
+  });
+  it("lets a hand choice win over the default", () => {
+    const d = run({ name: "Napkins", category: "Bar consumable" }, []);
+    expect(resolvePick(d, { categoryId: "bm" })).toEqual({ categoryId: "bm", unit: "carton" });
+    expect(resolvePick(d, { categoryId: "bm", unit: " tray " }).unit).toBe("tray");
+    expect(resolvePick(d, null).categoryId).toBeNull();
+  });
+});
+
 describe("venueLinks", () => {
   it("shows the active linked product with its category and the supplier it landed under", () => {
     const [drift, chiobu] = venueLinks({ venues, categories: cats, products: [prod({})], terms });
     expect(drift.active).toEqual([]);
     expect(drift.stopped).toBeNull();
     expect(chiobu.active).toHaveLength(1);
-    expect(orderedAtSentence("Chiobu", chiobu.active[0])).toBe("Ordered at Chiobu: Red, per carton, DCG Wines");
+    expect(orderedAtSentence("Chiobu", chiobu.active[0])).toBe("Chiobu: Red, per carton, DCG Wines");
   });
   it("says there is no supplier yet when the product has none", () => {
     const [, chiobu] = venueLinks({ venues, categories: cats, products: [prod({ supplier_id: null })], terms });

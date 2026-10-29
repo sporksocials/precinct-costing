@@ -9,7 +9,7 @@ import { applyKegHint, looksLikeKeg } from "@/lib/keg";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
 import { Banner, Segmented, Sheet, Toggle, useToast } from "./ui";
-import { createOrderingForNewIngredient, OrderAtPicker, type OrderAtState } from "./ingredient-ordering";
+import { createOrderingForNewIngredient, OrderAtPicker, resolveOrderAt, useOrderingDefaultsData, type OrderAtState } from "./ingredient-ordering";
 import { addedToast } from "@/lib/ordering-link";
 import { supplierChoices } from "@/lib/suppliers";
 import { NameSuggestRow, useNameTidy } from "./name-suggest";
@@ -84,6 +84,7 @@ export function IngredientSheet({
   const store = useStore();
   const toast = useToast();
   const [orderAt, setOrderAt] = useState<OrderAtState>({});
+  const orderingData = useOrderingDefaultsData(open);
   const [f, setF] = useState<IngredientDraft>(initial);
   const [sizeText, setSizeText] = useState(String(initial.pack_size));
   const [priceText, setPriceText] = useState(initial.pack_price ? String(initial.pack_price) : "");
@@ -130,11 +131,13 @@ export function IngredientSheet({
       const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: price, last_price_update: new Date().toISOString().slice(0, 10) };
       const id = await store.insertIngredient(payload);
       // nothing is put on an order list unless a venue was ticked; a problem there never undoes the ingredient
-      if (Object.keys(orderAt).length) {
-        const r = await createOrderingForNewIngredient({ id, name: payload.name }, orderAt, (vid) => store.venues.find((v) => v.id === vid)?.name ?? "that venue");
+      if (Object.keys(orderAt).length && orderingData) {
+        const catOf = (iid: string) => store.ingredients.find((i) => i.id === iid)?.category;
+        const picks = resolveOrderAt(orderAt, orderingData, { name: payload.name, category: payload.category, pack_unit: payload.pack_unit, pack_size: payload.pack_size }, catOf);
+        const r = await createOrderingForNewIngredient({ id, name: payload.name }, picks, (vid) => store.venues.find((v) => v.id === vid)?.name ?? "that venue");
         const parts: string[] = r.added.map((a) => addedToast(a.venue, a.supplierName));
         for (const x of r.failed) parts.push(`Not added to ${x.venue}'s order list. ${x.message}`);
-        if (r.unfinished) parts.push("Pick a category for each venue you ticked to add it to an order list.");
+        if (r.unfinished) parts.push("Pick a category for each venue you switched on to add it to an order list.");
         if (parts.length) toast.show({ message: parts.join(" ") }, 8000);
       }
       onSaved({ id, pack_unit: payload.pack_unit, name: payload.name });
@@ -182,7 +185,7 @@ export function IngredientSheet({
           </select>
           <AddSupplier className="mt-1" onAdded={(s) => set("supplier_id", s.id)} />
         </div>
-        <OrderAtPicker ing={{ name: f.name, pack_unit: f.pack_unit, category: f.category }} value={orderAt} onChange={setOrderAt} />
+        <OrderAtPicker ing={{ name: f.name, pack_unit: f.pack_unit, category: f.category, pack_size: size }} data={orderingData} value={orderAt} onChange={setOrderAt} />
         <div>
           <p className="section-label !px-1">Pack</p>
           <div className="flex items-center gap-2">

@@ -89,11 +89,11 @@ export function bottleMl(p: Pick<Premix, "yieldQty" | "yieldUnit">): number | nu
 }
 
 /**
- * Chiobu makes every pre-mix for 10 drinks in a 1 L bottle (Troy, 10 Oct 2026), so the bottle there is always "1 L bottle" even
- * though the batch inside is less (Pretty Lady 900 ml, Chiobu-Rita 600 ml). The serves per bottle still come from the batch
- * volume, which is the 10 drinks. Other venues keep the batch volume as the bottle (700 ml at Drift and Greedy's).
+ * A venue whose bottle is a fixed size whatever the batch inside is (it then reads "<size> L bottle"). Empty now: Chiobu used to be
+ * "1 L bottle" with 600 to 950 ml batches in it (Troy, 10 Oct 2026), which never added up; on 29 Oct 2026 Chiobu moved to 700 ml
+ * bottles and every Chiobu pre-mix was scaled to fill one (same ratios), so all three venues read the batch volume as the bottle.
  */
-export const BOTTLE_ML_BY_VENUE: Record<string, number> = { chiobu: 1000 };
+export const BOTTLE_ML_BY_VENUE: Record<string, number> = {};
 
 /** "700 ml bottle". Anything past a litre is a batch, not a bottle; a non-volume yield reads "Makes 2 kg". */
 export function bottleSizeText(p: Pick<Premix, "yieldQty" | "yieldUnit">, venueSlug?: string): string {

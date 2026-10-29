@@ -25,4 +25,11 @@ describe("usableList (the back arrow on a record page)", () => {
     expect(usableList("/ingredients?cat=Dairy&q=milk", "/ingredients", ings)).toBe(true);
     expect(usableList("/ingredients?type=preps", "/ingredients", ings)).toBe(false);
   });
+  it("keeps Suppliers apart too: the ingredient page forbids both other tabs", () => {
+    const ings = { forbid: [{ key: "type", value: "preps" }, { key: "type", value: "suppliers" }] };
+    expect(usableList("/ingredients?cat=Dairy", "/ingredients", ings)).toBe(true);
+    expect(usableList("/ingredients?type=suppliers", "/ingredients", ings)).toBe(false);
+    expect(usableList("/ingredients?type=preps", "/ingredients", ings)).toBe(false);
+    expect(usableList("/ingredients?type=suppliers&inactive=1", "/ingredients", { require: { key: "type", value: "suppliers" } })).toBe(true);
+  });
 });

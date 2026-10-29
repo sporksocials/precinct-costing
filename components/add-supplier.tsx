@@ -14,16 +14,32 @@ import { cx, useToast } from "./ui";
  * so Enter adds the supplier and never submits the ingredient form behind it. Every control is 44px at every width (the shared
  * .btn shrinks at sm:, so these carry their own height).
  */
-export function AddSupplier({ onAdded, className }: { onAdded: (supplier: Supplier) => void; className?: string }) {
+export function AddSupplier({
+  onAdded,
+  className,
+  startOpen = false,
+  onCancel,
+  selecting = true,
+}: {
+  onAdded: (supplier: Supplier) => void;
+  className?: string;
+  /** open the name field straight away (the Suppliers tab, where the header button already said Add Supplier) */
+  startOpen?: boolean;
+  /** called when the field is closed without adding */
+  onCancel?: () => void;
+  /** false where nothing is being picked (the Suppliers tab): the toast does not say "selected" */
+  selecting?: boolean;
+}) {
   const store = useStore();
   const toast = useToast();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   function close() {
+    onCancel?.();
     setOpen(false);
     setName("");
     setError(null);
@@ -42,8 +58,19 @@ export function AddSupplier({ onAdded, className }: { onAdded: (supplier: Suppli
     try {
       const { supplier, created } = await store.insertSupplier(name);
       onAdded(supplier);
-      toast.show({ message: created ? `Added ${supplier.name} and selected it` : `${supplier.name} was already in the list, so it is selected` });
-      close();
+      toast.show({
+        message: selecting
+          ? created
+            ? `Added ${supplier.name} and selected it`
+            : `${supplier.name} was already in the list, so it is selected`
+          : created
+            ? `Added ${supplier.name}`
+            : `${supplier.name} was already in the list`,
+      });
+      setOpen(false);
+      setName("");
+      setError(null);
+      setBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);

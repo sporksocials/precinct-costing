@@ -49,6 +49,10 @@ export interface Supplier {
   name: string;
   portal_url: string | null;
   portal_username: string | null;
+  /** free text about the supplier (live column; schema.sql had drifted) */
+  notes?: string | null;
+  /** migration 20261029200000: false retires a supplier (hidden from pick-lists). Absent reads as active. */
+  active?: boolean;
 }
 
 export interface Ingredient {

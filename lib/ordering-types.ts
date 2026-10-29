@@ -19,10 +19,18 @@ interface Stamped {
   updated_by?: string | null;
 }
 
+/**
+ * One supplier's TERMS at one venue (how the order goes out, rep, account, minimums). The supplier itself lives once in the costing
+ * list (cost_suppliers, renamed on the Suppliers tab of Ingredients); `name` is a copy of that name kept by the database, so
+ * editing it here does nothing. One row per (venue, supplier): `cost_supplier_id` is unique within a venue.
+ */
 export interface OrderingSupplier extends Stamped {
   id: string;
   venue_id: number;
+  /** a copy of cost_suppliers.name, forced by the database; rename on the master list */
   name: string;
+  /** the supplier in the one supplier list (cost_suppliers.id) */
+  cost_supplier_id: number;
   method: OrderingMethod;
   email_to: string | null;
   login_url: string | null;
@@ -59,6 +67,10 @@ export interface OrderingProduct extends Stamped {
   name: string;
   /** one counted and ordered unit: carton, keg, bag, bottle */
   unit_name: string;
+  /**
+   * The terms row for this supplier at this venue (ordering_suppliers.id). When the product is linked to an ingredient the
+   * database sets this from the ingredient's supplier, so it is never chosen on the product; an order-only product picks it.
+   */
   supplier_id: string | null;
   supplier_item_code: string | null;
   /** orders round UP to a multiple of this (Star spirits: 6 or 12); most products 1 */

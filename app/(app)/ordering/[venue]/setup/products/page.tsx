@@ -279,7 +279,7 @@ export default function OrderingProductsPage() {
             ) : null}
           </ChoiceBlock>
         </div>
-        <p className="pb-2 text-[13px] text-label-2">Next you set the supplier, price and Build To.</p>
+        <p className="pb-2 text-[13px] text-label-2">Next you set the supplier, price and Build To. Link a costing ingredient there and the supplier comes from the ingredient.</p>
       </TouchSheet>
     </div>
   );

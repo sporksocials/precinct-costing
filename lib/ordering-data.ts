@@ -142,9 +142,9 @@ export type SupplierDraft = Omit<OrderingSupplier, "id" | "venue_id" | "created_
 export type CategoryDraft = Omit<OrderingCategory, "id" | "venue_id" | "created_at" | "updated_at" | "updated_by">;
 export type ProductDraft = Omit<OrderingProduct, "id" | "venue_id" | "created_at" | "updated_at" | "updated_by">;
 
-/** A supplier with the defaults a new one starts from. */
-export function blankSupplier(name = ""): SupplierDraft {
-  return { name, method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null, min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: 0 };
+/** A supplier's terms with the defaults a new one starts from. `name` is only a placeholder: the database sets it from the supplier list. */
+export function blankSupplier(costSupplierId: number, name = ""): SupplierDraft {
+  return { name, cost_supplier_id: costSupplierId, method: "email", email_to: null, login_url: null, rep_name: null, rep_phone: null, account_no: null, min_order_value: null, min_order_units: null, show_prices_on_order: false, notes: null, active: true, sort: 0 };
 }
 export function blankCategory(name = "", unit_name = "carton"): CategoryDraft {
   return { name, sort: 0, second_location_label: null, unit_name };
@@ -153,12 +153,28 @@ export function blankProduct(categoryId: string, name = "", unit_name = "carton"
   return { category_id: categoryId, sort: 0, name, unit_name, supplier_id: null, supplier_item_code: null, pack_multiple: 1, price_inc_gst: null, deal_buy_qty: null, deal_free_qty: null, ingredient_id: null, costing_packs_per_unit: null, par: 0, notes: null, active: true };
 }
 
+/**
+ * The terms row for a supplier at a venue (who we order from here and on what terms), made when it is not there yet. The database
+ * function finds or creates it and fills a new one from the same supplier at another venue (how it is sent, address, rep,
+ * minimums; never the account number). Returns the row. Used by Add Supplier, an order-only product's supplier pick and the venue copy.
+ */
+export async function ensureTermsRow(sb: SupabaseClient, venueId: number, costSupplierId: number): Promise<OrderingSupplier> {
+  const { data, error } = await sb.rpc("ordering_terms_row", { p_venue: venueId, p_supplier: costSupplierId });
+  if (error) fail(error);
+  const id = typeof data === "string" ? data : null;
+  if (!id) throw new OrderingError("That supplier could not be added to this venue. Refresh and try again.", "not_saved");
+  const { data: rows, error: readError } = await sb.from(T.suppliers).select("*").eq("id", id).eq("venue_id", venueId);
+  if (readError) fail(readError);
+  return one<OrderingSupplier>(rows, "That supplier could not be added to this venue. Refresh and try again.");
+}
+
 export async function createSupplier(sb: SupabaseClient, venueId: number, draft: SupplierDraft, id: string = newId()): Promise<OrderingSupplier> {
   const { data, error } = await insertRow(sb, T.suppliers, { ...draft, id, venue_id: venueId }).select("*");
   if (error) fail(error, `A supplier called ${draft.name} already exists at this venue.`);
   return one<OrderingSupplier>(data);
 }
-export async function updateSupplier(sb: SupabaseClient, id: string, patch: Partial<SupplierDraft>): Promise<OrderingSupplier> {
+/** Changes a supplier's terms at this venue. The name and the supplier it points at are not changed here (rename on the Suppliers tab of Ingredients). */
+export async function updateSupplier(sb: SupabaseClient, id: string, patch: Partial<Omit<SupplierDraft, "name" | "cost_supplier_id">>): Promise<OrderingSupplier> {
   const { data, error } = await sb.from(T.suppliers).update(patch).eq("id", id).select("*");
   if (error) fail(error, "Another supplier at this venue already has that name.");
   return one<OrderingSupplier>(data);

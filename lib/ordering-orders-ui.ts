@@ -528,6 +528,16 @@ export function countedLine(l: Pick<DraftLine, "counted" | "par">): string | nul
   return l.par == null ? `Counted ${qtyText(l.counted)}` : `Counted ${qtyText(l.counted)} of ${qtyText(l.par)}`;
 }
 
+/**
+ * What a row in the Unassigned card offers. A product linked to an ingredient takes its supplier from the ingredient (the
+ * database keeps them in step), so the way to fix it is on the ingredient; any other product has its supplier set on the product.
+ */
+export function unassignedAction(product: Pick<OrderingProduct, "id" | "ingredient_id">, base: string): { label: string; href: string } {
+  return product.ingredient_id
+    ? { label: "Set A Supplier On The Ingredient", href: `/ingredients/${product.ingredient_id}` }
+    : { label: "Choose A Supplier", href: `${base}/setup/products/${product.id}` };
+}
+
 /** "2 products, 14 units" style wording for a count of things. */
 export function plural(n: number, one: string, many = `${one}s`): string {
   return `${qtyText(n)} ${n === 1 ? one : many}`;

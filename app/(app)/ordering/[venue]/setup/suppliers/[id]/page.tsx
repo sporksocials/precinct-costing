@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useState } from "react";
 import { updateSupplier, type SupplierDraft } from "@/lib/ordering-data";
-import { METHOD_HELP, METHOD_OPTIONS, moneyInput, nameTaken, parseMoney, parseQuantity, resolveContact, supplierGap } from "@/lib/ordering-setup";
+import { METHOD_HELP, METHOD_OPTIONS, moneyInput, parseMoney, parseQuantity, resolveContact, supplierGap } from "@/lib/ordering-setup";
 import { qtyText } from "@/lib/ordering";
 import { Banner, Empty, Group, PageHeader } from "@/components/ui";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
@@ -27,7 +28,7 @@ export default function OrderingSupplierPage() {
   const activeProducts = products.filter((p) => p.active).length;
 
   const persist = useCallback(
-    async (patch: Partial<SupplierDraft>): Promise<boolean> => {
+    async (patch: Partial<Omit<SupplierDraft, "name" | "cost_supplier_id">>): Promise<boolean> => {
       setSave({ state: "saving", message: null });
       try {
         const row = await updateSupplier(sb, id, patch);
@@ -76,19 +77,14 @@ export default function OrderingSupplierPage() {
       <SaveNote state={save.state} message={save.message} />
       {gap ? <Banner tone="neutral">{gap}</Banner> : null}
 
-      <Group title="Supplier">
-        <TextField
-          label="Name"
-          value={supplier.name}
-          error={errors.name}
-          onCommit={(t) => {
-            const n = t.trim();
-            if (!n) return setError("name", "A supplier needs a name.");
-            if (nameTaken(n, data?.suppliers ?? [], supplier.id)) return setError("name", `${name} already has a supplier called ${n}.`);
-            setError("name", null);
-            void persist({ name: n });
-          }}
-        />
+      <Group title="Supplier" footer="The name comes from the supplier list, so it is the same at every venue. Everything below is this venue's own terms.">
+        <div className="px-4 py-3">
+          <p className="text-[13px] font-medium text-label-2">Name</p>
+          <p className="mt-0.5 text-[17px]">{supplier.name}</p>
+          <Link href="/ingredients?type=suppliers" className="inline-flex min-h-[44px] items-center text-[15px] text-accent">
+            Renamed on the Suppliers tab of Ingredients
+          </Link>
+        </div>
       </Group>
 
       <Group title="How Orders Go Out" footer={METHOD_HELP[supplier.method]}>

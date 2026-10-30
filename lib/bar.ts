@@ -18,15 +18,15 @@ export function isBarPath(pathname: string): boolean {
   return ["/bar", "/api/bar"].some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-/** What the drinks station carries: cocktails, mocktails and Drift's cold drinks (smoothies, iced coffees, frappes, milkshakes, spiders). */
-export const BAR_CATEGORIES = ["Cocktail", "Mocktail", "Cold Drink"] as const;
+/** What the drinks station carries: cocktails, mocktails, Drift's cold drinks (smoothies, iced coffees, frappes, milkshakes, spiders) and Chiobu's boba (Troy, 30 Oct 2026). */
+export const BAR_CATEGORIES = ["Cocktail", "Mocktail", "Cold Drink", "Boba"] as const;
 export type BarCategory = (typeof BAR_CATEGORIES)[number];
 export function isBarCategory(category: string | null | undefined): category is BarCategory {
   return (BAR_CATEGORIES as readonly string[]).includes(category ?? "");
 }
 
 /** The plural the station's selection chips use for each category. */
-export const BAR_CATEGORY_LABELS: Record<BarCategory, string> = { Cocktail: "Cocktails", Mocktail: "Mocktails", "Cold Drink": "Cold Drinks" };
+export const BAR_CATEGORY_LABELS: Record<BarCategory, string> = { Cocktail: "Cocktails", Mocktail: "Mocktails", "Cold Drink": "Cold Drinks", Boba: "Boba" };
 
 export interface BarChip {
   key: "all" | BarCategory;
@@ -240,9 +240,9 @@ export function ingredientDisplay(line: BarLine, opts: { shots?: boolean } = {})
   };
 }
 
-/** Cold drinks are measured in ml, scoops and pumps, not shots: the card turns the jigger measures off for them. */
+/** Cold drinks and boba are measured in ml, scoops and pumps, not shots: the card turns the jigger measures off for them. */
 export function usesShots(category: string | null | undefined): boolean {
-  return category !== "Cold Drink";
+  return category !== "Cold Drink" && category !== "Boba";
 }
 
 export type GlassType = "martini" | "rocks" | "highball" | "coupe" | "wine";

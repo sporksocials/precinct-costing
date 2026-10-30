@@ -89,18 +89,21 @@ export function bottleMl(p: Pick<Premix, "yieldQty" | "yieldUnit">): number | nu
 }
 
 /**
- * A venue whose bottle is a fixed size whatever the batch inside is. Chiobu's pre-mixes are 700 ml bottles (Troy, 29 Oct 2026), but
+ * The bottle sizes a venue uses, whatever the batch inside is. Chiobu's pre-mixes are 700 ml bottles (Troy, 29 Oct 2026), but
  * each holds a WHOLE number of drinks at the recipe's own pour, so the batch inside is a little under 700 ml (Pretty Lady is 7
- * drinks of 90 ml, 630 ml): the card says "700 ml bottle" and "Makes 7 drinks". The recipes never change to fill a bottle.
+ * drinks of 90 ml, 630 ml): the card says "700 ml bottle" and "Makes 7 drinks". The recipes never change to fill a bottle. Chiobu's
+ * boba mixes go in 1 L bottles (30 Oct 2026). A batch fits the smallest bottle that holds it with a little room in the neck
+ * (`BOTTLE_NECK_ALLOWANCE`: the boba mix is 1,080 ml and fits a 1 L bottle, Troy "tried it"); anything bigger is a batch.
  */
-export const BOTTLE_ML_BY_VENUE: Record<string, number> = { chiobu: 700 };
+export const BOTTLE_SIZES_BY_VENUE: Record<string, number[]> = { chiobu: [700, 1000] };
+export const BOTTLE_NECK_ALLOWANCE = 1.1;
 
 /** "700 ml bottle". Anything past a litre is a batch, not a bottle; a non-volume yield reads "Makes 2 kg". */
 export function bottleSizeText(p: Pick<Premix, "yieldQty" | "yieldUnit">, venueSlug?: string): string {
   const ml = bottleMl(p);
   if (ml == null) return p.yieldQty > 0 ? `Makes ${qtyText(p.yieldQty, p.yieldUnit).replace(/(\d)([a-z])/i, "$1 $2")}` : "";
-  const fixed = venueSlug ? BOTTLE_ML_BY_VENUE[venueSlug] : undefined;
-  if (fixed && ml <= fixed) return fixed < 1000 ? `${fixed.toLocaleString("en-AU")} ml bottle` : `${(fixed / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L bottle`;
+  const fixed = (venueSlug ? BOTTLE_SIZES_BY_VENUE[venueSlug] ?? [] : []).find((size) => ml <= size * BOTTLE_NECK_ALLOWANCE);
+  if (fixed) return fixed < 1000 ? `${fixed.toLocaleString("en-AU")} ml bottle` : `${(fixed / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L bottle`;
   const n = Math.round(ml * 10) / 10;
   if (ml <= 1000) return `${n.toLocaleString("en-AU", { maximumFractionDigits: 1 })} ml bottle`;
   return `${(Math.round(ml) / 1000).toLocaleString("en-AU", { maximumFractionDigits: 2 })} L batch`;
@@ -154,8 +157,17 @@ export interface PremixLineDisplay {
   shots: string | null;
 }
 
+/** Shots are for the small measures: a bottle line up to 300 ml and one drink's pour up to 100 ml. An 840 ml tea line or a 210 ml boba pour is not "28 shots" or "7 shots". */
+export const LINE_SHOTS_MAX_ML = 300;
+export const POUR_SHOTS_MAX_ML = 100;
+
+function shotsUpTo(qty: number, unit: string, maxMl: number): string | null {
+  const ml = toMl(qty, unit);
+  return ml != null && ml > maxMl ? null : shotsText(qty, unit);
+}
+
 export function premixLineDisplay(l: PremixLine): PremixLineDisplay {
-  return { name: barIngredientName(l.name), amount: bottleLineAmount(l.qty, l.unit), shots: shotsText(l.qty, l.unit) };
+  return { name: barIngredientName(l.name), amount: bottleLineAmount(l.qty, l.unit), shots: shotsUpTo(l.qty, l.unit, LINE_SHOTS_MAX_ML) };
 }
 
 export interface PremixUseDisplay {
@@ -183,9 +195,18 @@ export function makesText(n: number): string {
   return `Makes ${n} ${n === 1 ? "drink" : "drinks"}`;
 }
 
-export function premixUseDisplay(u: PremixUse, bottle: number | null): PremixUseDisplay {
+export function premixUseDisplay(u: PremixUse, bottle: number | null, batch = false): PremixUseDisplay {
   const n = servesPerBottle(bottle, u.qty, u.unit);
-  return { drink: u.drink, pour: shotsText(u.qty, u.unit) ?? premixAmount(u.qty, u.unit), serves: n == null || n < 1 ? null : `${n} ${n === 1 ? "serve" : "serves"} per bottle` };
+  const per = batch ? "per batch" : "per bottle";
+  return { drink: u.drink, pour: shotsUpTo(u.qty, u.unit, POUR_SHOTS_MAX_ML) ?? premixAmount(u.qty, u.unit), serves: n == null || n < 1 ? null : batch ? `${n} ${per}` : `${n} ${n === 1 ? "serve" : "serves"} ${per}` };
+}
+
+/**
+ * A pre-mix that is a BATCH rather than a bottle: more than fits the venue's biggest bottle (the 4 L green tea), or not a volume.
+ * The card then says "Batches To Make" and "3 batches, 12 L" instead of bottles (Troy, 30 Oct 2026).
+ */
+export function isBatchPremix(p: Pick<Premix, "yieldQty" | "yieldUnit">, venueSlug?: string): boolean {
+  return bottleMl(p) == null || bottleSizeText(p, venueSlug).endsWith(" batch");
 }
 
 /** "2 pre-mixes" / "1 pre-mix" for the entry row on the station. */
@@ -207,9 +228,10 @@ export function clampBottles(n: number): number {
 }
 
 /** "1 bottle" / "4 bottles". */
-export function bottlesText(n: number): string {
+export function bottlesText(n: number, batch = false): string {
   const b = clampBottles(n);
-  return `${b} ${b === 1 ? "bottle" : "bottles"}`;
+  const one = batch ? "batch" : "bottle";
+  return `${b} ${b === 1 ? one : batch ? "batches" : "bottles"}`;
 }
 
 /** A volume in ml as the team would pour it: "560 ml" up to a litre, then litres ("1.4 L", "2.33 L", never more than two decimals). Rounded down. */
@@ -244,20 +266,20 @@ export function batchLineDisplay(l: PremixLine, bottles: number): BatchLineDispl
 }
 
 /** The whole batch: "4 bottles, 2.8 L" (a non-volume yield reads "4 bottles"). Null for one bottle, where the card already says its size. */
-export function batchTotalText(p: Pick<Premix, "yieldQty" | "yieldUnit">, bottles: number, drinksEach?: number | null): string | null {
+export function batchTotalText(p: Pick<Premix, "yieldQty" | "yieldUnit">, bottles: number, drinksEach?: number | null, batch = false): string | null {
   const n = clampBottles(bottles);
   if (n === 1) return null;
   const ml = bottleMl(p);
-  const drinks = drinksEach ? `, ${drinksEach * n} drinks` : "";
-  return ml == null ? `${bottlesText(n)}${drinks}` : `${bottlesText(n)}${drinks}, ${volumeText(ml * n)}`;
+  const drinks = drinksEach && !batch ? `, ${drinksEach * n} drinks` : "";
+  return ml == null ? `${bottlesText(n, batch)}${drinks}` : `${bottlesText(n, batch)}${drinks}, ${volumeText(ml * n)}`;
 }
 
 /** "36 serves from 4 bottles" for one drink's line (each bottle makes whole serves). Null for one bottle or when serves cannot be worked out. */
-export function batchServesText(bottle: number | null, u: PremixUse, bottles: number): string | null {
+export function batchServesText(bottle: number | null, u: PremixUse, bottles: number, batch = false): string | null {
   const n = clampBottles(bottles);
   if (n === 1) return null;
   const per = servesPerBottle(bottle, u.qty, u.unit);
   if (per == null || per < 1) return null;
   const total = per * n;
-  return `${total} ${total === 1 ? "serve" : "serves"} from ${bottlesText(n)}`;
+  return batch ? `${total} from ${bottlesText(n, true)}` : `${total} ${total === 1 ? "serve" : "serves"} from ${bottlesText(n)}`;
 }

@@ -15,10 +15,11 @@ export const MENU_CATEGORIES = [
   "Spirits",
   "RTD",
   "Soju, Sake & Boba",
+  "Boba",
 ] as const;
 export type MenuCategory = (typeof MENU_CATEGORIES)[number];
 
-/** Chiobu's own menu section for sake, soju and boba (Troy, 11 Oct 2026). A drink like any other; each item keeps its own section (Sake, Soju, Boba). */
+/** Chiobu's own menu section for sake, soju and boba (Troy, 11 Oct 2026). A drink like any other; each item keeps its own section (Sake, Soju, Boba). Boba drinks moved to their own "Boba" category on 30 Oct 2026 so the Drinks Station can carry them. */
 export const SOJU_SAKE_BOBA = "Soju, Sake & Boba";
 
 export const PACK_UNITS: PackUnit[] = ["kg", "L", "each"];

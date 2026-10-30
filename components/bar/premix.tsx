@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { batchLineDisplay, batchServesText, batchTotalText, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, makesText, MAX_BOTTLES, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
+import { batchLineDisplay, batchServesText, batchTotalText, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, isBatchPremix, makesText, MAX_BOTTLES, premixUseDisplay, type BarPremix, type Premix } from "@/lib/bar-premix";
 import { syncedLabel } from "@/lib/bar";
 import { cx } from "../ui";
 import { BottleIcon } from "./glass-icon";
@@ -141,8 +141,10 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
   const size = bottleSizeText(p, slug);
   // how many bottles the team is making right now; lives on the card only (nothing is saved), and a refresh keeps it because the card keeps its key
   const [bottles, setBottles] = useState(1);
-  const drinks = drinksPerBottle(p);
-  const total = batchTotalText(p, bottles, drinks);
+  const batch = isBatchPremix(p, slug);
+  // a bottle says how many drinks it makes; a batch (the 4 L green tea) just says its size
+  const drinks = batch ? null : drinksPerBottle(p);
+  const total = batchTotalText(p, bottles, drinks, batch);
   return (
     <section id={anchorId(p)} className={cx(CARD, "scroll-mt-4 px-5 py-5")}>
       <div className="flex items-start gap-4">
@@ -160,22 +162,22 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
       </div>
 
       {p.lines.length ? (
-        <div className="mt-4 rounded-xl bg-[#232327] px-4 py-3" role="group" aria-label={`Bottles to make: ${p.name}`}>
+        <div className="mt-4 rounded-xl bg-[#232327] px-4 py-3" role="group" aria-label={`${batch ? "Batches" : "Bottles"} to make: ${p.name}`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-3">
             <div className="min-w-[150px] flex-1">
-              <h3 className={cx(HEADING, "uppercase")}>Bottles To Make</h3>
+              <h3 className={cx(HEADING, "uppercase")}>{batch ? "Batches To Make" : "Bottles To Make"}</h3>
               <p className="mt-[2px] text-[17px] leading-snug text-[#9B9890]" aria-live="polite">
                 {total ?? "Tap + to make more at once"}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" aria-label="One bottle fewer" disabled={bottles <= 1} onClick={() => setBottles((b) => clampBottles(b - 1))} className={STEP_BTN}>
+              <button type="button" aria-label={batch ? "One batch fewer" : "One bottle fewer"} disabled={bottles <= 1} onClick={() => setBottles((b) => clampBottles(b - 1))} className={STEP_BTN}>
                 &#8722;
               </button>
-              <span className="min-w-[52px] text-center text-[40px] font-medium leading-none text-[#D9C3A0]" aria-label={bottlesText(bottles)}>
+              <span className="min-w-[52px] text-center text-[40px] font-medium leading-none text-[#D9C3A0]" aria-label={bottlesText(bottles, batch)}>
                 {bottles}
               </span>
-              <button type="button" aria-label="One bottle more" disabled={bottles >= MAX_BOTTLES} onClick={() => setBottles((b) => clampBottles(b + 1))} className={STEP_BTN}>
+              <button type="button" aria-label={batch ? "One batch more" : "One bottle more"} disabled={bottles >= MAX_BOTTLES} onClick={() => setBottles((b) => clampBottles(b + 1))} className={STEP_BTN}>
                 +
               </button>
             </div>
@@ -185,7 +187,7 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
 
       {p.lines.length ? (
         <div className="mt-4">
-          <h3 className={cx(HEADING, "mb-1 uppercase")}>{bottles > 1 ? `Ingredients For ${bottlesText(bottles)}` : "Ingredients"}</h3>
+          <h3 className={cx(HEADING, "mb-1 uppercase")}>{bottles > 1 ? `Ingredients For ${bottlesText(bottles, batch)}` : "Ingredients"}</h3>
           <ul>
             {p.lines.map((l, i) => {
               const d = batchLineDisplay(l, bottles);
@@ -208,8 +210,8 @@ function PremixCard({ premix: p, slug }: { premix: Premix; slug: string }) {
         {p.usedIn.length ? (
           <ul>
             {p.usedIn.map((u, i) => {
-              const d = premixUseDisplay(u, bottle);
-              const serves = batchServesText(bottle, u, bottles) ?? d.serves;
+              const d = premixUseDisplay(u, bottle, batch);
+              const serves = batchServesText(bottle, u, bottles, batch) ?? d.serves;
               return (
                 <li key={i} className={cx(ROW, "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-[13px]")}>
                   <p className="min-w-0 text-[26px] leading-[1.2]">{d.drink}</p>

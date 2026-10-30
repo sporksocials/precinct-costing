@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { shotsFor } from "@/lib/bar";
-import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, makesText, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
+import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, isBatchPremix, makesText, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
 import { stationWorkerSource } from "@/lib/sw-source";
 
 const NOW = "2026-10-04T08:00:00.000Z";
@@ -63,6 +63,40 @@ describe("parseBarPremix", () => {
     expect(m.premixes[0].yieldQty).toBe(0);
     expect(m.premixes[0].lines[0].qty).toBe(0);
     expect(m.premixes[0].usedIn[0].qty).toBe(0);
+  });
+});
+
+describe("bottle sizes and batches (Chiobu, 30 Oct 2026)", () => {
+  it("a Chiobu pre-mix fits the smallest bottle that holds it with a little neck room: 700 ml, then 1 L, then a batch", () => {
+    expect(bottleSizeText({ yieldQty: 0.665, yieldUnit: "L" }, "chiobu")).toBe("700 ml bottle");
+    expect(bottleSizeText({ yieldQty: 0.7, yieldUnit: "L" }, "chiobu")).toBe("700 ml bottle");
+    // the boba mix is 840 + 120 + 120 = 1,080 ml and fits a 1 L bottle
+    expect(bottleSizeText({ yieldQty: 1.08, yieldUnit: "L" }, "chiobu")).toBe("1 L bottle");
+    expect(bottleSizeText({ yieldQty: 4, yieldUnit: "L" }, "chiobu")).toBe("4 L batch");
+    expect(bottleSizeText({ yieldQty: 1.08, yieldUnit: "L" }, "drift")).toBe("1.08 L batch");
+  });
+  it("the 4 L green tea is a batch, a bottle is not", () => {
+    expect(isBatchPremix({ yieldQty: 4, yieldUnit: "L" }, "chiobu")).toBe(true);
+    expect(isBatchPremix({ yieldQty: 1.08, yieldUnit: "L" }, "chiobu")).toBe(false);
+    expect(isBatchPremix({ yieldQty: 0.665, yieldUnit: "L" }, "chiobu")).toBe(false);
+    expect(isBatchPremix({ yieldQty: 2, yieldUnit: "kg" }, "chiobu")).toBe(true);
+  });
+  it("batches say batches: 3 batches of 4 L is 12 L, tea and water multiplied", () => {
+    const tea = { yieldQty: 4, yieldUnit: "L" };
+    expect(bottlesText(3, true)).toBe("3 batches");
+    expect(bottlesText(1, true)).toBe("1 batch");
+    expect(batchTotalText(tea, 3, 4, true)).toBe("3 batches, 12 L");
+    expect(batchTotalText(tea, 1, null, true)).toBeNull();
+    expect(batchLineAmount(100, "g", 3)).toBe("300g");
+    expect(batchLineAmount(4, "L", 3)).toBe("12 L");
+    expect(premixUseDisplay({ drink: "Lychee Boba Mix", qty: 840, unit: "ml" }, 4000, true).serves).toBe("4 per batch");
+    expect(batchServesText(4000, { drink: "Lychee Boba Mix", qty: 840, unit: "ml" }, 3, true)).toBe("12 from 3 batches");
+  });
+  it("the boba mix makes 5 serves of 210 ml from 1,080 ml and shows plain ml, not shots", () => {
+    expect(drinksPerBottle({ yieldQty: 1.08, yieldUnit: "L", usedIn: [{ drink: "Boba Lychee", qty: 210, unit: "ml" }, { drink: "Boozy Boba Lychee", qty: 210, unit: "ml" }] })).toBe(5);
+    expect(premixUseDisplay({ drink: "Boba Lychee", qty: 210, unit: "ml" }, 1080).pour).toBe("210 ml");
+    expect(premixLineDisplay({ name: "Green Tea Boba", qty: 840, unit: "ml", sort: 1 }).shots).toBeNull();
+    expect(premixLineDisplay({ name: "Sugar Syrup", qty: 120, unit: "ml", sort: 2 }).shots).toBe("4 shots");
   });
 });
 
@@ -253,8 +287,9 @@ describe("making several bottles at once", () => {
   it("is wired into the card: a minus and plus counter with 56px targets, no quick picks, and no write anywhere", () => {
     const src = readFileSync("components/bar/premix.tsx", "utf8");
     expect(src).toContain("Bottles To Make");
+    expect(src).toContain("Batches To Make");
     expect(src).toContain("batchLineDisplay(l, bottles)");
-    expect(src).toContain("batchServesText(bottle, u, bottles)");
+    expect(src).toContain("batchServesText(bottle, u, bottles, batch)");
     expect(src).toMatch(/h-\[56px\] w-\[56px\]/);
     expect(src).not.toContain("QUICK_BOTTLES");
     expect(src).not.toContain("aria-pressed");

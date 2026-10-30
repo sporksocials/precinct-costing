@@ -168,6 +168,7 @@ const CATEGORY_GROUP: Record<string, string> = {
   Cocktail: "Cocktails",
   Mocktail: "Mocktails",
   "Cold Drink": "Soft Drinks",
+  Boba: "Boba",
   Wine: "Wine",
   Food: "Food",
   "Tap Beer": "Tap Beer",

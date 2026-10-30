@@ -219,7 +219,7 @@ export function isCovered(table: string, op: string, field: string | null, field
 
 /* ------------------------------------------------------------------ describing a row */
 
-const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Cold Drink", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD", "Soju, Sake & Boba"]);
+const DRINK_CATEGORIES = new Set(["Cocktail", "Mocktail", "Cold Drink", "Tap Beer", "Packaged Beer & Cider", "Wine", "Spirits", "RTD", "Soju, Sake & Boba", "Boba"]);
 const CHILD_TABLES = new Set(["cost_recipe_lines", "cost_gelato_serve_lines", "cost_offer_lines", "cost_beer_prices"]);
 
 interface Ctx {

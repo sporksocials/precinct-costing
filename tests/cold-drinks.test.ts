@@ -27,7 +27,7 @@ describe("Cold Drink category", () => {
     expect(MENU_CATEGORIES.indexOf("Cold Drink")).toBe(MENU_CATEGORIES.indexOf("Mocktail") + 1);
   });
   it("is carried by the drinks station", () => {
-    expect([...BAR_CATEGORIES]).toEqual(["Cocktail", "Mocktail", "Cold Drink"]);
+    expect([...BAR_CATEGORIES]).toEqual(["Cocktail", "Mocktail", "Cold Drink", "Boba"]);
     expect(isBarCategory("Cold Drink")).toBe(true);
     expect(isBarCategory("Cold Drinks")).toBe(false);
     expect(isBarCategory("Food")).toBe(false);

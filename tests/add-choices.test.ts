@@ -7,8 +7,8 @@ import { MENU_CATEGORIES } from "../lib/types";
 const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
 
 describe("What Are You Adding? tiles", () => {
-  it("lists the twelve tiles in order, with no duplicates", () => {
-    expect(ADD_CHOICES.map((c) => c.label)).toEqual(["Food", "Cocktail", "Mocktail", "Cold Drink", "Wine", "Spirits", "Packaged Beer & Cider", "RTD", "Soju, Sake & Boba", "Tap Beer", "Gelato Flavour", "Prep"]);
+  it("lists the thirteen tiles in order, with no duplicates", () => {
+    expect(ADD_CHOICES.map((c) => c.label)).toEqual(["Food", "Cocktail", "Mocktail", "Cold Drink", "Wine", "Spirits", "Packaged Beer & Cider", "RTD", "Soju, Sake & Boba", "Boba", "Tap Beer", "Gelato Flavour", "Prep"]);
     expect(new Set(ADD_CHOICES.map((c) => c.id)).size).toBe(ADD_CHOICES.length);
   });
   it("sends Tap Beer, Gelato Flavour and Prep to their own forms", () => {
@@ -19,7 +19,7 @@ describe("What Are You Adding? tiles", () => {
   });
   it("sends every other tile to New Menu Item with a real category chosen", () => {
     const items = ADD_CHOICES.filter((c) => c.destination.kind === "item");
-    expect(items).toHaveLength(9);
+    expect(items).toHaveLength(10);
     for (const c of items) {
       const d = c.destination;
       if (d.kind !== "item") throw new Error("unreachable");
@@ -116,6 +116,8 @@ describe("Soju, Sake & Boba (Chiobu, 11 Oct 2026)", () => {
   it("a new item named like sake, soju or boba is guessed into it", () => {
     expect(guessCategory("Dassai Sake 720ml", [])).toBe("Soju, Sake & Boba");
     expect(guessCategory("Chingu Soju Peach", [])).toBe("Soju, Sake & Boba");
-    expect(guessCategory("Boozy Boba Mango", [])).toBe("Soju, Sake & Boba");
+    // boba has its own category since 30 Oct 2026 (the Drinks Station carries it)
+    expect(guessCategory("Boozy Boba Mango", [])).toBe("Boba");
+    expect(guessCategory("Peach Bubble Tea", [])).toBe("Boba");
   });
 });

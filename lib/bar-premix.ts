@@ -139,14 +139,14 @@ export function servesPerBottle(bottle: number | null, qty: number, unit: string
 }
 
 /**
- * An ingredient line on the bottle card, in whole millilitres, rounded DOWN ("233.3 ml" reads "233 ml"): nobody measures
+ * An ingredient line on the bottle card, in whole millilitres (litres from 1 L: the 4 L of water reads "4 L"), rounded DOWN ("233.3 ml" reads "233 ml"): nobody measures
  * a third of a ml, and a bottle that is a few drops short still fits in the 700 ml. The tiny addition stops float noise
  * (149.9999999) from dropping a clean 150. Other units keep their own style.
  */
 export function bottleLineAmount(qty: number, unit: string): string {
   const ml = toMl(qty, unit);
   if (ml == null) return qtyText(qty, unit);
-  return `${Math.floor(ml + 1e-6).toLocaleString("en-AU")} ml`;
+  return volumeText(ml);
 }
 
 export interface PremixLineDisplay {

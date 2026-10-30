@@ -75,6 +75,12 @@ describe("bottle sizes and batches (Chiobu, 30 Oct 2026)", () => {
     expect(bottleSizeText({ yieldQty: 4, yieldUnit: "L" }, "chiobu")).toBe("4 L batch");
     expect(bottleSizeText({ yieldQty: 1.08, yieldUnit: "L" }, "drift")).toBe("1.08 L batch");
   });
+  it("a line of a litre or more reads in litres (the 4 L of water is not 4,000 ml)", () => {
+    expect(bottleLineAmount(4, "L")).toBe("4 L");
+    expect(bottleLineAmount(4000, "ml")).toBe("4 L");
+    expect(bottleLineAmount(840, "ml")).toBe("840 ml");
+    expect(premixLineDisplay({ name: "Water", qty: 4, unit: "L", sort: 2 }).amount).toBe("4 L");
+  });
   it("the 4 L green tea is a batch, a bottle is not", () => {
     expect(isBatchPremix({ yieldQty: 4, yieldUnit: "L" }, "chiobu")).toBe(true);
     expect(isBatchPremix({ yieldQty: 1.08, yieldUnit: "L" }, "chiobu")).toBe(false);

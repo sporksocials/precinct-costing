@@ -565,11 +565,42 @@ function listWords(names: string[]): string {
 }
 
 /** "Kingfish fillets (Daniel Street): $68.90 to $74.20 per kg, up 7.7%" */
-export function moveLine(m: AttentionItem): string {
+export function moveLine(m: AttentionItem, invoices = 1): string {
   const up = (m.pct ?? 0) > 0;
   const pct = `${(Math.round(Math.abs(m.pct ?? 0) * 1000) / 10).toFixed(1)}%`;
   const prices = `${fmtPrice(m.oldPrice ?? 0)} to ${fmtPrice(m.newPrice ?? 0)}${perUnitWords(m.unit)}`;
-  return `• ${slackEscape(tidyItem(m.item))} (${slackEscape(shortSupplier(m.supplier))}): ${prices}, ${up ? "up" : "down"} ${pct}`;
+  const seen = invoices > 1 ? ` (on ${invoices} invoices)` : "";
+  return `• ${slackEscape(tidyItem(m.item))} (${slackEscape(shortSupplier(m.supplier))}): ${prices}, ${up ? "up" : "down"} ${pct}${seen}`;
+}
+
+/**
+ * The same price move on several invoices (or at several venues, since prices are shared) is ONE move: same supplier, item,
+ * old price and new price. Returns each distinct move once with how many times it was seen, biggest change first.
+ */
+export function mergeMoves(moves: readonly AttentionItem[]): { move: AttentionItem; invoices: number }[] {
+  const by = new Map<string, { move: AttentionItem; invoices: number }>();
+  for (const m of moves) {
+    const key = [m.supplier, tidyItem(m.item), Math.round((m.oldPrice ?? 0) * 100), Math.round((m.newPrice ?? 0) * 100)].join("|").toLowerCase();
+    const hit = by.get(key);
+    if (hit) hit.invoices++;
+    else by.set(key, { move: m, invoices: 1 });
+  }
+  const order = sortMoves([...by.values()].map((v) => v.move));
+  const pick = new Map([...by.values()].map((v) => [v.move, v]));
+  return order.map((m) => pick.get(m)!);
+}
+
+/** One supplier discount once, however many venues saw it. */
+export function mergeDiscounts(discounts: readonly DiscountNote[]): DiscountNote[] {
+  const seen = new Set<string>();
+  const out: DiscountNote[] = [];
+  for (const d of discounts) {
+    const key = `${d.supplier}|${tidyItem(d.item)}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(d);
+  }
+  return out;
 }
 
 const pct1 = (f: number) => `${(Math.round(f * 1000) / 10).toFixed(1)}%`;
@@ -595,30 +626,13 @@ function venueHasActivity(v: WeeklyVenueData): boolean {
   return v.invoicesRead + v.pricesUpdated + v.pricesConfirmed + v.moves.length + v.discounts.length + v.toMatch + v.toApprove + v.toCheck + v.stillReading > 0;
 }
 
-function venueSection(v: WeeklyVenueData, maxMoves: number, maxDiscounts: number): string[] {
-  const head: string[] = [];
-  if (v.invoicesRead > 0) head.push(plural(v.invoicesRead, "invoice", "invoices"));
-  if (v.pricesUpdated > 0) head.push(plural(v.pricesUpdated, "price updated", "prices updated"));
-  if (v.pricesConfirmed > 0) head.push(`${v.pricesConfirmed} confirmed as unchanged`);
-  const lines: string[] = [`*${slackEscape(shortVenueName(v.venueName))}:* ${head.length ? head.join(", ") : "nothing new this week"}`];
-
-  const moves = sortMoves(v.moves).slice(0, maxMoves);
-  if (moves.length > 0) {
-    lines.push(moves.length === 1 ? "*Biggest price move* (by percent, up or down):" : `*Biggest price moves* (top ${moves.length} by percent, up or down):`);
-    for (const m of moves) lines.push(moveLine(m));
-  }
-  const discounts = v.discounts.slice(0, maxDiscounts);
-  if (discounts.length > 0) {
-    lines.push("*Supplier discounts we spotted*:");
-    for (const d of discounts) lines.push(discountLine(d));
-  }
+/** "Drift Bar: 227 items to match, 8 prices to approve, 13 to check" (null when the venue has nothing waiting). */
+function todoLine(v: WeeklyVenueData): string | null {
   const todo: string[] = [];
   if (v.toMatch > 0) todo.push(`${plural(v.toMatch, "item", "items")} to match`);
   if (v.toApprove > 0) todo.push(`${plural(v.toApprove, "price", "prices")} to approve`);
   if (v.toCheck > 0) todo.push(`${v.toCheck} to check`);
-  if (todo.length) lines.push(`*Still to do*: ${todo.join(", ")}.`);
-  if (v.stillReading > 0) lines.push(`*Reading*: ${v.stillReading} ${v.stillReading === 1 ? "invoice is" : "invoices are"} still being read.`);
-  return lines;
+  return todo.length ? `• ${slackEscape(shortVenueName(v.venueName))}: ${todo.join(", ")}` : null;
 }
 
 function summaryLine(venues: WeeklyVenueData[]): string {
@@ -626,8 +640,9 @@ function summaryLine(venues: WeeklyVenueData[]): string {
   const updated = venues.reduce((n, v) => n + v.pricesUpdated, 0);
   const confirmed = venues.reduce((n, v) => n + v.pricesConfirmed, 0);
   const readAt = venues.filter((v) => v.invoicesRead > 0);
-  const where = listWords(readAt.map((v) => slackEscape(shortVenueName(v.venueName))));
-  const first = read > 0 ? `${plural(read, "invoice", "invoices")} read ${readAt.length > 1 ? "across" : "at"} ${where}.` : "No new invoices were read this week.";
+  // one venue: "9 invoices read at Drift."; several: "81 invoices read (Drift 38, Chiobu 22, Greedy 10)."
+  const where = readAt.length > 1 ? ` (${readAt.map((v) => `${slackEscape(shortVenueName(v.venueName))} ${v.invoicesRead}`).join(", ")})` : readAt.length === 1 ? ` at ${slackEscape(shortVenueName(readAt[0].venueName))}` : "";
+  const first = read > 0 ? `${plural(read, "invoice", "invoices")} read${where}.` : "No new invoices were read this week.";
   let prices: string;
   if (updated > 0 && confirmed > 0) prices = `${plural(updated, "price", "prices")} updated, ${confirmed} confirmed as unchanged.`;
   else if (updated > 0) prices = `${plural(updated, "price", "prices")} updated.`;
@@ -641,11 +656,28 @@ function renderWeekly(d: WeeklyReviewData, maxMoves: number, maxDiscounts: numbe
   const active = d.venues.filter(venueHasActivity);
   if (active.length === 0) return `${headline}\nNothing new this week. All caught up.`;
 
+  // Everything the venues share is said ONCE: the same price move or discount on five invoices, or at two venues, is one line.
   const out: string[] = [headline, summaryLine(active)];
-  for (const v of active) {
+  const moves = mergeMoves(active.flatMap((v) => v.moves)).slice(0, maxMoves);
+  if (moves.length > 0) {
     out.push("");
-    out.push(...venueSection(v, maxMoves, maxDiscounts));
+    out.push(moves.length === 1 ? "*Biggest price move* (by percent, up or down):" : `*Biggest price moves* (top ${moves.length} by percent, up or down):`);
+    for (const m of moves) out.push(moveLine(m.move, m.invoices));
   }
+  const discounts = mergeDiscounts(active.flatMap((v) => v.discounts)).slice(0, maxDiscounts);
+  if (discounts.length > 0) {
+    out.push("");
+    out.push("*Supplier discounts we spotted*:");
+    for (const x of discounts) out.push(discountLine(x));
+  }
+  const todo = active.map(todoLine).filter((l): l is string => !!l);
+  if (todo.length > 0) {
+    out.push("");
+    out.push("*Still to do*:");
+    out.push(...todo);
+  }
+  const reading = active.reduce((n, v) => n + v.stillReading, 0);
+  if (reading > 0) out.push(`*Reading*: ${reading} ${reading === 1 ? "invoice is" : "invoices are"} still being read.`);
   const open = active.reduce((n, v) => n + v.toMatch + v.toApprove + v.toCheck, 0);
   out.push("");
   if (open > 0) {

@@ -67,34 +67,46 @@ function busyWeek(): WeeklyReviewData {
 }
 
 describe("buildWeeklyReview", () => {
-  it("a busy week across three venues, word for word (moves capped at 5, biggest first, up or down)", () => {
+  it("a busy week across three venues, word for word (moves merged and capped at 5, biggest first, each said once)", () => {
     expect(buildWeeklyReview(busyWeek())).toBe(
       [
         ":receipt: *Invoice review: week to Fri 30 Oct*",
-        "29 invoices read across Drift, Chiobu and Greedy. 46 prices updated, 12 confirmed as unchanged.",
+        "29 invoices read (Drift 18, Chiobu 6, Greedy 5). 46 prices updated, 12 confirmed as unchanged.",
         "",
-        "*Drift:* 18 invoices, 22 prices updated, 7 confirmed as unchanged",
         "*Biggest price moves* (top 5 by percent, up or down):",
         "• Cos lettuce (Bidfood): $2.10 to $2.45 each, up 16.7%",
         "• Kingfish fillets (Daniel Street Fish Market): $68.90 to $74.20 per kg, up 7.7%",
         "• Diablo Ginger Beer 50L Keg (Diablo Co): $359.00 to $332.50 each, down 7.4%",
         "• Humpty Doo Barramundi fillets (Daniel Street Fish Market): $41.54 to $44.10 per kg, up 6.2%",
-        "• Sourdough loaf (Bidfood): $4.50 to $4.55 each, up 1.1%",
+        "• Dassai 45 Sake 720ml (Paramount Liquor): $41.50 to $40.17 each, down 3.2%",
+        "",
         "*Supplier discounts we spotted*:",
         "• Daniel Street Fish Market takes 16.6% ($6.88 per kg) off Humpty Doo Barramundi fillets.",
-        "*Still to do*: 41 items to match, 5 prices to approve, 2 to check.",
+        "",
+        "*Still to do*:",
+        "• Drift: 41 items to match, 5 prices to approve, 2 to check",
+        "• Chiobu: 3 items to match",
         "*Reading*: 7 invoices are still being read.",
-        "",
-        "*Chiobu:* 6 invoices, 9 prices updated, 2 confirmed as unchanged",
-        "*Biggest price move* (by percent, up or down):",
-        "• Dassai 45 Sake 720ml (Paramount Liquor): $41.50 to $40.17 each, down 3.2%",
-        "*Still to do*: 3 items to match.",
-        "",
-        "*Greedy:* 5 invoices, 15 prices updated, 3 confirmed as unchanged",
         "",
         "<https://precinct-costing.vercel.app/invoices?tab=todo|Open Invoices>",
       ].join("\n"),
     );
+  });
+
+  it("the same price move on many invoices, or at several venues, is ONE line with how many invoices (Troy, 30 Oct 2026: the same chips line five times)", () => {
+    const chips = () => move("Chips 10mm supa crunch ultrafast", 58.19, 51.7, "CTN", "Bidfood Sunshine Coast");
+    const text = buildWeeklyReview(
+      review([
+        venue({ invoicesRead: 38, pricesUpdated: 5, moves: [chips(), chips(), chips(), chips(), chips()] }),
+        venue({ venueName: "Chiobu", venueSlug: "chiobu", invoicesRead: 22, moves: [chips(), chips()] }),
+      ]),
+    );
+    const lines = text.split("\n").filter((l) => l.startsWith("• Chips"));
+    expect(lines).toEqual(["• Chips 10mm supa crunch ultrafast (Bidfood Sunshine Coast): $58.19 to $51.70 per carton, down 11.2% (on 7 invoices)"]);
+    expect(text).toContain("*Biggest price move* (by percent, up or down):");
+    // a different price for the same item is a different move
+    const two = buildWeeklyReview(review([venue({ invoicesRead: 2, moves: [chips(), move("Chips 10mm supa crunch ultrafast", 51.7, 53, "CTN", "Bidfood Sunshine Coast")] })]));
+    expect(two.split("\n").filter((l) => l.startsWith("• Chips"))).toHaveLength(2);
   });
 
   it("a quiet week is still one predictable line", () => {
@@ -108,8 +120,8 @@ describe("buildWeeklyReview", () => {
         ":receipt: *Invoice review: week to Fri 30 Oct*",
         "No new invoices were read this week.",
         "",
-        "*Drift:* nothing new this week",
-        "*Still to do*: 1 item to match, 1 price to approve.",
+        "*Still to do*:",
+        "• Drift: 1 item to match, 1 price to approve",
         "*Reading*: 1 invoice is still being read.",
         "",
         "<https://precinct-costing.vercel.app/invoices?tab=todo|Open Invoices>",
@@ -119,7 +131,7 @@ describe("buildWeeklyReview", () => {
 
   it("one venue, all caught up: singular words, no prices changed, no link", () => {
     expect(buildWeeklyReview(review([venue({ invoicesRead: 1 })]))).toBe(
-      [":receipt: *Invoice review: week to Fri 30 Oct*", "1 invoice read at Drift. No prices changed.", "", "*Drift:* 1 invoice", "", "Nothing is waiting on you."].join("\n"),
+      [":receipt: *Invoice review: week to Fri 30 Oct*", "1 invoice read at Drift. No prices changed.", "", "Nothing is waiting on you."].join("\n"),
     );
     expect(buildWeeklyReview(review([venue({ invoicesRead: 9, pricesUpdated: 1 })]))).toContain("9 invoices read at Drift. 1 price updated.\n");
     expect(buildWeeklyReview(review([venue({ invoicesRead: 2, pricesConfirmed: 1 })]))).toContain("2 invoices read at Drift. 1 price confirmed as unchanged.\n");
@@ -127,9 +139,9 @@ describe("buildWeeklyReview", () => {
 
   it("only venues with something to say get a section", () => {
     const text = buildWeeklyReview(review([venue({ invoicesRead: 2, pricesUpdated: 2 }), venue({ venueName: "Chiobu", venueSlug: "chiobu" }), venue({ venueName: "Greedy Gringo's", venueSlug: "greedy", toCheck: 3 })]));
-    expect(text).toContain("*Drift:*");
+    expect(text).toContain("2 invoices read at Drift. 2 prices updated.");
     expect(text).not.toContain("Chiobu");
-    expect(text).toContain("*Greedy:* nothing new this week\n*Still to do*: 3 to check.");
+    expect(text).toContain("*Still to do*:\n• Greedy: 3 to check");
   });
 
   it("caps the price moves at 5 and keeps the biggest, up or down, with ties in a fixed order", () => {
@@ -194,9 +206,9 @@ describe("buildWeeklyReview", () => {
     );
     const text = buildWeeklyReview(huge);
     expect(text.length).toBeLessThanOrEqual(WEEKLY_TEXT_LIMIT);
-    expect(text).toContain("99 items to match, 12 prices to approve, 4 to check.");
+    expect(text).toContain("• Drift: 99 items to match, 12 prices to approve, 4 to check");
     expect(text).toContain("<https://precinct-costing.vercel.app/invoices?tab=todo|Open Invoices>");
-    expect((text.match(/^\*Drift:\*/gm) ?? []).length).toBe(1);
+    expect((text.match(/^• Drift:/gm) ?? []).length).toBe(1);
     // a normal busy week is not trimmed at all
     expect(buildWeeklyReview(busyWeek())).toContain("(top 5 by percent");
   });
@@ -207,7 +219,7 @@ describe("buildWeeklyReview", () => {
     expect(parts[0]).toContain("18 invoices read at Drift.");
     expect(parts[0]).not.toContain("Chiobu");
     expect(parts[1]).toContain("6 invoices read at Chiobu.");
-    expect(parts[2]).toBe([":receipt: *Invoice review: week to Fri 30 Oct*", "5 invoices read at Greedy. 15 prices updated, 3 confirmed as unchanged.", "", "*Greedy:* 5 invoices, 15 prices updated, 3 confirmed as unchanged", "", "Nothing is waiting on you."].join("\n"));
+    expect(parts[2]).toBe([":receipt: *Invoice review: week to Fri 30 Oct*", "5 invoices read at Greedy. 15 prices updated, 3 confirmed as unchanged.", "", "Nothing is waiting on you."].join("\n"));
   });
 
   it("small helpers: the week label is Brisbane time, venue names are short, the marker is found", () => {
@@ -513,22 +525,21 @@ describe("the weekly numbers (definitions shared with the To Do screens)", () =>
     expect(buildWeeklyReview(data)).toBe(
       [
         ":receipt: *Invoice review: week to Fri 30 Oct*",
-        "3 invoices read across Drift and Greedy. 4 prices updated, 2 confirmed as unchanged.",
+        "3 invoices read (Drift 2, Greedy 1). 4 prices updated, 2 confirmed as unchanged.",
         "",
-        "*Drift:* 2 invoices, 3 prices updated, 2 confirmed as unchanged",
-        "*Biggest price moves* (top 3 by percent, up or down):",
+        "*Biggest price moves* (top 4 by percent, up or down):",
         "• Kingfish fillets (Daniel Street Fish Market): $68.90 to $74.20 per kg, up 7.7%",
         "• Humpty Doo Barramundi fillets (Daniel Street Fish Market): $41.54 to $44.10 per kg, up 6.2%",
+        "• Vodka 700ml (Star): $31.25 to $30.00 each, down 4.0%",
         "• Lychee Liqueur 700ml (Diablo Co): $38.24 to $38.62 each, up 1.0%",
+        "",
         "*Supplier discounts we spotted*:",
         "• Daniel Street Fish Market takes 16.6% ($6.88 per kg) off Humpty Doo Barramundi fillets.",
-        "*Still to do*: 2 items to match, 2 prices to approve, 4 to check.",
-        "*Reading*: 1 invoice is still being read.",
         "",
-        "*Greedy:* 1 invoice, 1 price updated",
-        "*Biggest price move* (by percent, up or down):",
-        "• Vodka 700ml (Star): $31.25 to $30.00 each, down 4.0%",
-        "*Still to do*: 1 item to match, 1 price to approve, 1 to check.",
+        "*Still to do*:",
+        "• Drift: 2 items to match, 2 prices to approve, 4 to check",
+        "• Greedy: 1 item to match, 1 price to approve, 1 to check",
+        "*Reading*: 1 invoice is still being read.",
         "",
         "<https://precinct-costing.vercel.app/invoices?tab=todo|Open Invoices>",
       ].join("\n"),
@@ -605,7 +616,7 @@ describe("POST and GET /api/invoices/digest, weekly mode", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.sent).toBe(true);
-    expect(json.text).toMatch(/^:receipt: \*Invoice review: week to Fri 30 Oct\*\n3 invoices read across Drift and Greedy\./);
+    expect(json.text).toMatch(/^:receipt: \*Invoice review: week to Fri 30 Oct\*\n3 invoices read \(Drift 2, Greedy 1\)\./);
     expect(JSON.stringify(json)).not.toContain(WEBHOOK);
     expect(f).toHaveBeenCalledTimes(1);
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
@@ -688,7 +699,7 @@ describe("POST and GET /api/invoices/digest, weekly mode", () => {
     vi.stubGlobal("fetch", f);
     const before = await (await digestRoute.GET(req("GET", "/api/invoices/digest?mode=weekly", authed))).json();
     expect(before.sent).toBe(false);
-    expect(before.text).toContain("*Drift:* 2 invoices");
+    expect(before.text).toContain("3 invoices read (Drift 2, Greedy 1).");
     expect(f).not.toHaveBeenCalled();
     expect(current.upserts).toHaveLength(0);
     await digestRoute.POST(req("POST", "/api/invoices/digest", authed, { mode: "weekly" }));

@@ -106,6 +106,16 @@ describe("bottle sizes and batches (Chiobu, 30 Oct 2026)", () => {
   });
 });
 
+describe("idle return (Troy, 7 Nov 2026)", () => {
+  it("the drinks screens give a person 10 minutes before jumping back to the grid, and the pre-mix page uses the same clock", () => {
+    const src = readFileSync("components/bar/station.tsx", "utf8");
+    expect(src).toMatch(/export const IDLE_MS = 10 \* 60_000/);
+    const premix = readFileSync("components/bar/premix.tsx", "utf8");
+    expect(premix).toContain("IDLE_MS");
+    expect(premix).not.toMatch(/2 minute/);
+  });
+});
+
 describe("drinks per bottle", () => {
   const p = (yieldQty: number, ...pours: number[]) => ({ yieldQty, yieldUnit: "L", usedIn: pours.map((qty, i) => ({ drink: `D${i}`, qty, unit: "ml" })) });
   it("is the batch volume over the pour, whole drinks only", () => {

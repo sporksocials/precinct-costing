@@ -66,7 +66,7 @@ export function StaleBanner({ syncedAt, now }: { syncedAt: string | null; now: n
   );
 }
 
-export const IDLE_MS = 120_000; // back to the grid after 2 minutes untouched on a recipe
+export const IDLE_MS = 10 * 60_000; // back to the grid after 10 minutes untouched (Troy, 7 Nov 2026: 2 minutes jumped away from people still using the screen)
 export const REFRESH_MS = 5 * 60_000; // fetch the latest recipes every 5 minutes
 export const RETRY_MS = 30_000; // ...or every 30 seconds while the first load is failing
 
@@ -167,7 +167,7 @@ export function BarStation({ slug, venueName, initial, premixCount: initialPremi
     window.scrollTo(0, 0);
   }, [scrollKey]);
 
-  // idle auto-return: any touch, scroll or key on a recipe or flavour list restarts the 2 minute clock; the main grid has none.
+  // idle auto-return: any touch, scroll or key on a recipe or flavour list restarts the 10 minute clock; the main grid has none.
   // Left alone it goes all the way back to the main grid.
   useEffect(() => {
     if (screen === "grid") return;

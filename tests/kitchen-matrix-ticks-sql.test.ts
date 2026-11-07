@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { CONTAINS_IDS } from "@/lib/allergens";
+import { CONTAINS_IDS, SNAPSHOT_ALLERGEN_IDS } from "@/lib/allergens";
 
 /**
  * cost_kitchen_matrix, ingredient-first re-check (migration 20261010180000_kitchen_matrix_ticks.sql).
@@ -11,15 +11,17 @@ import { CONTAINS_IDS } from "@/lib/allergens";
  * function reads. Nothing here touches the live database.
  *
  * THE SNAPSHOT FORMAT (dish_allergens.ticks, must match lib/dish-allergens.ts and the SQL exactly):
- *   "ingredient:<id>": { a: [...], r: boolean }      a = the ingredient's allergens limited to the 15 main ids, r = allergens_reviewed
- *   "prep:<id>":       { add: [...], rem: [...] }    allergen_add / allergen_remove limited to the 15 main ids
+ *   "ingredient:<id>": { a: [...], r: boolean }      a = the ingredient's allergens limited to the snapshot ids, r = allergens_reviewed
+ *   "prep:<id>":       { add: [...], rem: [...] }    allergen_add / allergen_remove limited to the snapshot ids
  *   "item:<dishId>":   { add: [...], rem: [...] }    the dish itself
- * Every id array is in the fixed CONTAINS_IDS order and is [] when empty; "alcohol" is never in it. jsonb equality ignores key
+ * The snapshot ids are SNAPSHOT_ALLERGEN_IDS: the 16 main ids in the fixed order, plus the raw LEGACY onion_garlic placed right after
+ * garlic (Onion and Garlic were split on 7 Nov 2026, migration 20261107100000; the snapshot is never expanded, so every sign-off stored before
+ * the split stays valid). Every id array is in that order and is [] when empty; "alcohol" is never in it. jsonb equality ignores key
  * order but not array order, so the stored arrays must be in that order. The snapshots below are written out by hand.
  */
 
 const MIGRATIONS = path.resolve(__dirname, "../supabase/migrations");
-const FILES = ["20261010160000_cross_contact_setting.sql", "20261010170000_kitchen_matrix_recheck.sql", "20261010180000_kitchen_matrix_ticks.sql"];
+const FILES = ["20261010160000_cross_contact_setting.sql", "20261010170000_kitchen_matrix_recheck.sql", "20261010180000_kitchen_matrix_ticks.sql", "20261107100000_allergen_onion_garlic_split.sql"];
 const sql = (f: string) => readFileSync(path.join(MIGRATIONS, f), "utf8");
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -78,9 +80,9 @@ beforeAll(async () => {
       qty numeric default 1, unit text default 'g', note text, sort int default 0);
     insert into cost_venues values (1, 'drift', 'Drift Bar');
   `);
-  // apply the whole chain, then the new migration a second time: it must replace cleanly and be idempotent
+  // apply the whole chain, then the newest migration a second time: it must replace cleanly and be idempotent
   for (const f of FILES) await db.exec(sql(f));
-  await db.exec(sql(FILES[2]));
+  await db.exec(sql(FILES[3]));
 
   for (let k = 1; k <= 6; k++) {
     await db.query("insert into cost_ingredients (id, name, allergens_reviewed) values ($1,$2,true)", [I(k), `Ing ${k}`]);
@@ -106,12 +108,22 @@ afterAll(async () => {
 });
 
 describe("cost_kitchen_matrix ingredient-first re-check (real Postgres via PGlite)", () => {
-  it("the SQL's main allergen list is exactly CONTAINS_IDS, in order (the TypeScript list wins)", () => {
-    const m = sql(FILES[2]).match(/array\[((?:'[a-z_]+',?\s*)+)\]\)\s+with ordinality/);
+  it("the SQL's snapshot id list is exactly SNAPSHOT_ALLERGEN_IDS, in order (the TypeScript list wins)", () => {
+    const m = sql(FILES[3]).match(/array\[((?:'[a-z_]+',?\s*)+)\]\)\s+with ordinality/);
     expect(m).not.toBeNull();
     const ids = [...m![1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
-    expect(ids).toEqual([...CONTAINS_IDS]);
+    expect(ids).toEqual([...SNAPSHOT_ALLERGEN_IDS]);
+    expect(ids).toEqual([...CONTAINS_IDS.slice(0, CONTAINS_IDS.indexOf("garlic") + 1), "onion_garlic", "nitrites"]);
+    expect(ids).toContain("onion");
+    expect(ids).toContain("garlic");
     expect(ids).not.toContain("alcohol");
+  });
+
+  it("the new migration changes no data and only replaces the one function", () => {
+    const text = sql(FILES[3]);
+    expect(text).not.toMatch(/\b(insert\s+into|update\s+\w|delete\s+from|alter\s+table|drop\s+(table|column)|truncate)\b(?![^$]*\$\$[^$]*$)/i);
+    expect(text.match(/create or replace function/g)?.length).toBe(1);
+    expect(text).not.toMatch(/\b(price|surcharge|sell_price)\b[^\n]*(select|json_build_object)/i);
   });
 
   it("1. valid when the components and the ticks both match (sorted, alcohol left out)", async () => {
@@ -276,6 +288,45 @@ describe("cost_kitchen_matrix ingredient-first re-check (real Postgres via PGlit
     expect((await rows("select cost_kitchen_matrix('nope') as f"))[0].f).toBeNull();
   });
 
+  it("Onion and Garlic (the split): the new ids are in the snapshot in order, and a change to one turns the dish grey", async () => {
+    for (const k of [7, 8]) await db.query("insert into cost_ingredients (id, name, allergens_reviewed) values ($1,$2,true)", [I(k), `Ing ${k}`]);
+    await db.query("update cost_ingredients set allergens = '{nitrites,garlic,chilli,onion}' where id = $1", [I(7)]); // unsorted on purpose
+    await db.query("insert into cost_menu_items (id, name, venue_id, category, section, active) values ($1,'Onion Dish',1,'Food','Mains',true)", [D(3)]);
+    await line("item", D(3), "ingredient", I(7));
+    const ticks = { [`ingredient:${I(7)}`]: { a: ["chilli", "onion", "garlic", "nitrites"], r: true }, [`item:${D(3)}`]: { add: [], rem: [] } };
+    await db.query("update cost_menu_items set dish_allergens = $1 where id = $2", [JSON.stringify({ contains: ["chilli", "onion", "garlic", "nitrites"], without: {}, confirmed_at: AT, components: [`ingredient:${I(7)}`], ticks }), D(3)]);
+    expect(await signedAt(3)).toBe(AT);
+    await db.query("update cost_ingredients set allergens = '{nitrites,chilli,onion}' where id = $1", [I(7)]); // Garlic dropped
+    expect(await signedAt(3)).toBeNull();
+    await db.query("update cost_ingredients set allergens = '{nitrites,chilli,onion,garlic}' where id = $1", [I(7)]);
+    expect(await signedAt(3)).toBe(AT);
+    // the iPad feed still sends the stored list as it is (the app reads a legacy id as both): contains is passed through untouched
+    expect((await entry(3)).dish_allergens.contains).toEqual(["chilli", "onion", "garlic", "nitrites"]);
+  });
+
+  it("a snapshot stored BEFORE the split (the raw legacy onion_garlic) stays valid: the legacy id is kept, never expanded, and old and new ids sort in the fixed order", async () => {
+    await db.query("update cost_ingredients set allergens = '{nitrites,onion_garlic}' where id = $1", [I(8)]);
+    await db.query("insert into cost_menu_items (id, name, venue_id, category, section, active) values ($1,'Legacy Dish',1,'Food','Mains',true)", [D(4)]);
+    await line("item", D(4), "ingredient", I(8));
+    const pre = { [`ingredient:${I(8)}`]: { a: ["onion_garlic", "nitrites"], r: true }, [`item:${D(4)}`]: { add: [], rem: [] } };
+    await db.query("update cost_menu_items set dish_allergens = $1 where id = $2", [JSON.stringify({ contains: ["onion_garlic", "nitrites"], without: {}, confirmed_at: AT, components: [`ingredient:${I(8)}`], ticks: pre }), D(4)]);
+    expect(await signedAt(4)).toBe(AT);
+    // the feed sends the stored contains list as it is; lib/kitchen-matrix.ts reads onion_garlic as Onion and Garlic
+    expect((await entry(4)).dish_allergens.contains).toEqual(["onion_garlic", "nitrites"]);
+    // ticking Onion and Garlic in place of the legacy id is a real change: both need a re-check
+    await db.query("update cost_ingredients set allergens = '{nitrites,onion,garlic}' where id = $1", [I(8)]);
+    expect(await signedAt(4)).toBeNull();
+    // an ingredient holding the legacy id AND the new ones (mid-edit) is snapshotted in the order onion, garlic, onion_garlic
+    await db.query("update cost_ingredients set allergens = '{onion_garlic,garlic,nitrites,onion}' where id = $1", [I(8)]);
+    const both = { [`ingredient:${I(8)}`]: { a: ["onion", "garlic", "onion_garlic", "nitrites"], r: true }, [`item:${D(4)}`]: { add: [], rem: [] } };
+    await db.query("update cost_menu_items set dish_allergens = $1 where id = $2", [JSON.stringify({ contains: [], without: {}, confirmed_at: AT, components: [`ingredient:${I(8)}`], ticks: both }), D(4)]);
+    expect(await signedAt(4)).toBe(AT);
+    // a prep or dish override with the new ids counts too
+    await db.query("update cost_menu_items set allergen_add = '{garlic}' where id = $1", [D(4)]);
+    expect(await signedAt(4)).toBeNull();
+    await db.query("update cost_menu_items set allergen_add = '{}' where id = $1", [D(4)]);
+  });
+
   it("is replaced, not duplicated: one function, still executable by the public iPad roles", async () => {
     const fn = await rows("select count(*)::int as n from pg_proc where proname = 'cost_kitchen_matrix'");
     expect(fn[0].n).toBe(1);
@@ -288,7 +339,10 @@ describe("cost_kitchen_matrix ingredient-first re-check (real Postgres via PGlit
   it("schema.sql mirrors the new function body exactly once", () => {
     const schema = readFileSync(path.resolve(__dirname, "../supabase/schema.sql"), "utf8");
     expect(schema.match(/create or replace function public\.cost_kitchen_matrix/g)?.length).toBe(1);
-    expect(schema).toContain(sql(FILES[2]));
+    // the function in the schema file is the newest migration's, character for character (the migration's own header comment is not part of it)
+    const body = (f: string) => sql(f).slice(sql(f).indexOf("create or replace function public.cost_kitchen_matrix"));
+    expect(schema).toContain(body(FILES[3]).trimEnd());
+    expect(schema).not.toContain(body(FILES[2]).trimEnd());
     expect(schema).not.toContain(sql(FILES[1]));
   });
 });

@@ -36,7 +36,7 @@ const AHEAD = 20;
 const NEAR = 5;
 
 /**
- * Ingredient allergen review (Troy, 10 Oct 2026): one ingredient at a time, phone first. The 15 main allergen chips start from what a
+ * Ingredient allergen review (Troy, 10 Oct 2026): one ingredient at a time, phone first. The 16 main allergen chips start from what a
  * person already ticked plus the name and Smart Tidy suggestions (dashed, "Suggested", until a person taps anything), and Confirm And
  * Next writes `allergens` and `allergens_reviewed: true` through the same store update the ingredient page uses. Ticking nothing is a
  * valid answer: the ingredient contains none of them. The queue is fixed when the page opens, so confirming never reshuffles it.

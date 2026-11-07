@@ -94,11 +94,11 @@ describe("Nitrites keyword rule", () => {
 
 describe("groups, labels and order", () => {
   it("Sulphites follows Molluscs in the required list, Nitrites ends the chef extras, Alcohol is the only attribute", () => {
-    expect(CONTAINS_IDS).toEqual(["gluten", "crustacea", "egg", "fish", "milk", "peanuts", "sesame", "soy", "tree_nuts", "lupin", "molluscs", "sulphites", "chilli", "onion_garlic", "nitrites"]);
+    expect(CONTAINS_IDS).toEqual(["gluten", "crustacea", "egg", "fish", "milk", "peanuts", "sesame", "soy", "tree_nuts", "lupin", "molluscs", "sulphites", "chilli", "onion", "garlic", "nitrites"]);
     expect(ALLERGENS.filter((a) => a.group === "required").map((a) => a.id).slice(-2)).toEqual(["molluscs", "sulphites"]);
-    expect(ALLERGENS.filter((a) => a.group === "extra").map((a) => a.id)).toEqual(["chilli", "onion_garlic", "nitrites"]);
+    expect(ALLERGENS.filter((a) => a.group === "extra").map((a) => a.id)).toEqual(["chilli", "onion", "garlic", "nitrites"]);
     expect(ALLERGENS.filter((a) => a.group === "attribute").map((a) => a.id)).toEqual(["alcohol"]);
-    expect(ALLERGEN_IDS).toHaveLength(16);
+    expect(ALLERGEN_IDS).toHaveLength(17);
     expect(allergenLabel("sulphites")).toBe("Sulphites");
     expect(allergenLabel("nitrites")).toBe("Nitrites");
   });
@@ -150,7 +150,9 @@ describe("the printed recipe sheet", () => {
       [ing("a", "Streaky Bacon", { allergens: ["nitrites", "onion_garlic"] }), ing("b", "White Wine", { allergens: ["sulphites", "alcohol"] }), ing("c", "Tahini", { allergens: ["sesame"] }), ing("d", "Cream", { allergens: ["milk"] })],
       item("burger", "Bacon Burger"),
     );
-    expect(r.allergens.contains).toBe("Contains: Milk, Seeds, Sulphites, Onion & Garlic, Nitrites");
+    // the legacy onion_garlic tick prints as Onion AND Garlic
+    expect(r.allergens.contains).toBe("Contains: Milk, Seeds, Sulphites, Onion, Garlic, Nitrites");
+    expect(r.allergens.contains).not.toMatch(/onion_garlic|Onion & Garlic/);
     expect(r.allergens.contains).not.toMatch(/alcohol|sesame/i);
     expect(r.allergens.mayContain).toBeNull();
   });

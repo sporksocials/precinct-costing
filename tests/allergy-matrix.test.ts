@@ -18,7 +18,13 @@ import {
   type MatrixDish,
 } from "@/lib/allergy-matrix";
 import {
+  ANSWER_COL_MM,
+  ANSWER_PAD_MM,
+  BODY_W_MM,
+  DISH_COL_MM,
   MATRIX_PRINT_CSS,
+  SHY,
+  headLabel,
   CHARS_PER_LINE,
   MIN_BODY_PT,
   PAGE_ROW_BUDGET_MM,
@@ -52,20 +58,37 @@ function dish(over: Partial<MatrixDish> & { contains?: AllergenId[]; without?: P
 const state = (d: MatrixDish, c: MatrixColumnId) => cell(d, c).state;
 
 describe("columns", () => {
-  it("are Troy's nine in his order, then Sulphites and Nitrites", () => {
-    expect(MATRIX_COLUMNS.map((c) => c.label)).toEqual(["Gluten Free", "Onion And Garlic", "Dairy", "Seafood", "Chilli", "Eggs", "Nuts And Seeds", "Vegetarian", "Vegan", "Sulphites", "Nitrites"]);
+  it("are the fourteen Brendan asked for, in order: Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each on their own", () => {
+    expect(MATRIX_COLUMNS.map((c) => c.label)).toEqual(["Gluten Free", "Onion", "Garlic", "Dairy", "Fish", "Crustacean And Molluscs", "Chilli", "Eggs", "Nuts", "Seeds", "Vegetarian", "Vegan", "Sulphites", "Nitrites"]);
+    expect(MATRIX_COLUMNS.map((c) => c.id)).toEqual(["gluten_free", "onion", "garlic", "dairy", "fish", "crustacean_molluscs", "chilli", "eggs", "nuts", "seeds", "vegetarian", "vegan", "sulphites", "nitrites"]);
+    expect(MATRIX_COLUMNS).toHaveLength(14);
   });
-  it("map the allergens as decided: dairy is milk, seafood is fish crustacea molluscs, nuts and seeds is peanuts tree nuts seeds", () => {
+  it("map the allergens as decided: each of the 14 columns", () => {
     const by = Object.fromEntries(MATRIX_COLUMNS.map((c) => [c.id, c.allergens]));
-    expect(by.dairy).toEqual(["milk"]);
-    expect(by.seafood).toEqual(["fish", "crustacea", "molluscs"]);
-    expect(by.nuts_seeds).toEqual(["peanuts", "tree_nuts", "sesame"]);
-    expect(by.eggs).toEqual(["egg"]);
     expect(by.gluten_free).toEqual(["gluten"]);
-    expect(by.onion_garlic).toEqual(["onion_garlic"]);
+    expect(by.onion).toEqual(["onion"]);
+    expect(by.garlic).toEqual(["garlic"]);
+    expect(by.dairy).toEqual(["milk"]);
+    expect(by.fish).toEqual(["fish"]);
+    expect(by.crustacean_molluscs).toEqual(["crustacea", "molluscs"]);
+    expect(by.chilli).toEqual(["chilli"]);
+    expect(by.eggs).toEqual(["egg"]);
+    expect(by.nuts).toEqual(["peanuts", "tree_nuts"]);
+    expect(by.seeds).toEqual(["sesame"]);
+    expect(by.vegetarian).toEqual([]);
+    expect(by.vegan).toEqual([]);
     expect(by.sulphites).toEqual(["sulphites"]);
     expect(by.nitrites).toEqual(["nitrites"]);
-    expect(by.chilli).toEqual(["chilli"]);
+  });
+  it("cover every dish allergen exactly once, except Soy and Lupin which have no column (molluscs never vanish)", () => {
+    const covered = MATRIX_COLUMNS.flatMap((c) => c.allergens);
+    expect(new Set(covered).size).toBe(covered.length);
+    expect([...DISH_ALLERGEN_IDS].filter((id) => !covered.includes(id)).sort()).toEqual(["lupin", "soy"]);
+  });
+  it("have a short phone label that is distinct and no longer than a word", () => {
+    const shorts = MATRIX_COLUMNS.map((c) => c.short);
+    expect(new Set(shorts).size).toBe(shorts.length);
+    for (const s of shorts) expect(s.length).toBeLessThanOrEqual(9);
   });
 });
 
@@ -85,31 +108,63 @@ describe("allergen columns", () => {
     const d = dish({ contains: ["milk"], without: { milk: "no aioli" } });
     expect(cell(d, "dairy")).toMatchObject({ state: "yellow", note: "no aioli" });
   });
-  it("seafood: fish, crustacea and molluscs all land in the one column", () => {
-    expect(state(dish({ contains: ["fish"] }), "seafood")).toBe("red");
-    expect(state(dish({ contains: ["crustacea"] }), "seafood")).toBe("red");
-    expect(state(dish({ contains: ["molluscs"] }), "seafood")).toBe("red");
-    expect(state(dish({ contains: ["milk"] }), "seafood")).toBe("green");
+  it("fish is its own column: crustacea and molluscs do not touch it", () => {
+    expect(state(dish({ contains: ["fish"] }), "fish")).toBe("red");
+    expect(state(dish({ contains: ["crustacea"] }), "fish")).toBe("green");
+    expect(state(dish({ contains: ["molluscs"] }), "fish")).toBe("green");
+    expect(state(dish({ contains: ["milk"] }), "fish")).toBe("green");
+  });
+  it("Crustacean And Molluscs: crustacea and molluscs both land in the one column and fish does not", () => {
+    expect(state(dish({ contains: ["crustacea"] }), "crustacean_molluscs")).toBe("red");
+    expect(state(dish({ contains: ["molluscs"] }), "crustacean_molluscs")).toBe("red");
+    expect(state(dish({ contains: ["fish"] }), "crustacean_molluscs")).toBe("green");
+    expect(state(dish({ contains: ["milk"] }), "crustacean_molluscs")).toBe("green");
   });
   it("a multi-allergen column is yellow only when EVERY allergen in it has a note, else red", () => {
-    const both = dish({ contains: ["fish", "crustacea"], without: { fish: "no anchovy", crustacea: "no prawns" } });
-    expect(cell(both, "seafood")).toMatchObject({ state: "yellow", note: "no anchovy; no prawns" });
-    const one = dish({ contains: ["fish", "crustacea"], without: { fish: "no anchovy" } });
-    expect(state(one, "seafood")).toBe("red");
+    const both = dish({ contains: ["molluscs", "crustacea"], without: { molluscs: "no mussels", crustacea: "no prawns" } });
+    expect(cell(both, "crustacean_molluscs")).toMatchObject({ state: "yellow", note: "no prawns; no mussels" });
+    const one = dish({ contains: ["molluscs", "crustacea"], without: { crustacea: "no prawns" } });
+    expect(state(one, "crustacean_molluscs")).toBe("red");
   });
-  it("nuts and seeds: peanuts, tree nuts and seeds (the id sesame) all count", () => {
-    for (const id of ["peanuts", "tree_nuts", "sesame"] as const) expect(state(dish({ contains: [id] }), "nuts_seeds")).toBe("red");
-    expect(state(dish({ contains: ["soy"] }), "nuts_seeds")).toBe("green");
-    expect(cell(dish({ contains: ["sesame", "tree_nuts"], without: { sesame: "no seeds", tree_nuts: "no almonds" } }), "nuts_seeds").note).toBe("no almonds; no seeds");
+  it("Nuts and Seeds are separate: peanuts and tree nuts fill Nuts, seeds (the id sesame) fill Seeds", () => {
+    for (const id of ["peanuts", "tree_nuts"] as const) {
+      expect(state(dish({ contains: [id] }), "nuts")).toBe("red");
+      expect(state(dish({ contains: [id] }), "seeds")).toBe("green");
+    }
+    expect(state(dish({ contains: ["sesame"] }), "seeds")).toBe("red");
+    expect(state(dish({ contains: ["sesame"] }), "nuts")).toBe("green");
+    expect(state(dish({ contains: ["soy"] }), "nuts")).toBe("green");
+    expect(state(dish({ contains: ["soy"] }), "seeds")).toBe("green");
+    expect(cell(dish({ contains: ["peanuts", "tree_nuts"], without: { peanuts: "no peanuts", tree_nuts: "no almonds" } }), "nuts").note).toBe("no peanuts; no almonds");
+    expect(cell(dish({ contains: ["sesame", "tree_nuts"], without: { sesame: "no seeds" } }), "seeds").note).toBe("no seeds");
   });
   it("identical notes are said once", () => {
-    const d = dish({ contains: ["fish", "molluscs"], without: { fish: "no seafood topping", molluscs: "no seafood topping" } });
-    expect(cell(d, "seafood").note).toBe("no seafood topping");
+    const d = dish({ contains: ["crustacea", "molluscs"], without: { crustacea: "no shellfish topping", molluscs: "no shellfish topping" } });
+    expect(cell(d, "crustacean_molluscs").note).toBe("no shellfish topping");
   });
-  it("onion and garlic, chilli, eggs, sulphites and nitrites each read their own allergen", () => {
-    const d = dish({ contains: ["onion_garlic", "chilli", "egg", "sulphites", "nitrites"] });
-    for (const c of ["onion_garlic", "chilli", "eggs", "sulphites", "nitrites"] as const) expect(state(d, c)).toBe("red");
+  it("onion, garlic, chilli, eggs, sulphites and nitrites each read their own allergen", () => {
+    const d = dish({ contains: ["onion", "garlic", "chilli", "egg", "sulphites", "nitrites"] });
+    for (const c of ["onion", "garlic", "chilli", "eggs", "sulphites", "nitrites"] as const) expect(state(d, c)).toBe("red");
     expect(state(d, "dairy")).toBe("green");
+  });
+  it("Onion and Garlic are separate columns", () => {
+    expect(state(dish({ contains: ["onion"] }), "onion")).toBe("red");
+    expect(state(dish({ contains: ["onion"] }), "garlic")).toBe("green");
+    expect(state(dish({ contains: ["garlic"] }), "garlic")).toBe("red");
+    expect(state(dish({ contains: ["garlic"] }), "onion")).toBe("green");
+    expect(cell(dish({ contains: ["garlic"], without: { garlic: "no garlic oil" } }), "garlic")).toMatchObject({ state: "yellow", note: "no garlic oil" });
+    expect(state(dish({ contains: ["garlic"], without: { garlic: "no garlic oil" } }), "onion")).toBe("green");
+  });
+  it("a LEGACY onion_garlic on a dish reads as BOTH Onion and Garlic (fail safe), never as neither", () => {
+    const legacy = dish({ contains: ["onion_garlic" as unknown as AllergenId] });
+    expect(state(legacy, "onion")).toBe("red");
+    expect(state(legacy, "garlic")).toBe("red");
+    expect(state(legacy, "dairy")).toBe("green");
+    // a dish signed off before the split reads the same through the tolerant reader
+    const read = readDishAllergens({ contains: ["milk", "onion_garlic"], without: { onion_garlic: "no raw onion or garlic" }, confirmed_at: NOW })!;
+    expect(read.contains).toEqual(["milk", "onion", "garlic"]);
+    expect(read.without).toEqual({ onion: "no raw onion or garlic", garlic: "no raw onion or garlic" });
+    expect(read.contains).not.toContain("onion_garlic");
   });
   it("a dairy dish with a Dairy Free Option and no note of its own is yellow with the option wording", () => {
     const d = dish({ contains: ["milk"], options: { dfo: "Leave out Butter. Add Olive Oil 10 ml. Use the dairy free bun." } });
@@ -307,9 +362,12 @@ describe("dish allergens: reading", () => {
     expect(isConfirmed(readDishAllergens({ contains: [] }))).toBe(false);
     expect(isConfirmed(null)).toBe(false);
   });
-  it("offers the 15 main allergens and never alcohol", () => {
-    expect(DISH_ALLERGEN_IDS).toHaveLength(15);
+  it("offers the 16 main allergens, Onion and Garlic included, and never alcohol or the legacy onion_garlic", () => {
+    expect(DISH_ALLERGEN_IDS).toHaveLength(16);
+    expect(DISH_ALLERGEN_IDS).toContain("onion");
+    expect(DISH_ALLERGEN_IDS).toContain("garlic");
     expect(DISH_ALLERGEN_IDS).not.toContain("alcohol");
+    expect(DISH_ALLERGEN_IDS as readonly string[]).not.toContain("onion_garlic");
   });
   it("stores the sign-off keys only while signed off", () => {
     expect(toStored(readDishAllergens({ contains: ["milk"] })!)).toEqual({ contains: ["milk"], without: {} });
@@ -436,7 +494,8 @@ describe("the matrix reads the confirmed section, and the ingredients only decid
     expect(row.signOff).toBe("valid");
     expect(row.confirmed).toBe(true);
     expect(row.cells.dairy.state).toBe("red");
-    expect(row.cells.seafood.state).toBe("red");
+    expect(row.cells.crustacean_molluscs.state).toBe("red");
+    expect(row.cells.fish.state).toBe("green");
     expect(row.cells.gluten_free.state).toBe("red");
     expect(row.cells.chilli.state).toBe("green");
   });
@@ -447,7 +506,7 @@ describe("the matrix reads the confirmed section, and the ingredients only decid
     const row = buildRow(dish);
     expect(row.confirmed).toBe(false);
     expect(row.cells.dairy.state).toBe("grey");
-    expect(row.cells.seafood.state).toBe("grey");
+    expect(row.cells.crustacean_molluscs.state).toBe("grey");
   });
   it("an ingredient's reviewed flag flipping also stops the sign-off counting", () => {
     const unreviewed = indexFor([m], [ing("i-bun", "Brioche Bun", ["gluten", "milk"]), ing("i-prawn", "Prawns", ["crustacea"]), ing("i-mayo", "Mayo", ["egg"], false)], lines);
@@ -481,8 +540,8 @@ describe("the matrix modules never derive a cell from ingredients or keyword gue
     for (const f of ["lib/allergy-matrix.ts", "lib/allergy-matrix-print.ts", "lib/kitchen-matrix.ts", "lib/kitchen-matrix-server.ts"]) {
       const src = read(f);
       expect(src, f).not.toMatch(/\brollup\b|suggestAllergens|suggestDietFlags|summarise|matrixRows|ingredientAllergenState|\bbadgeModel\b|allergens_reviewed|\.allergens\b.*ingredient/);
-      // the only thing taken from lib/allergens is a label and the id type
-      for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/allergens"/g)) for (const name of m[1].replace(/type /g, "").split(",").map((x) => x.trim()).filter(Boolean)) expect(["allergenLabel", "AllergenId"], `${f} imports ${name}`).toContain(name);
+      // the only things taken from lib/allergens are a label, the id type and the pure legacy-id reader (a stored onion_garlic reads as Onion and Garlic)
+      for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\/allergens"/g)) for (const name of m[1].replace(/type /g, "").split(",").map((x) => x.trim()).filter(Boolean)) expect(["allergenLabel", "AllergenId", "expandLegacyAllergens"], `${f} imports ${name}`).toContain(name);
     }
   });
   it("the roll-up is worked out in one place (lib/dish-allergens.ts); no matrix screen, print or adapter calls it", () => {
@@ -633,7 +692,7 @@ describe("print model", () => {
 });
 
 describe("print paging", () => {
-  const mkRow = (i: number, note?: string) => ({ id: `r${i}`, name: `Dish ${i}`, cells: Array.from({ length: 11 }, (_, k) => (note && k === 2 ? { state: "yellow" as const, word: "Swap", note } : { state: "green" as const, word: "Yes", note: null })) });
+  const mkRow = (i: number, note?: string) => ({ id: `r${i}`, name: `Dish ${i}`, cells: Array.from({ length: MATRIX_COLUMNS.length }, (_, k) => (note && k === 2 ? { state: "yellow" as const, word: "Swap", note } : { state: "green" as const, word: "Yes", note: null })) });
   it("estimates a plain row at the minimum and a long note taller", () => {
     expect(estimateRowMm(mkRow(1))).toBeGreaterThanOrEqual(11);
     expect(estimateRowMm(mkRow(1, "Leave out Brioche Bun. Add Gluten Free Bun 1. Check the sauce with the head chef"))).toBeGreaterThan(estimateRowMm(mkRow(1)) * 2);
@@ -681,6 +740,46 @@ describe("print stylesheet", () => {
     expect(Number(foot?.[1])).toBe(10); // only the footer is smaller (and the QR caption under its code); no answer cell is
     expect(sizes.filter((n) => n < 11).sort((a, b) => b - a)).toEqual([10, 8]);
     expect(MATRIX_PRINT_CSS).toMatch(/\.am-cross\s*\{[^}]*font-size:\s*11pt/); // the cross-contact line is body size
+  });
+});
+
+describe("print column widths (14 columns, Brendan 7 Nov 2026)", () => {
+  // measured in Karla, the app's body face, at 11pt: the widest word a cell prints is "checked" (grey, weight 800), and the widest
+  // unbroken heading word is "Molluscs" (weight 700)
+  const CHECKED_MM = 15.84;
+  const MOLLUSCS_MM = 16.53;
+  it("the dish column and the 14 answer columns add up to exactly the page body width", () => {
+    expect(MATRIX_COLUMNS).toHaveLength(14);
+    expect(DISH_COL_MM + ANSWER_COL_MM * MATRIX_COLUMNS.length).toBeCloseTo(BODY_W_MM, 6);
+    expect(BODY_W_MM).toBe(297 - 2 * 9);
+    expect(DISH_COL_MM).toBeGreaterThanOrEqual(30); // dish names still wrap to two or three lines, not five
+  });
+  it("an answer column holds the widest cell word at 11pt with its padding, and the heading words that stay whole", () => {
+    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(CHECKED_MM + 2 * ANSWER_PAD_MM);
+    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(MOLLUSCS_MM + 0.8); // th padding 0.4mm each side
+  });
+  it("long heading words carry a soft hyphen so they break instead of running into the next column", () => {
+    const [sheet] = buildMatrixSheets({ venueName: "Drift", sections: matrixSections(buildRows([dish()])), now: new Date() });
+    for (const c of sheet.columns) expect(c.head.replace(new RegExp(SHY, "g"), "")).toBe(c.label);
+    const heads = Object.fromEntries(sheet.columns.map((c) => [c.id, c.head]));
+    expect(heads.vegetarian).toContain(SHY);
+    expect(heads.sulphites).toContain(SHY);
+    expect(heads.crustacean_molluscs).toContain(SHY);
+    expect(heads.dairy).toBe("Dairy");
+    expect(headLabel("nope", "Anything")).toBe("Anything");
+  });
+  it("the sheet draws one printed cell per column and every one prints its word", () => {
+    const [sheet] = buildMatrixSheets({ venueName: "Drift", sections: matrixSections(buildRows([dish({ contains: ["fish", "molluscs"] }), dish({ id: "d2", name: "B", signed: false })])), now: new Date() });
+    for (const r of sheet.pages[0].rows) {
+      expect(r.cells).toHaveLength(14);
+      for (const c of r.cells) expect(c.word.length).toBeGreaterThan(0);
+    }
+  });
+  it("the print view draws the same widths the model says", () => {
+    const src = readFileSync("components/matrix/print-view.tsx", "utf8");
+    expect(src).toMatch(/width: `\$\{DISH_COL_MM\}mm`/);
+    expect(src).toMatch(/width: `\$\{ANSWER_COL_MM\}mm`/);
+    expect(src).toMatch(/\{c\.head\}/);
   });
 });
 

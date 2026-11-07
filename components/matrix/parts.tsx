@@ -99,18 +99,18 @@ function Cell({ cell, label }: { cell: MatrixCell; label: string }) {
   );
 }
 
-/** The grid: dishes down the side, Troy's columns across. From lg; below that the screen shows cards. Sections get a heading row. */
+/** The grid: dishes down the side, the columns across (14 since Brendan's split, 7 Nov 2026). From lg; below that the screen shows cards. Sections get a heading row. */
 export function MatrixTable({ sections, showSectionHeads }: { sections: readonly MatrixSection[]; showSectionHeads: boolean }) {
   return (
     <div className="hidden overflow-x-auto rounded-2xl bg-surface lg:block">
-      <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-[13px]">
+      <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-[13px]">
         <thead>
           <tr>
-            <th scope="col" className="sticky left-0 z-[2] min-w-[190px] bg-surface px-3 py-2 text-left text-[13px] font-medium text-label-2">
+            <th scope="col" className="sticky left-0 z-[2] min-w-[170px] bg-surface px-3 py-2 text-left text-[13px] font-medium text-label-2">
               Dish
             </th>
             {MATRIX_COLUMNS.map((c) => (
-              <th key={c.id} scope="col" className="min-w-[78px] px-1 py-2 text-center align-bottom text-[12px] font-semibold leading-tight text-label-2">
+              <th key={c.id} scope="col" className="min-w-[70px] px-1 py-2 text-center align-bottom text-[12px] font-semibold leading-tight text-label-2">
                 {c.label}
               </th>
             ))}
@@ -152,7 +152,7 @@ export function MatrixTable({ sections, showSectionHeads }: { sections: readonly
 
 /* ------------------------------------------------------------------ phone and tablet cards */
 
-/** A dish as a card: its eleven answers as a chip row; tapping the card opens every answer in full words. */
+/** A dish as a card: its answers as a chip row; tapping the card opens every answer in full words. */
 export function DishCard({ row }: { row: MatrixRow }) {
   const [open, setOpen] = useState(false);
   const extra = uncolumnedContains(row.dish.allergens);

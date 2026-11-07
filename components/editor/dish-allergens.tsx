@@ -133,7 +133,7 @@ function ConfirmFooter({ item, saved, onPatch, sign, cleared, onConfirmed }: { i
         <p className="text-[13px] font-medium text-warn">Changed. Confirm again when you are done.</p>
       ) : null}
       <BlockerNotice check={check} dishId={item.id} />
-      {!confirmed && !check.blocked && !check.contains.length && ready ? <p className="text-[13px] text-label-2">Confirming says this dish contains none of the 15 allergens.</p> : null}
+      {!confirmed && !check.blocked && !check.contains.length && ready ? <p className="text-[13px] text-label-2">Confirming says this dish contains none of the 16 allergens.</p> : null}
       {confirmed ? (
         <p className="text-[13px] text-label-2">{dirty ? "Save to keep this on the matrix." : "Confirmed. This dish is on the matrix."}</p>
       ) : (
@@ -209,7 +209,7 @@ export function BlockerNotice({ check, dishId }: { check: Pick<DishCheck, "unrev
  */
 export function ContainsChips({ contains, added, blocked, disabled, onRemoveExtra }: { contains: readonly AllergenId[]; added: readonly AllergenId[]; blocked: boolean; disabled?: boolean; onRemoveExtra?: (id: AllergenId) => void }) {
   if (!contains.length) {
-    return <p className="text-[15px] text-label-2 sm:text-[13px]">{blocked ? "None found so far. Some ingredients are not checked yet." : "None. The ingredients list none of the 15 allergens."}</p>;
+    return <p className="text-[15px] text-label-2 sm:text-[13px]">{blocked ? "None found so far. Some ingredients are not checked yet." : "None. The ingredients list none of the 16 allergens."}</p>;
   }
   return (
     <div className="flex flex-wrap gap-2" role="list" aria-label="Allergens this dish contains">

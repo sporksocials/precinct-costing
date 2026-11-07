@@ -422,14 +422,14 @@ function AnswerCell({ cell, label }: { cell: MatrixCell; label: string }) {
 function Grid({ sections, showHeads, picks, onPick, onDish }: { sections: { label: string; rows: MatrixRow[] }[]; showHeads: boolean; picks: MatrixColumnId[]; onPick: (c: MatrixColumnId) => void; onDish: (id: string) => void }) {
   return (
     <div className={cx(CARD, "overflow-x-auto")}>
-      <table className="w-full min-w-[1000px] border-separate border-spacing-0">
+      <table className="w-full min-w-[1180px] border-separate border-spacing-0">
         <thead>
           <tr>
             <th scope="col" className="sticky left-0 z-[2] min-w-[170px] bg-[#1C1C1F] px-4 py-3 text-left align-bottom">
               <span className={HEADING}>DISH</span>
             </th>
             {MATRIX_COLUMNS.map((c) => (
-              <th key={c.id} scope="col" className="min-w-[76px] p-1 align-bottom">
+              <th key={c.id} scope="col" className="min-w-[72px] p-1 align-bottom">
                 <button
                   type="button"
                   onClick={() => onPick(c.id)}

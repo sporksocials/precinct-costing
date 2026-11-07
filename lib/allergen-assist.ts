@@ -12,6 +12,7 @@ import {
   ALLERGENS,
   ANIMAL_FLAGS,
   CONTAINS_IDS,
+  expandLegacyAllergens,
   impliedAnimalFlag,
   isAllergenId,
   isAnimalFlag,
@@ -97,7 +98,8 @@ function parseIngredient(v: unknown, fallbackKey: string): AssistIngredient | nu
     name: name.trim(),
     category: category.trim(),
     description: description.trim() || undefined,
-    allergens: [...new Set((rawAllergens as string[]).filter(isAllergenId))],
+    // a legacy onion_garlic tick counts as Onion and Garlic; the model is never shown or asked for the legacy id
+    allergens: [...new Set(expandLegacyAllergens(rawAllergens as string[]).filter(isAllergenId))],
     dietFlags: [...new Set((rawFlags as string[]).filter(isAnimalFlag))],
   };
 }
@@ -138,6 +140,8 @@ const GROUP_WORDS: Record<string, string> = {
  * still not offered: it is an attribute, and the reply check drops it.
  */
 const ID_NOTES: Partial<Record<AllergenId, string>> = {
+  onion: "onion, red onion, spring onion, shallot, eschalot, leek, chives and scallion, and foods that are mostly onion such as onion rings and French onion soup. Garlic is its own id: do not use onion for garlic.",
+  garlic: "garlic cloves, garlic powder, garlic paste and garlic butter, and foods named for garlic such as aioli and garlic bread. Onion is its own id: do not use garlic for onion.",
   sesame:
     "Seeds (stored as sesame). Use id sesame for any of: sesame, sunflower, pumpkin, poppy, chia, flax, linseed and hemp seeds, and foods made from them such as tahini, hummus, halva, dukkah, za'atar, gomasio, furikake and seeded bread or mixed seed blends. Spice seeds such as cumin, fennel, caraway, coriander and mustard seed are not Seeds.",
   sulphites:
@@ -162,7 +166,8 @@ Rules:
 - Do not repeat a diet flag that an allergen you list already implies: milk implies dairy, egg implies egg, and fish, crustacea and molluscs imply fish.
 - Plant milks and plant butters are not milk. Coconut is not a tree nut. Cocoa butter and nutmeg are not nuts. Eggplant is not egg.
 - Butter, cream, cheese, yoghurt and milk powder contain milk.
-- Egg white, egg yolk, mayonnaise and aioli contain egg. Aioli also contains onion_garlic.
+- Egg white, egg yolk, mayonnaise and aioli contain egg. Aioli also contains garlic.
+- Onion and garlic are separate ids. Pesto, tzatziki, sofrito and mirepoix usually contain both onion and garlic, so list both ids when the ingredient clearly has both.
 - Soy sauce contains soy and gluten. Tamari contains soy, and gluten only if the name says so. Miso and tofu contain soy.
 - Fish sauce and anchovies contain fish. Worcestershire sauce contains fish. Oyster sauce contains molluscs.
 - Tahini and hummus contain seeds (id sesame). Sunflower, pumpkin, poppy, chia, flax and hemp seeds contain seeds too. Peanut butter and satay contain peanuts. Pesto contains tree_nuts and milk.
@@ -306,7 +311,7 @@ export function builtinItems(input: AssistRequest): AllergenAssistItem[] {
 
 /** What is still worth proposing for an ingredient as it is now: a person may have ticked some since the answer arrived. */
 export function remainingProposals(ing: Pick<Ingredient, "allergens" | "diet_flags">, item: Pick<AllergenAssistItem, "allergens" | "diet">): Pick<AllergenAssistItem, "allergens" | "diet"> {
-  const have = alreadyHas({ allergens: (ing.allergens ?? []).filter(isAllergenId), dietFlags: (ing.diet_flags ?? []).filter(isAnimalFlag) });
+  const have = alreadyHas({ allergens: expandLegacyAllergens(ing.allergens).filter(isAllergenId), dietFlags: (ing.diet_flags ?? []).filter(isAnimalFlag) });
   const allergens = item.allergens.filter((a) => !have.allergens.has(a.id));
   const implied = new Set(allergens.map((a) => impliedAnimalFlag(a.id)).filter(Boolean));
   return { allergens, diet: item.diet.filter((d) => !have.flags.has(d.flag) && !implied.has(d.flag)) };
@@ -320,7 +325,8 @@ export function remainingProposals(ing: Pick<Ingredient, "allergens" | "diet_fla
 export function proposalPatch(ing: Pick<Ingredient, "allergens" | "diet_flags">, item: Pick<AllergenAssistItem, "allergens" | "diet">): { patch: Pick<Ingredient, "allergens" | "diet_flags">; previous: Pick<Ingredient, "allergens" | "diet_flags"> } | null {
   const left = remainingProposals(ing, item);
   if (!left.allergens.length && !left.diet.length) return null;
-  const allergens = [...(ing.allergens ?? [])];
+  // a legacy onion_garlic tick is written back as the normal Onion and Garlic ids; `previous` keeps the stored value so Undo restores it exactly
+  const allergens = expandLegacyAllergens(ing.allergens);
   const flags = [...(ing.diet_flags ?? [])];
   for (const a of left.allergens) if (!allergens.includes(a.id)) allergens.push(a.id);
   for (const d of left.diet) if (!flags.includes(d.flag)) flags.push(d.flag);

@@ -18,9 +18,31 @@ export const PAGE_MARGIN_MM = 9;
 export const BODY_W_MM = PAGE_W_MM - 2 * PAGE_MARGIN_MM; // 279
 export const BODY_H_MM = PAGE_H_MM - 2 * PAGE_MARGIN_MM; // 192
 
-/** the dish column and the eleven answer columns */
-export const DISH_COL_MM = 44;
-export const ANSWER_COL_MM = (BODY_W_MM - DISH_COL_MM) / MATRIX_COLUMNS.length; // about 20.3
+/**
+ * The dish column and the fourteen answer columns (Brendan, 7 Nov 2026: Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each
+ * have their own). Every answer column is the same width and the dish column takes what is left, so the table is exactly the page body wide.
+ *
+ * 17.6mm is the narrowest column that still holds the widest thing a cell can print at 11pt in Karla (the app's body face, measured):
+ * the word "checked" of a grey cell at weight 800 (15.84mm) inside 0.6mm of padding each side, and the header word "Molluscs"
+ * at weight 700 (16.5mm). Header words wider than that ("Vegetarian" 19.8mm, "Sulphites" 17.8mm, "Crustacean" 21.1mm) carry a soft hyphen
+ * (`headLabel`) so they break across lines instead of running into the next column. The dish column is 32.6mm (about 14 characters a line).
+ */
+export const ANSWER_COL_MM = 17.6;
+export const DISH_COL_MM = Math.round((BODY_W_MM - ANSWER_COL_MM * MATRIX_COLUMNS.length) * 100) / 100;
+/** Side padding of an answer cell, mm (the dish column keeps 1.2mm) */
+export const ANSWER_PAD_MM = 0.6;
+
+/** The soft hyphen: invisible unless the browser has to break the word there. */
+export const SHY = "\u00ad";
+/** Printed column headings, with soft hyphens where a long word may break so a heading never overruns its 17.6mm column. */
+const HEAD_BREAKS: Record<string, string> = {
+  vegetarian: `Vege${SHY}tarian`,
+  sulphites: `Sul${SHY}phites`,
+  crustacean_molluscs: `Crusta${SHY}cean And Molluscs`,
+};
+export function headLabel(columnId: string, label: string): string {
+  return HEAD_BREAKS[columnId] ?? label;
+}
 
 /** type sizes in points; nothing in a cell is below MIN_BODY_PT (it has to read off a laminated sheet) */
 export const MIN_BODY_PT = 11;
@@ -57,7 +79,8 @@ export interface PrintSheetModel {
   venueName: string;
   sectionLabel: string;
   legend: string;
-  columns: { id: string; label: string }[];
+  /** `label` is the plain heading; `head` is the same with soft hyphens, what the sheet draws */
+  columns: { id: string; label: string; head: string }[];
   pages: PrintPageModel[];
   /** "Printed 10 Oct 2026, Brisbane time" */
   printedLine: string;
@@ -80,8 +103,8 @@ export const MIN_ROW_MM = 11;
 const LINE_MM = 4.9; // 11pt at 1.25 leading is 4.85mm
 const ROW_PAD_MM = 3.6;
 /** about how many characters of 11pt text fit a line of an answer column, and of the dish column at 12pt bold */
-export const CHARS_PER_LINE = 8;
-export const DISH_CHARS_PER_LINE = 17;
+export const CHARS_PER_LINE = 7;
+export const DISH_CHARS_PER_LINE = 13;
 
 function wrappedLines(text: string, perLine: number): number {
   if (!text) return 1;
@@ -184,7 +207,7 @@ export function buildMatrixSheets(input: { venueName: string; sections: readonly
         venueName: input.venueName,
         sectionLabel: s.label,
         legend: MATRIX_LEGEND,
-        columns: MATRIX_COLUMNS.map((c) => ({ id: c.id, label: c.label })),
+        columns: MATRIX_COLUMNS.map((c) => ({ id: c.id, label: c.label, head: headLabel(c.id, c.label) })),
         pages: chunks.map((rs, i) => ({ number: i + 1, of: chunks.length, rows: rs })),
         printedLine: line,
         versionLine: versionLine(input.version),
@@ -237,7 +260,7 @@ export const MATRIX_PRINT_CSS = `
 .am-table tbody tr { height: ${MIN_ROW_MM}mm; }
 .am-table thead th { font-size: ${BODY_PT}pt; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; padding: 1mm 0.4mm; overflow-wrap: normal; background: #fff; vertical-align: bottom; }
 .am-table th.am-dish, .am-table td.am-dish { width: ${DISH_COL_MM}mm; text-align: left; font-size: ${DISH_PT}pt; font-weight: 700; }
-.am-table td.am-c { font-size: ${BODY_PT}pt; font-weight: 700; line-height: 1.2; }
+.am-table td.am-c { font-size: ${BODY_PT}pt; font-weight: 700; line-height: 1.2; padding-left: ${ANSWER_PAD_MM}mm; padding-right: ${ANSWER_PAD_MM}mm; }
 .am-word { display: block; font-size: ${BODY_PT}pt; font-weight: 800; letter-spacing: 0.01em; }
 .am-note { display: block; margin-top: 0.4mm; font-size: ${BODY_PT}pt; font-weight: 600; }
 .am-red { background: #f08a80 !important; color: #000; }

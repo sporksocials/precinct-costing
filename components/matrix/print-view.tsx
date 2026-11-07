@@ -246,8 +246,8 @@ function SheetPage({ sheet, page }: { sheet: PrintSheetModel; page: PrintPageMod
               Dish
             </th>
             {sheet.columns.map((c) => (
-              <th key={c.id} scope="col">
-                {c.label}
+              <th key={c.id} scope="col" aria-label={c.label}>
+                {c.head}
               </th>
             ))}
           </tr>

@@ -2158,6 +2158,7 @@ alter table public.cost_settings add column if not exists text_value text;
 comment on column public.cost_settings.text_value is 'Text settings: key cross_contact_<venue slug> holds that venue''s standing cross-contact line (value is 0 for these rows).';
 
 -- ---- Kitchen Allergy Matrix feed (re-check rule on components AND allergen ticks, cross-contact line); supersedes 20261010170000_kitchen_matrix_recheck.sql (and 20261010140000_kitchen_matrix.sql), see supabase/migrations/20261010180000_kitchen_matrix_ticks.sql ----
+-- 20261107100000_allergen_onion_garlic_split.sql: the snapshot id list below now includes 'onion' and 'garlic' before the legacy 'onion_garlic' (Onion and Garlic split, Brendan, 7 Nov 2026).
 -- Kitchen Allergy Matrix feed, ingredient-first allergens (Troy, 10 Oct 2026). Replaces cost_kitchen_matrix (20261010170000) with ONE addition
 -- to the re-check rule, so the public iPad can never show green for a dish whose allergen ticks changed after it was confirmed.
 --
@@ -2217,9 +2218,10 @@ as $$
     from dishes d
     where jsonb_typeof(d.dish_allergens) = 'object'
   ),
-  -- the 15 main allergen ids in the fixed order (CONTAINS_IDS in lib/allergens.ts); alcohol is never part of the snapshot
+  -- the allergen ids of the snapshot in the fixed order (SNAPSHOT_ALLERGEN_IDS in lib/allergens.ts): the 16 main ids, plus the LEGACY
+  -- onion_garlic, kept so every snapshot stored before Onion and Garlic were split still compares equal; alcohol is never part of it
   main(id, ord) as (
-    select * from unnest(array['gluten','crustacea','egg','fish','milk','peanuts','sesame','soy','tree_nuts','lupin','molluscs','sulphites','chilli','onion_garlic','nitrites']) with ordinality
+    select * from unnest(array['gluten','crustacea','egg','fish','milk','peanuts','sesame','soy','tree_nuts','lupin','molluscs','sulphites','chilli','onion','garlic','onion_garlic','nitrites']) with ordinality
   ),
   -- the LIVE snapshot rows: each distinct ingredient and prep of each dish, plus the dish itself
   live_src as (

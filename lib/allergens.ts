@@ -61,7 +61,8 @@ export const ALLERGEN_IDS = [
   "sulphites",
   // chef extras
   "chilli",
-  "onion_garlic",
+  "onion",
+  "garlic",
   "nitrites",
   // attribute (not part of the main allergen list)
   "alcohol",
@@ -82,13 +83,43 @@ export const ALLERGENS: AllergenDef[] = [
   { id: "molluscs", label: "Molluscs", short: "Molluscs", group: "required" },
   { id: "sulphites", label: "Sulphites", short: "Sulphites", group: "required" }, // Troy, 10 Oct 2026: a main allergen, after Molluscs
   { id: "chilli", label: "Chilli", short: "Chilli", group: "extra" },
-  { id: "onion_garlic", label: "Onion & Garlic", short: "Onion & Garlic", group: "extra" },
+  { id: "onion", label: "Onion", short: "Onion", group: "extra" }, // Brendan, 7 Nov 2026: Onion and Garlic are separate allergens (one id, onion_garlic, until then: now the hidden LEGACY id below)
+  { id: "garlic", label: "Garlic", short: "Garlic", group: "extra" },
   { id: "nitrites", label: "Nitrites", short: "Nitrites", group: "extra" }, // not on the FSANZ list, so a chef extra; cured and processed meats
   { id: "alcohol", label: "Alcohol", short: "Contains Alcohol", group: "attribute" },
 ];
 
-/** The main allergen badges, in the fixed order: required (ending in Sulphites), then chef extras (ending in Nitrites). */
+/** The main allergen badges, in the fixed order: required (ending in Sulphites), then chef extras (Chilli, Onion, Garlic, Nitrites). */
 export const CONTAINS_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "required" || a.group === "extra").map((a) => a.id);
+
+/**
+ * LEGACY ids (Brendan, 7 Nov 2026): `onion_garlic` was one allergen before Onion and Garlic were split. It is still STORED on old
+ * ingredients, preps, dishes and sign-off snapshots, and it is never shown, ticked, offered or suggested again. Wherever allergens are
+ * READ it counts as BOTH of its replacements (`expandLegacyAllergens`), which is the fail safe reading: nobody loses an onion or garlic
+ * warning, and every existing sign-off stays valid because the re-check snapshot keeps the raw id (`SNAPSHOT_ALLERGEN_IDS`).
+ * Saving an ingredient's allergens writes the normal ids and drops the legacy one.
+ */
+export const LEGACY_ALLERGEN_IDS: readonly string[] = ["onion_garlic"];
+const LEGACY_EXPANSION: Readonly<Record<string, readonly AllergenId[]>> = { onion_garlic: ["onion", "garlic"] };
+export function isLegacyAllergenId(id: string): boolean {
+  return Object.prototype.hasOwnProperty.call(LEGACY_EXPANSION, id);
+}
+/** The ids with every legacy id replaced by what it now means (once each, order kept). The ONE helper every reader of stored allergens goes through. */
+export function expandLegacyAllergens(ids: Iterable<string> | null | undefined): string[] {
+  const out = new Set<string>();
+  for (const id of ids ?? []) {
+    if (isLegacyAllergenId(id)) for (const e of LEGACY_EXPANSION[id]) out.add(e);
+    else out.add(id);
+  }
+  return [...out];
+}
+
+/**
+ * The ids the re-check snapshot (`ticks`) is made of, in the fixed order: the main ids PLUS the raw legacy id, placed where the old
+ * single Onion & Garlic sat (Onion and Garlic immediately before it, then Nitrites). Raw on purpose: a snapshot must keep producing exactly
+ * what it did before the split for existing data, so no stored sign-off is invalidated. `cost_kitchen_matrix` uses the same list.
+ */
+export const SNAPSHOT_ALLERGEN_IDS: readonly string[] = CONTAINS_IDS.flatMap((id) => (id === "garlic" ? [id, ...LEGACY_ALLERGEN_IDS] : [id]));
 export const ATTRIBUTE_IDS: AllergenId[] = ALLERGENS.filter((a) => a.group === "attribute").map((a) => a.id);
 export function allergenGroup(id: AllergenId): AllergenGroup {
   return ALLERGENS.find((a) => a.id === id)?.group ?? "required";
@@ -253,7 +284,10 @@ const RULES: Rule[] = [
     ],
   },
   { allergens: ["chilli"], terms: ["chilli", "chili", "chile", "sriracha", "jalapeno", "habanero", "cayenne", "harissa", "sambal", "gochujang", "tabasco", "chipotle", "peri peri", "piri piri", "birds eye", "kimchi", "hot sauce", "nduja"] },
-  { allergens: ["onion_garlic"], terms: ["onion", "garlic", "shallot", "eschalot", "leek", "chive", "scallion", "spring onion", "aioli", "pesto", "tzatziki", "sofrito", "soffritto", "mirepoix", "french onion"] },
+  // ONION and GARLIC are separate allergens (Brendan, 7 Nov 2026). Mixed items that normally carry both propose both.
+  { allergens: ["onion"], terms: ["onion", "shallot", "eschalot", "leek", "chive", "scallion", "spring onion", "french onion"] },
+  { allergens: ["garlic"], terms: ["garlic"] },
+  { allergens: ["onion", "garlic"], terms: ["aioli", "pesto", "tzatziki", "sofrito", "soffritto", "mirepoix"] },
   {
     // NITRITES (a chef extra, not on the FSANZ list): cured and processed meats, plus the curing agents themselves.
     // Raw pork, chicken, beef and sausage mince, smoked fish and cured fish are NOT nitrite by default.
@@ -373,7 +407,7 @@ export interface IngredientAllergenState {
 }
 
 function cleanAllergens(xs: readonly string[] | null | undefined): AllergenId[] {
-  return [...new Set((xs ?? []).filter(isAllergenId))];
+  return [...new Set(expandLegacyAllergens(xs).filter(isAllergenId))];
 }
 function cleanAnimal(xs: readonly string[] | null | undefined): AnimalFlag[] {
   return [...new Set((xs ?? []).filter(isAnimalFlag))];
@@ -603,7 +637,9 @@ function finish(acc: Acc, notes: Record<string, string> | null | undefined): Rol
     const key = K_A + a;
     const conf = acc.confirmed.get(key);
     const sug = acc.suggested.get(key);
-    const note = notes && typeof notes[a] === "string" && notes[a].trim() ? notes[a].trim() : null;
+    // a "made without" note saved under the legacy onion_garlic id applies to both Onion and Garlic
+    const raw = notes ? (typeof notes[a] === "string" && notes[a].trim() ? notes[a] : a === "onion" || a === "garlic" ? notes["onion_garlic"] : undefined) : undefined;
+    const note = typeof raw === "string" && raw.trim() ? raw.trim() : null;
     if (conf && conf.size) cells[a] = { state: "contains", sources: sorted(conf), chef: conf.has(CHEF_SOURCE) ? "added" : null, was: [], note };
     else if (sug && sug.size) cells[a] = { state: "may_contain", sources: sorted(sug), chef: null, was: [], note };
     else if (acc.removed.has(key)) cells[a] = { state: "none", sources: [CHEF_SOURCE], chef: "removed", was: sorted(acc.removed.get(key)), note };

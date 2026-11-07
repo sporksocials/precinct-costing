@@ -50,14 +50,14 @@ describe("suggestAllergens", () => {
     expect(ids("Lupin Flour")).toEqual(["gluten", "lupin"]);
     expect(ids("Sriracha")).toEqual(["chilli"]);
     expect(ids("Jalapeño Pickled")).toEqual(["chilli", "sulphites"]);
-    expect(ids("Red Shallots")).toEqual(["onion_garlic"]);
+    expect(ids("Red Shallots")).toEqual(["onion"]);
     expect(ids("Dark Rum")).toEqual(["alcohol"]);
     expect(ids("Red Wine Vinegar")).toEqual(["alcohol", "sulphites"]);
   });
 
   it("soy sauce is gluten and soy; aioli is milk, egg and garlic", () => {
     expect(ids("Soy Sauce")).toEqual(["gluten", "soy"]);
-    expect(ids("Garlic Aioli")).toEqual(["egg", "milk", "onion_garlic"]);
+    expect(ids("Garlic Aioli")).toEqual(["egg", "garlic", "milk", "onion"]);
   });
 
   it("uses word boundaries and plurals", () => {

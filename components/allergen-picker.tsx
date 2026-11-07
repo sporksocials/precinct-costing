@@ -11,6 +11,7 @@ import {
   ANIMAL_LABELS,
   allergenLabel,
   allergensReady,
+  expandLegacyAllergens,
   ingredientAllergenState,
   isSeafoodAllergen,
   rollup,
@@ -308,14 +309,14 @@ export function RecipeAllergens({ kind, rec, lines, setDraft, readOnly, embedded
   const ready = allergensReady(rec);
   const { r, model } = useBadgeModel(kind, rec, lines);
 
-  const add = rec.allergen_add ?? [];
+  const add = expandLegacyAllergens(rec.allergen_add);
   const notes = rec.allergen_notes ?? {};
   // readOnly (a food dish's "What The Ingredients Say" reference): nothing here edits the dish, so the edit helpers do nothing
   const draftFn = setDraft ?? (() => undefined);
   const setAdd = (id: AllergenId, on: boolean) =>
-    draftFn((d) => ({ ...d, allergen_add: on ? [...new Set([...(d.allergen_add ?? []), id])] : (d.allergen_add ?? []).filter((x) => x !== id), allergen_remove: (d.allergen_remove ?? []).filter((x) => x !== id) }));
+    draftFn((d) => ({ ...d, allergen_add: on ? [...new Set([...expandLegacyAllergens(d.allergen_add), id])] : expandLegacyAllergens(d.allergen_add).filter((x) => x !== id), allergen_remove: expandLegacyAllergens(d.allergen_remove).filter((x) => x !== id) }));
   const setRemove = (id: AllergenId, on: boolean) =>
-    draftFn((d) => ({ ...d, allergen_remove: on ? [...new Set([...(d.allergen_remove ?? []), id])] : (d.allergen_remove ?? []).filter((x) => x !== id), allergen_add: (d.allergen_add ?? []).filter((x) => x !== id) }));
+    draftFn((d) => ({ ...d, allergen_remove: on ? [...new Set([...expandLegacyAllergens(d.allergen_remove), id])] : expandLegacyAllergens(d.allergen_remove).filter((x) => x !== id), allergen_add: expandLegacyAllergens(d.allergen_add).filter((x) => x !== id) }));
   const setNote = (id: AllergenId, text: string) =>
     draftFn((d) => {
       const n = { ...(d.allergen_notes ?? {}) };

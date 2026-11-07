@@ -34,7 +34,8 @@ describe("allergen groups", () => {
   it("puts sulphites in the main list (required, after Molluscs), nitrites in the main list (chef extra, last) and alcohol in attributes", () => {
     expect(ATTRIBUTE_IDS).toEqual(["alcohol"]);
     expect(CONTAINS_IDS).not.toContain("alcohol");
-    expect(CONTAINS_IDS).toEqual(["gluten", "crustacea", "egg", "fish", "milk", "peanuts", "sesame", "soy", "tree_nuts", "lupin", "molluscs", "sulphites", "chilli", "onion_garlic", "nitrites"]);
+    expect(CONTAINS_IDS).toEqual(["gluten", "crustacea", "egg", "fish", "milk", "peanuts", "sesame", "soy", "tree_nuts", "lupin", "molluscs", "sulphites", "chilli", "onion", "garlic", "nitrites"]);
+    expect(CONTAINS_IDS as string[]).not.toContain("onion_garlic"); // the legacy id is never a badge, a chip or a column
     expect(ALLERGEN_IDS).toEqual([...CONTAINS_IDS, "alcohol"]);
     expect(ALLERGENS.find((a) => a.id === "sulphites")?.group).toBe("required");
     expect(ALLERGENS.find((a) => a.id === "nitrites")?.group).toBe("extra");
@@ -220,9 +221,14 @@ describe("badgeModel: sulphites are listed, alcohol never is", () => {
     expect(m.mayContain).toEqual(["sulphites"]);
     expect(m.attributesMay).toEqual([]);
   });
-  it("nitrites list with the main allergens, after Onion & Garlic", () => {
-    const m = model([ing("b", "Bacon", ok({ allergens: ["nitrites", "onion_garlic", "sulphites", "molluscs"] }))]);
-    expect(m.contains).toEqual(["molluscs", "sulphites", "onion_garlic", "nitrites"]);
+  it("nitrites list with the main allergens, after Onion and Garlic", () => {
+    const m = model([ing("b", "Bacon", ok({ allergens: ["nitrites", "garlic", "onion", "sulphites", "molluscs"] }))]);
+    expect(m.contains).toEqual(["molluscs", "sulphites", "onion", "garlic", "nitrites"]);
+  });
+  it("a LEGACY onion_garlic tick lists as Onion AND Garlic, never as its own badge", () => {
+    const m = model([ing("b", "Bacon", ok({ allergens: ["nitrites", "onion_garlic"] }))]);
+    expect(m.contains).toEqual(["onion", "garlic", "nitrites"]);
+    expect(m.contains as string[]).not.toContain("onion_garlic");
   });
   it("the ticks stay recorded in the roll-up for the record", () => {
     const { r } = dish([ing("w", "Sauvignon Blanc", ok({ allergens: ["sulphites", "alcohol"] }))]);

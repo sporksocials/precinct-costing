@@ -1,4 +1,4 @@
-import { allergenLabel, type AllergenId } from "./allergens";
+import { allergenLabel, expandLegacyAllergens, type AllergenId } from "./allergens";
 import type { DietMarkId, DietOptionId } from "./diet-legend";
 import { isConfirmed, type DishAllergens, type SignOffState } from "./dish-allergens";
 import { OTHER_LABEL, groupLabel } from "./kitchen";
@@ -49,7 +49,21 @@ export function crossContactLine(text: string | null | undefined): string {
 }
 export const SEE_CHEF = "See chef";
 
-export type MatrixColumnId = "gluten_free" | "onion_garlic" | "dairy" | "seafood" | "chilli" | "eggs" | "nuts_seeds" | "vegetarian" | "vegan" | "sulphites" | "nitrites";
+export type MatrixColumnId =
+  | "gluten_free"
+  | "onion"
+  | "garlic"
+  | "dairy"
+  | "fish"
+  | "crustacean_molluscs"
+  | "chilli"
+  | "eggs"
+  | "nuts"
+  | "seeds"
+  | "vegetarian"
+  | "vegan"
+  | "sulphites"
+  | "nitrites";
 
 export interface MatrixColumn {
   id: MatrixColumnId;
@@ -62,15 +76,23 @@ export interface MatrixColumn {
   allergens: readonly AllergenId[];
 }
 
-/** Troy's nine columns in his order, then Sulphites and Nitrites. */
+/**
+ * Troy's columns in his order (10 Oct 2026), then Sulphites and Nitrites, split further for Brendan, the executive chef (7 Nov 2026):
+ * Onion and Garlic are separate, Fish is separate from Crustacean And Molluscs, and Nuts and Seeds are separate. That is 14 columns.
+ * A separate Molluscs column was deliberately NOT added: 15 columns do not fit A4 landscape at the 11pt floor, and molluscs sit
+ * with the crustacea (shellfish) so they never vanish from the sheet. Each dish allergen fills exactly one column (Soy and Lupin have none).
+ */
 export const MATRIX_COLUMNS: readonly MatrixColumn[] = [
   { id: "gluten_free", label: "Gluten Free", short: "GF", kind: "gluten", allergens: ["gluten"] },
-  { id: "onion_garlic", label: "Onion And Garlic", short: "Onion", kind: "allergen", allergens: ["onion_garlic"] },
+  { id: "onion", label: "Onion", short: "Onion", kind: "allergen", allergens: ["onion"] },
+  { id: "garlic", label: "Garlic", short: "Garlic", kind: "allergen", allergens: ["garlic"] },
   { id: "dairy", label: "Dairy", short: "Dairy", kind: "allergen", allergens: ["milk"] },
-  { id: "seafood", label: "Seafood", short: "Seafood", kind: "allergen", allergens: ["fish", "crustacea", "molluscs"] },
+  { id: "fish", label: "Fish", short: "Fish", kind: "allergen", allergens: ["fish"] },
+  { id: "crustacean_molluscs", label: "Crustacean And Molluscs", short: "Shellfish", kind: "allergen", allergens: ["crustacea", "molluscs"] },
   { id: "chilli", label: "Chilli", short: "Chilli", kind: "allergen", allergens: ["chilli"] },
   { id: "eggs", label: "Eggs", short: "Eggs", kind: "allergen", allergens: ["egg"] },
-  { id: "nuts_seeds", label: "Nuts And Seeds", short: "Nuts", kind: "allergen", allergens: ["peanuts", "tree_nuts", "sesame"] },
+  { id: "nuts", label: "Nuts", short: "Nuts", kind: "allergen", allergens: ["peanuts", "tree_nuts"] },
+  { id: "seeds", label: "Seeds", short: "Seeds", kind: "allergen", allergens: ["sesame"] },
   { id: "vegetarian", label: "Vegetarian", short: "Veg", kind: "vegetarian", allergens: [] },
   { id: "vegan", label: "Vegan", short: "Vegan", kind: "vegan", allergens: [] },
   { id: "sulphites", label: "Sulphites", short: "Sulph", kind: "allergen", allergens: ["sulphites"] },
@@ -119,6 +141,11 @@ function yellow(note: string | undefined, why: string): MatrixCell {
   return { state: "yellow", note: note?.trim() || SEE_CHEF, why };
 }
 
+/** What the dish contains, with a legacy onion_garlic read as Onion AND Garlic (the fail safe reading; lib/allergens.ts `expandLegacyAllergens`). */
+function containsOf(da: DishAllergens): readonly string[] {
+  return expandLegacyAllergens(da.contains);
+}
+
 /** One cell. Pure: the same dish and column always give the same answer. */
 export function cell(dish: MatrixDish, columnId: MatrixColumnId): MatrixCell {
   const col = matrixColumn(columnId);
@@ -138,7 +165,7 @@ export function cell(dish: MatrixDish, columnId: MatrixColumnId): MatrixCell {
   }
   if (col.kind === "gluten") {
     if (marks.includes("gf")) return { state: "green", why: "Marked Gluten Free." };
-    if (confirmed && da && !da.contains.includes("gluten")) return { state: "green", why: "Gluten is not listed on this dish." };
+    if (confirmed && da && !containsOf(da).includes("gluten")) return { state: "green", why: "Gluten is not listed on this dish." };
     if (has(dish.options, "gfo")) return yellow(words(dish.options, "gfo"), "Gluten Free Option.");
     if (confirmed && da && da.without.gluten) return yellow(da.without.gluten, "Can be made without gluten.");
     if (confirmed) return { state: "red", why: "Contains gluten." };
@@ -147,7 +174,8 @@ export function cell(dish: MatrixDish, columnId: MatrixColumnId): MatrixCell {
 
   // an allergen column
   if (!confirmed || !da) return { state: "grey", why: "Not signed off yet." };
-  const present = col.allergens.filter((id) => da.contains.includes(id));
+  const contains = containsOf(da);
+  const present = col.allergens.filter((id) => contains.includes(id));
   if (!present.length) return { state: "green", why: `${col.allergens.map(allergenLabel).join(", ")} ${col.allergens.length === 1 ? "is" : "are"} not listed on this dish.` };
   const notes: string[] = [];
   let unsolved = 0;
@@ -180,12 +208,13 @@ function warningsFor(dish: MatrixDish): string[] {
   const da = dish.allergens;
   if (!da || !isConfirmed(da)) return [];
   const out: string[] = [];
-  if (dish.marks.includes("gf") && da.contains.includes("gluten")) out.push("Marked Gluten Free, but gluten is listed under Dish Allergens.");
+  const contains = containsOf(da);
+  if (dish.marks.includes("gf") && contains.includes("gluten")) out.push("Marked Gluten Free, but gluten is listed under Dish Allergens.");
   if (dish.marks.includes("vg")) {
-    const bad = (["milk", "egg", ...MEAT_FISH] as AllergenId[]).filter((id) => da.contains.includes(id));
+    const bad = (["milk", "egg", ...MEAT_FISH] as AllergenId[]).filter((id) => contains.includes(id));
     if (bad.length) out.push(`Marked Vegan, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} listed under Dish Allergens.`);
   } else if (dish.marks.includes("v")) {
-    const bad = MEAT_FISH.filter((id) => da.contains.includes(id));
+    const bad = MEAT_FISH.filter((id) => contains.includes(id));
     if (bad.length) out.push(`Marked Vegetarian, but ${bad.map(allergenLabel).join(", ")} ${bad.length === 1 ? "is" : "are"} listed under Dish Allergens.`);
   }
   return out;
@@ -355,7 +384,7 @@ export function instruction(c: MatrixCell): string {
 /** Dish allergens with no column on the sheet (Soy, Lupin). Listed in plain words on a detail card so they are never invisible. */
 export function uncolumnedContains(da: DishAllergens | null): AllergenId[] {
   if (!da || !isConfirmed(da)) return [];
-  return UNCOLUMNED_ALLERGENS.filter((id) => da.contains.includes(id));
+  return UNCOLUMNED_ALLERGENS.filter((id) => containsOf(da).includes(id));
 }
 
 const SIGNED_FORMAT = new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Brisbane", day: "numeric", month: "short", year: "numeric" });

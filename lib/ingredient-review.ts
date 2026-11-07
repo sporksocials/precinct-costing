@@ -1,4 +1,4 @@
-import { CONTAINS_IDS, type AllergenId } from "./allergens";
+import { CONTAINS_IDS, expandLegacyAllergens, isLegacyAllergenId, type AllergenId } from "./allergens";
 import { currentComponents } from "./dish-allergens";
 import { parentKey } from "./costing";
 import type { Ingredient, MenuItem, Prep, RecipeLine } from "./types";
@@ -113,9 +113,9 @@ export function needsCheckText(n: number): string | null {
 
 const ORDER = new Map<AllergenId, number>(CONTAINS_IDS.map((id, i) => [id, i]));
 
-/** Only the 15 main allergens, once each, in the fixed order. */
+/** Only the 16 main allergens, once each, in the fixed order. A legacy onion_garlic reads as Onion and Garlic (both chips start ticked). */
 export function mainOnly(ids: Iterable<string>): AllergenId[] {
-  return [...new Set(ids)].filter((x): x is AllergenId => ORDER.has(x as AllergenId)).sort((a, b) => (ORDER.get(a) as number) - (ORDER.get(b) as number));
+  return [...new Set(expandLegacyAllergens(ids))].filter((x): x is AllergenId => ORDER.has(x as AllergenId)).sort((a, b) => (ORDER.get(a) as number) - (ORDER.get(b) as number));
 }
 
 /**
@@ -128,7 +128,7 @@ export function startingTicks(confirmed: Iterable<string>, proposed: Iterable<st
 
 /** Ids that are only a proposal (not already ticked by a person). */
 export function proposalOnly(confirmed: Iterable<string>, proposed: Iterable<string>): AllergenId[] {
-  const have = new Set(confirmed);
+  const have = new Set(expandLegacyAllergens(confirmed));
   return mainOnly(proposed).filter((id) => !have.has(id));
 }
 
@@ -139,10 +139,11 @@ export function toggleTick(ticks: readonly AllergenId[], id: AllergenId): Allerg
 
 /**
  * What Confirm And Next writes: the ticked main allergens (fixed order) and `allergens_reviewed: true`. Anything on the ingredient that
- * is not one of the 15 (the alcohol attribute) is kept exactly as it was. Nothing ticked is a valid answer: it means "contains none".
+ * is not one of the 16 (the alcohol attribute) is kept exactly as it was, except the legacy onion_garlic id, which is dropped: the Onion
+ * and Garlic chips were ticked from it and what is ticked now is written as the normal ids. Nothing ticked is a valid answer: it means "contains none".
  */
 export function confirmPayload(existing: readonly string[] | null | undefined, ticks: readonly string[]): { allergens: string[]; allergens_reviewed: true } {
-  const kept = (existing ?? []).filter((x) => !ORDER.has(x as AllergenId));
+  const kept = (existing ?? []).filter((x) => !ORDER.has(x as AllergenId) && !isLegacyAllergenId(x));
   return { allergens: [...mainOnly(ticks), ...new Set(kept)], allergens_reviewed: true };
 }
 

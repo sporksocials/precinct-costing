@@ -15,7 +15,7 @@ import type { Ingredient, MenuItem, Prep, RecipeLine } from "@/lib/types";
  * counts it. Then it changes the data and checks both sides turn grey together, and come back together.
  */
 const MIGRATIONS = path.resolve(__dirname, "../supabase/migrations");
-const FILES = ["20261010160000_cross_contact_setting.sql", "20261010170000_kitchen_matrix_recheck.sql", "20261010180000_kitchen_matrix_ticks.sql"];
+const FILES = ["20261010160000_cross_contact_setting.sql", "20261010170000_kitchen_matrix_recheck.sql", "20261010180000_kitchen_matrix_ticks.sql", "20261107100000_allergen_onion_garlic_split.sql"];
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const I = (n: number) => u(100 + n);
 const P = (n: number) => u(200 + n);
@@ -86,6 +86,7 @@ beforeAll(async () => {
     insert into cost_venues values (1, 'drift', 'Drift Bar');
   `);
   for (const f of FILES) await db.exec(readFileSync(path.join(MIGRATIONS, f), "utf8"));
+  await db.exec(readFileSync(path.join(MIGRATIONS, FILES[3]), "utf8")); // idempotent: a second run replaces cleanly
   ingredients = [
     { id: I(1), allergens: ["milk", "gluten"], reviewed: true },
     { id: I(2), allergens: ["alcohol"], reviewed: true },
@@ -149,6 +150,51 @@ describe("the app's sign-off and the iPad's SQL agree, on the same dish", () => 
     dishAdd = ["lupin"];
     await agree(false);
     dishAdd = [];
+    await agree(true);
+  });
+
+  it("Onion and Garlic (the split, Brendan 7 Nov 2026): the new ids are in the snapshot on both sides, in the same order", async () => {
+    // every id the snapshot knows, stored unsorted, on the same ingredient
+    ingredients[3].allergens = ["nitrites", "garlic", "chilli", "onion", "onion_garlic", "alcohol"];
+    await sync();
+    const entry = await confirmInApp();
+    const a = (entry.ticks as Record<string, { a: string[] }>)[`ingredient:${I(4)}`].a;
+    expect(a).toEqual(["chilli", "onion", "garlic", "onion_garlic", "nitrites"]);
+    await agree(true);
+    // dropping just Garlic changes the snapshot on both sides
+    ingredients[3].allergens = ["nitrites", "chilli", "onion", "onion_garlic"];
+    await agree(false);
+    await confirmInApp();
+    await agree(true);
+    ingredients[3].allergens = [];
+    await agree(false);
+    await confirmInApp();
+    await agree(true);
+  });
+
+  it("a dish signed off BEFORE the split on an ingredient ticked with the legacy onion_garlic stays valid on both sides, and reads as Onion and Garlic", async () => {
+    ingredients[1].allergens = ["onion_garlic"];
+    await sync();
+    // the sign-off exactly as the pre-split app stored it: the raw legacy id in the snapshot, and onion_garlic in contains
+    const { item, index } = appIndex();
+    const live = dishCheck(item, index).live;
+    const old = { contains: ["gluten", "egg", "milk", "sesame", "soy", "onion_garlic"], without: {}, confirmed_at: NOW, confirmed_by: "chef@example.com", components: live.components, ticks: live.ticks };
+    expect((old.ticks as Record<string, { a: string[] }>)[`ingredient:${I(2)}`].a).toEqual(["onion_garlic"]);
+    await db.query("update cost_menu_items set dish_allergens = $1 where id = $2", [JSON.stringify(old), DISH]);
+    await agree(true);
+    // and the app reads it as BOTH
+    const read = readDishAllergens(old);
+    expect(read?.contains).toEqual(["gluten", "egg", "milk", "sesame", "soy", "onion", "garlic"]);
+    expect(dishCheck(item, index).derived).toEqual(expect.arrayContaining(["onion", "garlic"]));
+    expect(dishCheck(item, index).derived as string[]).not.toContain("onion_garlic");
+    // the review screen saves the normal ids and drops the legacy one: that is a real change, so both sides ask for a re-check, then agree again
+    ingredients[1].allergens = ["onion", "garlic"];
+    await agree(false);
+    await confirmInApp();
+    await agree(true);
+    ingredients[1].allergens = ["alcohol"];
+    await agree(false);
+    await confirmInApp();
     await agree(true);
   });
 

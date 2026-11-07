@@ -1,4 +1,4 @@
-import { CHEF_SOURCE, CONTAINS_IDS, allergenLabel, rollup, type AllergenId, type AllergenIndex, type Rollup } from "./allergens";
+import { CHEF_SOURCE, CONTAINS_IDS, SNAPSHOT_ALLERGEN_IDS, allergenLabel, expandLegacyAllergens, rollup, type AllergenId, type AllergenIndex, type Rollup } from "./allergens";
 import type { DishAllergensEntry, MenuItem, RecipeLine } from "./types";
 
 /**
@@ -7,7 +7,7 @@ import type { DishAllergensEntry, MenuItem, RecipeLine } from "./types";
  * INGREDIENT FIRST (Troy, 10 Oct 2026, reversing the earlier "hand-listed per dish" rule): allergens are ticked ONLY on ingredients
  * (and, rarely, as a prep's or the dish's own chef override, which the roll-up already honours). A Food dish's allergens are WORKED
  * OUT from them, through every nested prep, and a person then CONFIRMS the result. Nobody ticks a dish's allergens by hand any more.
- *  - DERIVED = the roll-up cells in state "contains" (a confirmed tick on an ingredient, or a dish/prep override) for the 15 main ids
+ *  - DERIVED = the roll-up cells in state "contains" (a confirmed tick on an ingredient, or a dish/prep override) for the 16 main ids
  *    (`CONTAINS_IDS`). A keyword guess on an unreviewed ingredient ("may_contain") NEVER counts.
  *  - A dish with any UNREVIEWED ingredient anywhere in its components cannot be confirmed (the allergens of that ingredient are not
  *    known). The editor names them and links to /allergens/review?dish=<id>.
@@ -38,15 +38,21 @@ import type { DishAllergensEntry, MenuItem, RecipeLine } from "./types";
  * malformed entry reads as "no section".
  */
 
-/** The allergens a dish can carry: the 15 main ones (required, then chef extras). Alcohol is an attribute and is never listed. */
+/** The allergens a dish can carry: the 16 main ones (required, then chef extras). Alcohol is an attribute and is never listed. */
 export const DISH_ALLERGEN_IDS: readonly AllergenId[] = CONTAINS_IDS;
 const KNOWN = new Set<string>(DISH_ALLERGEN_IDS);
 const ORDER = new Map(DISH_ALLERGEN_IDS.map((id, i) => [id, i] as const));
+/** The re-check snapshot's own id list and order: the main ids plus the RAW legacy onion_garlic (never expanded there, so old sign-offs stay valid). */
+const SNAP_KNOWN = new Set<string>(SNAPSHOT_ALLERGEN_IDS);
+const SNAP_ORDER = new Map(SNAPSHOT_ALLERGEN_IDS.map((id, i) => [id, i] as const));
 
 export const NOTE_MAX = 120;
 
-/** One entry of the `ticks` snapshot. Ingredients: their ticks (`a`) and whether they are reviewed (`r`). Preps and the dish: their overrides. */
-export type TickEntry = { a: AllergenId[]; r: boolean } | { add: AllergenId[]; rem: AllergenId[] };
+/**
+ * One entry of the `ticks` snapshot. Ingredients: their ticks (`a`) and whether they are reviewed (`r`). Preps and the dish: their overrides.
+ * The ids are the RAW stored ones (so a legacy onion_garlic stays onion_garlic), limited to `SNAPSHOT_ALLERGEN_IDS`.
+ */
+export type TickEntry = { a: string[]; r: boolean } | { add: string[]; rem: string[] };
 /** "ingredient:<id>", "prep:<id>" and "item:<dishId>" to their entry. */
 export type Ticks = Record<string, TickEntry>;
 
@@ -76,7 +82,10 @@ function validStamp(v: unknown): string | null {
   return typeof v === "string" && v.trim() && !Number.isNaN(new Date(v).getTime()) ? v.trim() : null;
 }
 
-const inOrder = (ids: Iterable<string>): AllergenId[] => [...new Set(ids)].filter((x): x is AllergenId => KNOWN.has(x)).sort((a, b) => (ORDER.get(a) as number) - (ORDER.get(b) as number));
+/** The display ids, once each, in the fixed order. A legacy onion_garlic reads as Onion AND Garlic (`expandLegacyAllergens`). */
+const inOrder = (ids: Iterable<string>): AllergenId[] => [...new Set(expandLegacyAllergens(ids))].filter((x): x is AllergenId => KNOWN.has(x)).sort((a, b) => (ORDER.get(a) as number) - (ORDER.get(b) as number));
+/** The snapshot ids, once each, in the snapshot order, RAW (no legacy expansion). */
+const snapOrder = (ids: Iterable<string>): string[] => [...new Set(ids)].filter((x) => SNAP_KNOWN.has(x)).sort((a, b) => (SNAP_ORDER.get(a) as number) - (SNAP_ORDER.get(b) as number));
 const sortedUnique = (xs: Iterable<string>): string[] => [...new Set(xs)].sort();
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
@@ -88,8 +97,8 @@ export function readTicks(raw: unknown): Ticks | null {
   for (const [k, v] of Object.entries(o)) {
     const e = obj(v);
     if (!e) continue;
-    if (k.startsWith("ingredient:")) out[k] = { a: inOrder(strings(e.a)), r: e.r === true };
-    else if (k.startsWith("prep:") || k.startsWith("item:")) out[k] = { add: inOrder(strings(e.add)), rem: inOrder(strings(e.rem)) };
+    if (k.startsWith("ingredient:")) out[k] = { a: snapOrder(strings(e.a)), r: e.r === true };
+    else if (k.startsWith("prep:") || k.startsWith("item:")) out[k] = { add: snapOrder(strings(e.add)), rem: snapOrder(strings(e.rem)) };
   }
   return out;
 }
@@ -102,7 +111,8 @@ export function readDishAllergens(raw: unknown): DishAllergens | null {
   const wo = obj(o.without) ?? {};
   const without: Partial<Record<AllergenId, string>> = {};
   for (const id of contains) {
-    const n = wo[id];
+    // a note saved under the legacy onion_garlic id applies to both Onion and Garlic
+    const n = wo[id] ?? (id === "onion" || id === "garlic" ? wo["onion_garlic"] : undefined);
     if (typeof n === "string" && n.trim()) without[id] = n.trim().replace(/\s+/g, " ").slice(0, NOTE_MAX);
   }
   return {
@@ -180,13 +190,13 @@ export type LiveIndex = Pick<AllergenIndex, "ingredients" | "preps" | "linesByPa
 
 type DishOverrides = Pick<MenuItem, "id" | "allergen_add" | "allergen_remove">;
 
-const overrides = (add: readonly string[] | null | undefined, rem: readonly string[] | null | undefined): TickEntry => ({ add: inOrder(add ?? []), rem: inOrder(rem ?? []) });
+const overrides = (add: readonly string[] | null | undefined, rem: readonly string[] | null | undefined): TickEntry => ({ add: snapOrder(add ?? []), rem: snapOrder(rem ?? []) });
 
 /** One component's entry, or the dish's own: an ingredient's ticks and reviewed flag, or a prep's / the dish's overrides. */
 function tickFor(key: string, index: LiveIndex): TickEntry {
   if (key.startsWith("ingredient:")) {
     const ing = index.ingredients.get(key.slice("ingredient:".length));
-    return { a: inOrder(ing?.allergens ?? []), r: ing?.allergens_reviewed === true };
+    return { a: snapOrder(ing?.allergens ?? []), r: ing?.allergens_reviewed === true };
   }
   const prep = index.preps.get(key.slice("prep:".length));
   return overrides(prep?.allergen_add, prep?.allergen_remove);
@@ -387,7 +397,7 @@ export function activeLockedReason(da: DishAllergens | null, state: SignOffState
 
 /* ------------------------------------------------------------------ working the allergens out */
 
-/** The 15 main ids whose roll-up cell is CONTAINED (a confirmed tick, or a dish or prep override). Keyword guesses never count. */
+/** The 16 main ids whose roll-up cell is CONTAINED (a confirmed tick, or a dish or prep override). Keyword guesses never count. */
 export function deriveContains(r: Pick<Rollup, "cells">): AllergenId[] {
   return DISH_ALLERGEN_IDS.filter((id) => r.cells[id]?.state === "contains");
 }

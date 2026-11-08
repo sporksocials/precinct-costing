@@ -166,8 +166,21 @@ function shotsUpTo(qty: number, unit: string, maxMl: number): string | null {
   return ml != null && ml > maxMl ? null : shotsText(qty, unit);
 }
 
+/** Bitters are measured in dashes at the bar, never millilitres (Troy, 8 Nov 2026: "9 dashes of bitters" in the Yuzu Sour pre-mix). Stored as ml, 1 dash = 1 ml (the drink recipes already use 1 ml for a dash). */
+export const DASH_ML = 1;
+export function isBittersLine(name: string): boolean {
+  return /\bbitters\b/i.test(name);
+}
+export function dashesText(ml: number): string {
+  const n = Math.floor(ml / DASH_ML + 1e-9);
+  return `${n} ${n === 1 ? "dash" : "dashes"}`;
+}
+
 export function premixLineDisplay(l: PremixLine): PremixLineDisplay {
-  return { name: barIngredientName(l.name), amount: bottleLineAmount(l.qty, l.unit), shots: shotsUpTo(l.qty, l.unit, LINE_SHOTS_MAX_ML) };
+  const name = barIngredientName(l.name);
+  const ml = toMl(l.qty, l.unit);
+  if (isBittersLine(name) && ml != null) return { name, amount: dashesText(ml), shots: null };
+  return { name, amount: bottleLineAmount(l.qty, l.unit), shots: shotsUpTo(l.qty, l.unit, LINE_SHOTS_MAX_ML) };
 }
 
 export interface PremixUseDisplay {
@@ -262,7 +275,9 @@ export function batchLineDisplay(l: PremixLine, bottles: number): BatchLineDispl
   const n = clampBottles(bottles);
   const one = premixLineDisplay(l);
   if (n === 1) return { ...one, each: null };
-  return { name: one.name, amount: batchLineAmount(l.qty, l.unit, n), shots: null, each: `${one.amount} a bottle` };
+  const ml = toMl(l.qty * n, l.unit);
+  const amount = isBittersLine(one.name) && ml != null ? dashesText(ml) : batchLineAmount(l.qty, l.unit, n);
+  return { name: one.name, amount, shots: null, each: `${one.amount} a bottle` };
 }
 
 /** The whole batch: "4 bottles, 2.8 L" (a non-volume yield reads "4 bottles"). Null for one bottle, where the card already says its size. */

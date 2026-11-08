@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { shotsFor } from "@/lib/bar";
-import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, drinksPerBottle, isBatchPremix, makesText, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
+import { batchLineAmount, batchLineDisplay, batchServesText, batchTotalText, bottleLineAmount, bottleMl, bottleSizeText, bottlesText, clampBottles, dashesText, drinksPerBottle, isBatchPremix, makesText, MAX_BOTTLES, volumeText, parseBarPremix, premixAmount, premixCountText, premixLineDisplay, premixUseDisplay, servesPerBottle, shotsText } from "@/lib/bar-premix";
 import { stationWorkerSource } from "@/lib/sw-source";
 
 const NOW = "2026-10-04T08:00:00.000Z";
@@ -113,6 +113,23 @@ describe("idle return (Troy, 7 Nov 2026)", () => {
     const premix = readFileSync("components/bar/premix.tsx", "utf8");
     expect(premix).toContain("IDLE_MS");
     expect(premix).not.toMatch(/2 minute/);
+  });
+});
+
+describe("bitters read as dashes (Troy, 8 Nov 2026)", () => {
+  const bitters = { name: "Bitters", qty: 9, unit: "ml", sort: 4 };
+  it("one bottle: 9 ml of bitters is 9 dashes, never shots or ml", () => {
+    expect(premixLineDisplay(bitters)).toEqual({ name: "Bitters", amount: "9 dashes", shots: null });
+    expect(premixLineDisplay({ ...bitters, qty: 1 }).amount).toBe("1 dash");
+  });
+  it("the counter multiplies the dashes and keeps the one bottle amount", () => {
+    const d = batchLineDisplay(bitters, 4);
+    expect(d.amount).toBe("36 dashes");
+    expect(d.each).toBe("9 dashes a bottle");
+  });
+  it("other lines are untouched", () => {
+    expect(premixLineDisplay({ name: "Honey", qty: 80, unit: "ml", sort: 3 }).amount).toBe("80 ml");
+    expect(dashesText(9)).toBe("9 dashes");
   });
 });
 

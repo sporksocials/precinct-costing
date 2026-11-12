@@ -14,7 +14,9 @@ import {
   confirmAllergens,
   dishCheck,
   readDishAllergens,
+  removableOverrides,
   removeExtra,
+  removeOverride,
   signOffState,
   sourceLines,
   staleSignOffText,
@@ -80,18 +82,28 @@ function DishAllergensBlock({ item, saved, onPatch, sign, onCleared }: { item: M
   };
 
   const sources = sourceLines(check.r, check.derived, check.added);
+  // allergens only the dish's own chef override puts there: the person can take them off here (Brendan, 12 Nov 2026)
+  const overrides = removableOverrides(item, check.r);
+  const removeOwn = (id: AllergenId) => {
+    const res = removeOverride(item, id);
+    onPatch({ allergen_add: res.allergen_add, ...(ready && res.dish_allergens !== undefined ? { dish_allergens: res.dish_allergens } : {}) });
+    if (res.clearedConfirmation) {
+      onCleared();
+      toast.show({ message: `${allergenLabel(id)} removed, so the confirmation was cleared. Confirm Allergens again when you are done.` });
+    } else toast.show({ message: `${allergenLabel(id)} removed. Confirm Allergens when you are done.` });
+  };
 
   return (
     <SafetyBlock
       title="Dish Allergens"
-      explain="Worked out from the ingredients, so to change one, fix the ingredient. A person confirms it."
+      explain="Worked out from the ingredients, so to change one, fix the ingredient. A chef override can be tapped off. A person confirms it."
     >
       <div className="space-y-5 px-4">
         {!ready ? <p className="rounded-xl bg-fill px-3 py-2 text-[13px] text-label-2">Dish allergens can’t be saved until the database has its dish allergens update.</p> : null}
 
         <div>
           <p className="pb-2 text-[13px] font-medium text-label-2">Contains</p>
-          <ContainsChips contains={check.contains} added={check.added} blocked={check.blocked} disabled={!ready} onRemoveExtra={(id) => write(removeExtra(item.dish_allergens, id, check.derived))} />
+          <ContainsChips contains={check.contains} added={check.added} overrides={overrides} blocked={check.blocked} disabled={!ready} onRemoveExtra={(id) => write(removeExtra(item.dish_allergens, id, check.derived))} onRemoveOverride={removeOwn} />
           <SourceList lines={sources} />
         </div>
 
@@ -207,7 +219,7 @@ export function BlockerNotice({ check, dishId }: { check: Pick<DishCheck, "unrev
  * The allergens the dish contains, read only: one filled chip for each that the ingredients give, and each extra with an Added tag that
  * can be tapped off (the only chips that act). Nothing is ticked here. While an ingredient is unreviewed the list may be incomplete and says so.
  */
-export function ContainsChips({ contains, added, blocked, disabled, onRemoveExtra }: { contains: readonly AllergenId[]; added: readonly AllergenId[]; blocked: boolean; disabled?: boolean; onRemoveExtra?: (id: AllergenId) => void }) {
+export function ContainsChips({ contains, added, overrides = [], blocked, disabled, onRemoveExtra, onRemoveOverride }: { contains: readonly AllergenId[]; added: readonly AllergenId[]; /** allergens only the dish's own chef override gives: tapped off like an extra */ overrides?: readonly AllergenId[]; blocked: boolean; disabled?: boolean; onRemoveExtra?: (id: AllergenId) => void; onRemoveOverride?: (id: AllergenId) => void }) {
   if (!contains.length) {
     return <p className="text-[15px] text-label-2 sm:text-[13px]">{blocked ? "None found so far. Some ingredients are not checked yet." : "None. The ingredients list none of the 16 allergens."}</p>;
   }
@@ -215,6 +227,24 @@ export function ContainsChips({ contains, added, blocked, disabled, onRemoveExtr
     <div className="flex flex-wrap gap-2" role="list" aria-label="Allergens this dish contains">
       {contains.map((id) => {
         const extra = added.includes(id);
+        if (overrides.includes(id) && onRemoveOverride) {
+          return (
+            <button
+              key={id}
+              type="button"
+              role="listitem"
+              disabled={disabled}
+              onClick={() => onRemoveOverride(id)}
+              aria-label={`Remove ${allergenLabel(id)}, chef override`}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-accent-fill px-4 text-[15px] font-medium text-accent-on transition-transform duration-200 ease-ios active:scale-[0.97] disabled:opacity-50"
+            >
+              <Check aria-hidden className="h-4 w-4" strokeWidth={3} />
+              {allergenLabel(id)}
+              <span className="text-[12px] font-semibold opacity-80">Chef override</span>
+              <X aria-hidden className="-mr-1 h-4 w-4 opacity-80" strokeWidth={2.5} />
+            </button>
+          );
+        }
         if (!extra || !onRemoveExtra) {
           return (
             <span key={id} role="listitem" className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-accent-fill px-4 text-[15px] font-medium text-accent-on">

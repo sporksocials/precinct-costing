@@ -320,6 +320,40 @@ export function removeExtra(raw: unknown, id: AllergenId, derived: readonly Alle
   return edited(before, rebuilt(cur, cur.added.filter((x) => x !== id), cur.without, derived));
 }
 
+/**
+ * The allergens a chef added on the DISH itself (the older "chef override", `allergen_add`) that nothing else explains: the only source
+ * the roll-up gives is the chef override. These are the ones a person may take off from the dish page (Brendan, executive chef, 12 Nov
+ * 2026: "the rice salad does not contain fish ... I can't see how to remove that"; the editor showed "Fish · Chef override" with no way
+ * to act on it). An allergen an ingredient or prep also gives is not listed: that one is fixed on the ingredient.
+ */
+export function removableOverrides(item: Pick<MenuItem, "allergen_add">, r: Pick<Rollup, "cells">): AllergenId[] {
+  const own = new Set(expandLegacyAllergens(item.allergen_add ?? []));
+  return DISH_ALLERGEN_IDS.filter((id) => {
+    if (!own.has(id)) return false;
+    const src = r.cells[id]?.sources ?? [];
+    return src.length > 0 && src.every((x) => x === CHEF_SOURCE);
+  });
+}
+
+export interface OverrideRemoval {
+  /** the dish's new `allergen_add` (a legacy onion and garlic entry is split so only the other one stays) */
+  allergen_add: string[];
+  /** the dish allergens section with any earlier confirmation taken away, or the section unchanged when there was none */
+  dish_allergens: DishAllergensEntry | null | undefined;
+  /** the edit took a sign-off away (the editor says so in plain words) */
+  clearedConfirmation: boolean;
+}
+
+/** Takes one allergen off the dish's own chef override. The sign-off stops counting (the ticks changed), so the editor clears it and a person confirms again. */
+export function removeOverride(item: Pick<MenuItem, "allergen_add" | "dish_allergens">, id: AllergenId): OverrideRemoval {
+  const cur = expandLegacyAllergens(item.allergen_add ?? []);
+  const next = cur.filter((x) => x !== id);
+  if (next.length === cur.length) return { allergen_add: [...(item.allergen_add ?? [])], dish_allergens: item.dish_allergens, clearedConfirmation: false };
+  const before = readDishAllergens(item.dish_allergens);
+  const cleared = isConfirmed(before);
+  return { allergen_add: next, dish_allergens: before ? toStored(unsigned(before)) : item.dish_allergens, clearedConfirmation: cleared };
+}
+
 /** Set (or clear, with empty text) the "can be made without" note of an allergen the dish contains. A note for any other allergen is ignored. */
 export function setWithoutNote(raw: unknown, id: AllergenId, text: string, derived: readonly AllergenId[]): EditResult {
   const before = readDishAllergens(raw);

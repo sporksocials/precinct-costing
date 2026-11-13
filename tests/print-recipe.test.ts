@@ -350,7 +350,8 @@ describe("house rules for the print files", () => {
 
   it("the page is black on white: no grey or colour fills in the print stylesheet's page rules", () => {
     const css = readFileSync("components/print/print-css.ts", "utf8");
-    const page = css.slice(css.indexOf(".pr-page {"), css.indexOf("@media print"));
+    // from the page rules to the recipe's own @media print block at the end (the shared shell, with its own @media print, comes first in the file)
+    const page = css.slice(css.indexOf(".pr-page {"), css.lastIndexOf("@media print"));
     const colours = [...page.matchAll(/(?:^|[;{\s])(?:background(?:-color)?|color|border(?:-[a-z]+)?)\s*:[^;}]*/g)].flatMap((m) => m[0].match(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi) ?? []);
     expect(colours.length).toBeGreaterThan(0);
     expect([...new Set(colours.map((c) => c.toLowerCase()))].sort()).toEqual(["#000", "#fff"]);

@@ -1,6 +1,32 @@
 import { FONT_START_PT } from "@/lib/print-recipe";
 
 /**
+ * The parts every print preview shares: the full screen layer on <body> (#print-root), the stage the pages sit in, one page
+ * box (.pr-item over a .pr-scale that holds the sheet), the screen only warning, and the @media print rules that hide
+ * everything outside #print-root and break after each page. The recipe print and the Kitchen Cheat Sheet both build on this;
+ * each adds its own sheet size (@page) and sheet rules.
+ */
+export const PRINT_SHELL_CSS = `
+#print-root { position: fixed; inset: 0; z-index: 100; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: var(--bg); color: var(--label); }
+.pr-stage { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); }
+.pr-item { flex: none; }
+.pr-warn { margin: 0 0 8px; padding: 10px 14px; border-radius: 12px; font-size: 15px; line-height: 1.35; font-weight: 600; background: var(--warn-soft); color: var(--warn); }
+.pr-scale { position: relative; flex: none; }
+
+@media print {
+  html[data-print-job] { background: #fff !important; color-scheme: light !important; }
+  html[data-print-job] body { background: #fff !important; min-height: 0 !important; }
+  html[data-print-job] body > *:not(#print-root) { display: none !important; }
+  #print-root { position: static !important; inset: auto !important; overflow: visible !important; background: #fff !important; z-index: auto !important; }
+  .pr-noprint { display: none !important; }
+  .pr-stage { display: block !important; padding: 0 !important; gap: 0 !important; }
+  .pr-item { width: auto !important; break-after: page; page-break-after: always; }
+  .pr-item:last-child { break-after: auto; page-break-after: auto; }
+  .pr-scale { position: static !important; width: auto !important; height: auto !important; }
+}
+`;
+
+/**
  * The preview and print stylesheet, rendered inside the print preview only (so it exists while the preview is open and is gone
  * when it closes: nothing here can touch any other screen or any other print).
  *
@@ -16,12 +42,7 @@ import { FONT_START_PT } from "@/lib/print-recipe";
  */
 export const PRINT_CSS = `
 @page { size: A4 portrait; margin: 12mm; }
-
-#print-root { position: fixed; inset: 0; z-index: 100; overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; background: var(--bg); color: var(--label); }
-.pr-stage { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 16px 16px calc(40px + env(safe-area-inset-bottom)); }
-.pr-item { flex: none; }
-.pr-warn { margin: 0 0 8px; padding: 10px 14px; border-radius: 12px; font-size: 15px; line-height: 1.35; font-weight: 600; background: var(--warn-soft); color: var(--warn); }
-.pr-scale { position: relative; flex: none; }
+${PRINT_SHELL_CSS}
 .pr-sheet { box-sizing: border-box; width: 210mm; min-height: 297mm; padding: 12mm; background: #fff; color: #000; transform-origin: top left; box-shadow: 0 2px 16px rgba(0, 0, 0, 0.55); }
 
 .pr-page { box-sizing: border-box; width: 186mm; height: 272mm; display: flex; flex-direction: column; font-family: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: var(--fs, ${FONT_START_PT}pt); line-height: 1.3; color: #000; background: #fff; -webkit-text-size-adjust: none; text-size-adjust: none; }
@@ -67,15 +88,6 @@ export const PRINT_CSS = `
 .pr-foot { flex: none; margin-top: 3mm; padding-top: 1.5mm; border-top: 0.3mm solid #000; font-size: 10pt; line-height: 1.3; white-space: pre-wrap; }
 
 @media print {
-  html[data-print-job] { background: #fff !important; color-scheme: light !important; }
-  html[data-print-job] body { background: #fff !important; min-height: 0 !important; }
-  html[data-print-job] body > *:not(#print-root) { display: none !important; }
-  #print-root { position: static !important; inset: auto !important; overflow: visible !important; background: #fff !important; z-index: auto !important; }
-  .pr-noprint { display: none !important; }
-  .pr-stage { display: block !important; padding: 0 !important; gap: 0 !important; }
-  .pr-item { width: auto !important; break-after: page; page-break-after: always; }
-  .pr-item:last-child { break-after: auto; page-break-after: auto; }
-  .pr-scale { position: static !important; width: auto !important; height: auto !important; }
   .pr-sheet { transform: none !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; width: 186mm !important; min-height: 0 !important; }
 }
 `;

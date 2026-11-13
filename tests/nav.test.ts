@@ -61,6 +61,7 @@ describe("phone tab bar", () => {
     ["/trash", "more"],
     ["/settings", "more"],
     ["/print", null],
+    ["/print/cheat-sheet", "menu"],
   ];
   it.each(cases)("%s highlights %s", (path, tab) => {
     expect(phoneTab(path)).toBe(tab);
@@ -73,6 +74,26 @@ describe("phone tab bar", () => {
   });
   it("Ordering is not also under More", () => {
     expect(phoneTab("/ordering/greedy/count")).not.toBe("more");
+  });
+});
+
+describe("the Kitchen Cheat Sheet preview", () => {
+  it("opens from the Menu page, so Menu stays lit in the sidebar and on the phone, and nothing else does", () => {
+    expect(isActive("/print/cheat-sheet", "/menu")).toBe(true);
+    expect(phoneTab("/print/cheat-sheet")).toBe("menu");
+    for (const href of ["/", "/ingredients", "/matrix", "/specials", "/ordering", "/invoices", "/settings"]) expect(isActive("/print/cheat-sheet", href), href).toBe(false);
+  });
+  it("hides the phone tab bar (it is a full screen layer)", () => {
+    expect(hidesTabBar("/print/cheat-sheet")).toBe(true);
+  });
+  it("leaves the recipe print alone: /print belongs to no entry and keeps its tab bar rules", () => {
+    expect(isActive("/print", "/menu")).toBe(false);
+    expect(phoneTab("/print")).toBe(null);
+    expect(hidesTabBar("/print")).toBe(false);
+  });
+  it("does not capture lookalike paths", () => {
+    expect(isActive("/print/cheat-sheets", "/menu")).toBe(false);
+    expect(hidesTabBar("/print/cheat-sheet/x")).toBe(false);
   });
 });
 

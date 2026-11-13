@@ -24,7 +24,8 @@ export function isActive(pathname: string, href: string): boolean {
   // Allergens is one entry: the matrix, its To Do, review mode, print, and Menu Labels (lib/allergen-tabs.ts)
   if (href === "/matrix") return inAllergens(pathname);
   // record pages belong to the list they open from: dishes, beers and gelato to Menu; preps to Ingredients
-  if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato"].some((b) => pathname === b || pathname.startsWith(b + "/"));
+  // the Kitchen Cheat Sheet preview opens from the Menu page, so it keeps Menu lit (the recipe print at /print belongs to no entry)
+  if (href === "/menu") return ["/menu", "/beers", "/items", "/gelato", "/print/cheat-sheet"].some((b) => pathname === b || pathname.startsWith(b + "/"));
   // ingredient allergen review is about ingredients, so it lives under Ingredients (Menu Labels shares the /allergens prefix)
   if (href === "/ingredients") return pathname.startsWith("/ingredients") || pathname.startsWith("/preps") || pathname.startsWith("/allergens/review");
   return pathname === href || pathname.startsWith(href + "/");
@@ -58,6 +59,6 @@ export function phoneTab(pathname: string): PhoneTabId | null {
 }
 
 export function hidesTabBar(pathname: string): boolean {
-  // record pages hold their own save bar, and the two review modes (dishes, ingredients) hold their own Confirm bar: none shares the bottom with the tab bar
-  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review" || pathname === "/allergens/review";
+  // record pages hold their own save bar, and the two review modes (dishes, ingredients) hold their own Confirm bar: none shares the bottom with the tab bar. The Kitchen Cheat Sheet preview is a full screen layer.
+  return /^\/(items|preps)\/[^/]+$/.test(pathname) || pathname === "/matrix/review" || pathname === "/allergens/review" || pathname === "/print/cheat-sheet";
 }

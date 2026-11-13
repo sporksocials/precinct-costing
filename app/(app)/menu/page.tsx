@@ -19,6 +19,7 @@ import { BeerServeSizesSheet, NewBeerSheet } from "@/components/beer-parts";
 import { NewFlavourSheet } from "@/components/new-flavour";
 import { beerDefaultVenueId, destinationForCategory } from "@/lib/add-choices";
 import { PosListButton } from "@/components/pos-list-button";
+import { CheatSheetButton } from "@/components/cheat-sheet-button";
 import { ShowInactiveButton, TitleWithTag } from "@/components/active-parts";
 import { AddButton, Chips, cx, Dot, Empty, PageHeader, Row, SearchField, Segmented } from "@/components/ui";
 import { DataTable, type Column } from "@/components/table";
@@ -280,13 +281,14 @@ export default function MenuPage() {
           {rows.length ? (
             <div className="flex flex-wrap items-center justify-between gap-x-3 px-4 pb-1.5 pt-4">
               <p className="text-[13px] text-label-2">{`${rows.length} ${rows.length === 1 ? "menu item" : "menu items"}`}</p>
-              <div className="ml-auto flex items-center gap-1">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-x-1">
                 <SelectControls sel={sel} />
                 <Link href={`/matrix${venue ? `?venue=${venue.slug}` : ""}`} className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold text-accent transition active:opacity-70">
                   <ShieldCheck className="h-[18px] w-[18px]" strokeWidth={2.25} aria-hidden />
                   Allergy Matrix
                 </Link>
                 <PosListButton />
+                <CheatSheetButton />
               </div>
             </div>
           ) : null}

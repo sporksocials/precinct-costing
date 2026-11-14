@@ -58,12 +58,12 @@ function dish(over: Partial<MatrixDish> & { contains?: AllergenId[]; without?: P
 const state = (d: MatrixDish, c: MatrixColumnId) => cell(d, c).state;
 
 describe("columns", () => {
-  it("are the fourteen Brendan asked for, in order: Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each on their own", () => {
-    expect(MATRIX_COLUMNS.map((c) => c.label)).toEqual(["Gluten Free", "Onion", "Garlic", "Dairy", "Fish", "Crustacean And Molluscs", "Chilli", "Eggs", "Nuts", "Seeds", "Vegetarian", "Vegan", "Sulphites", "Nitrites"]);
-    expect(MATRIX_COLUMNS.map((c) => c.id)).toEqual(["gluten_free", "onion", "garlic", "dairy", "fish", "crustacean_molluscs", "chilli", "eggs", "nuts", "seeds", "vegetarian", "vegan", "sulphites", "nitrites"]);
-    expect(MATRIX_COLUMNS).toHaveLength(14);
+  it("are the fifteen: the fourteen Brendan asked for (Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each on their own) plus Soy after Seeds (Troy, 14 Nov 2026)", () => {
+    expect(MATRIX_COLUMNS.map((c) => c.label)).toEqual(["Gluten Free", "Onion", "Garlic", "Dairy", "Fish", "Crustacean And Molluscs", "Chilli", "Eggs", "Nuts", "Seeds", "Soy", "Vegetarian", "Vegan", "Sulphites", "Nitrites"]);
+    expect(MATRIX_COLUMNS.map((c) => c.id)).toEqual(["gluten_free", "onion", "garlic", "dairy", "fish", "crustacean_molluscs", "chilli", "eggs", "nuts", "seeds", "soy", "vegetarian", "vegan", "sulphites", "nitrites"]);
+    expect(MATRIX_COLUMNS).toHaveLength(15);
   });
-  it("map the allergens as decided: each of the 14 columns", () => {
+  it("map the allergens as decided: each of the 15 columns", () => {
     const by = Object.fromEntries(MATRIX_COLUMNS.map((c) => [c.id, c.allergens]));
     expect(by.gluten_free).toEqual(["gluten"]);
     expect(by.onion).toEqual(["onion"]);
@@ -75,15 +75,16 @@ describe("columns", () => {
     expect(by.eggs).toEqual(["egg"]);
     expect(by.nuts).toEqual(["peanuts", "tree_nuts"]);
     expect(by.seeds).toEqual(["sesame"]);
+    expect(by.soy).toEqual(["soy"]);
     expect(by.vegetarian).toEqual([]);
     expect(by.vegan).toEqual([]);
     expect(by.sulphites).toEqual(["sulphites"]);
     expect(by.nitrites).toEqual(["nitrites"]);
   });
-  it("cover every dish allergen exactly once, except Soy and Lupin which have no column (molluscs never vanish)", () => {
+  it("cover every dish allergen exactly once, except Lupin which has no column (molluscs never vanish, Soy got its column on 14 Nov 2026)", () => {
     const covered = MATRIX_COLUMNS.flatMap((c) => c.allergens);
     expect(new Set(covered).size).toBe(covered.length);
-    expect([...DISH_ALLERGEN_IDS].filter((id) => !covered.includes(id)).sort()).toEqual(["lupin", "soy"]);
+    expect([...DISH_ALLERGEN_IDS].filter((id) => !covered.includes(id)).sort()).toEqual(["lupin"]);
   });
   it("have a short phone label that is distinct and no longer than a word", () => {
     const shorts = MATRIX_COLUMNS.map((c) => c.short);
@@ -339,9 +340,9 @@ describe("guest needs", () => {
   });
 });
 
-describe("soy and lupin have no column but are never hidden", () => {
+describe("lupin has no column but is never hidden (soy got its own on 14 Nov 2026)", () => {
   it("are reported for the detail card of a signed-off dish", () => {
-    expect(uncolumnedContains(dish({ contains: ["soy", "lupin", "milk"] }).allergens)).toEqual(["soy", "lupin"]);
+    expect(uncolumnedContains(dish({ contains: ["soy", "lupin", "milk"] }).allergens)).toEqual(["lupin"]); // soy has its own column since 14 Nov 2026
     expect(uncolumnedContains(dish({ signed: false, contains: ["soy"] }).allergens)).toEqual([]);
     expect(uncolumnedContains(null)).toEqual([]);
   });
@@ -743,20 +744,21 @@ describe("print stylesheet", () => {
   });
 });
 
-describe("print column widths (14 columns, Brendan 7 Nov 2026)", () => {
+describe("print column widths (15 columns, Brendan 7 Nov 2026, Soy added 14 Nov 2026)", () => {
   // measured in Karla, the app's body face, at 11pt: the widest word a cell prints is "checked" (grey, weight 800), and the widest
   // unbroken heading word is "Molluscs" (weight 700)
   const CHECKED_MM = 15.84;
   const MOLLUSCS_MM = 16.53;
-  it("the dish column and the 14 answer columns add up to exactly the page body width", () => {
-    expect(MATRIX_COLUMNS).toHaveLength(14);
+  it("the dish column and the 15 answer columns add up to exactly the page body width", () => {
+    expect(MATRIX_COLUMNS).toHaveLength(15);
     expect(DISH_COL_MM + ANSWER_COL_MM * MATRIX_COLUMNS.length).toBeCloseTo(BODY_W_MM, 6);
-    expect(BODY_W_MM).toBe(297 - 2 * 9);
-    expect(DISH_COL_MM).toBeGreaterThanOrEqual(30); // dish names still wrap to two or three lines, not five
+    expect(BODY_W_MM).toBe(297 - 2 * 7);
+    expect(DISH_COL_MM).toBeGreaterThanOrEqual(30); // dish names wrap to two or three lines, not five
   });
   it("an answer column holds the widest cell word at 11pt with its padding, and the heading words that stay whole", () => {
-    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(CHECKED_MM + 2 * ANSWER_PAD_MM);
-    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(MOLLUSCS_MM + 0.8); // th padding 0.4mm each side
+    const BORDER_MM = 0.35; // the collapsed cell border takes this much of the cell
+    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(CHECKED_MM + 2 * ANSWER_PAD_MM + BORDER_MM + 0.2); // 0.2mm slack so "checked" never breaks mid-word
+    expect(ANSWER_COL_MM).toBeGreaterThanOrEqual(MOLLUSCS_MM / 2 + 0.8); // "Molluscs" carries a soft hyphen now, so only half of it must fit; th padding 0.4mm each side
   });
   it("long heading words carry a soft hyphen so they break instead of running into the next column", () => {
     const [sheet] = buildMatrixSheets({ venueName: "Drift", sections: matrixSections(buildRows([dish()])), now: new Date() });
@@ -765,13 +767,14 @@ describe("print column widths (14 columns, Brendan 7 Nov 2026)", () => {
     expect(heads.vegetarian).toContain(SHY);
     expect(heads.sulphites).toContain(SHY);
     expect(heads.crustacean_molluscs).toContain(SHY);
+    expect(heads.crustacean_molluscs).toBe(`Crusta${SHY}cean And Mol${SHY}luscs`);
     expect(heads.dairy).toBe("Dairy");
     expect(headLabel("nope", "Anything")).toBe("Anything");
   });
   it("the sheet draws one printed cell per column and every one prints its word", () => {
     const [sheet] = buildMatrixSheets({ venueName: "Drift", sections: matrixSections(buildRows([dish({ contains: ["fish", "molluscs"] }), dish({ id: "d2", name: "B", signed: false })])), now: new Date() });
     for (const r of sheet.pages[0].rows) {
-      expect(r.cells).toHaveLength(14);
+      expect(r.cells).toHaveLength(15);
       for (const c of r.cells) expect(c.word.length).toBeGreaterThan(0);
     }
   });

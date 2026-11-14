@@ -422,7 +422,7 @@ function AnswerCell({ cell, label }: { cell: MatrixCell; label: string }) {
 function Grid({ sections, showHeads, picks, onPick, onDish }: { sections: { label: string; rows: MatrixRow[] }[]; showHeads: boolean; picks: MatrixColumnId[]; onPick: (c: MatrixColumnId) => void; onDish: (id: string) => void }) {
   return (
     <div className={cx(CARD, "overflow-x-auto")}>
-      <table className="w-full min-w-[1180px] border-separate border-spacing-0">
+      <table className="w-full min-w-[1260px] border-separate border-spacing-0">
         <thead>
           <tr>
             <th scope="col" className="sticky left-0 z-[2] min-w-[170px] bg-[#1C1C1F] px-4 py-3 text-left align-bottom">

@@ -14,31 +14,33 @@ import { DEFAULT_CROSS_CONTACT, MATRIX_COLUMNS, MATRIX_FOOTER_NOTE, MATRIX_LEGEN
 
 export const PAGE_W_MM = 297;
 export const PAGE_H_MM = 210;
-export const PAGE_MARGIN_MM = 9;
-export const BODY_W_MM = PAGE_W_MM - 2 * PAGE_MARGIN_MM; // 279
-export const BODY_H_MM = PAGE_H_MM - 2 * PAGE_MARGIN_MM; // 192
+export const PAGE_MARGIN_MM = 7;
+export const BODY_W_MM = PAGE_W_MM - 2 * PAGE_MARGIN_MM; // 283
+export const BODY_H_MM = PAGE_H_MM - 2 * PAGE_MARGIN_MM; // 196
 
 /**
- * The dish column and the fourteen answer columns (Brendan, 7 Nov 2026: Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each
- * have their own). Every answer column is the same width and the dish column takes what is left, so the table is exactly the page body wide.
+ * The dish column and the fifteen answer columns (Brendan, 7 Nov 2026: Onion, Garlic, Fish, Crustacean And Molluscs, Nuts and Seeds each
+ * have their own; Troy added Soy on 14 Nov 2026). Every answer column is the same width and the dish column takes what is left, so the table
+ * is exactly the page body wide.
  *
- * 17.6mm is the narrowest column that still holds the widest thing a cell can print at 11pt in Karla (the app's body face, measured):
- * the word "checked" of a grey cell at weight 800 (15.84mm) inside 0.6mm of padding each side, and the header word "Molluscs"
- * at weight 700 (16.5mm). Header words wider than that ("Vegetarian" 19.8mm, "Sulphites" 17.8mm, "Crustacean" 21.1mm) carry a soft hyphen
- * (`headLabel`) so they break across lines instead of running into the next column. The dish column is 32.6mm (about 14 characters a line).
+ * 16.7mm is the narrowest column that still holds the widest thing a cell can print at 11pt in Karla (the app's body face, measured):
+ * the word "checked" of a grey cell at weight 800 (15.84mm) inside 0.15mm of padding each side and the 0.35mm collapsed border (a word wider
+ * than the cell would break mid-word, "checke / d"). The page margin went from 9mm to 7mm to pay for the extra column (14 Nov 2026), so the body is 283mm.
+ * Header words wider than the column ("Vegetarian" 19.8mm, "Sulphites" 17.8mm, "Crustacean" 21.1mm, "Molluscs" 16.5mm) carry a soft hyphen (`headLabel`)
+ * so they break across lines instead of running into the next column. The dish column is 32.5mm (about 14 characters a line); no type size shrank.
  */
-export const ANSWER_COL_MM = 17.6;
+export const ANSWER_COL_MM = 16.7;
 export const DISH_COL_MM = Math.round((BODY_W_MM - ANSWER_COL_MM * MATRIX_COLUMNS.length) * 100) / 100;
 /** Side padding of an answer cell, mm (the dish column keeps 1.2mm) */
-export const ANSWER_PAD_MM = 0.6;
+export const ANSWER_PAD_MM = 0.15;
 
 /** The soft hyphen: invisible unless the browser has to break the word there. */
 export const SHY = "\u00ad";
-/** Printed column headings, with soft hyphens where a long word may break so a heading never overruns its 17.6mm column. */
+/** Printed column headings, with soft hyphens where a long word may break so a heading never overruns its 16.7mm column. */
 const HEAD_BREAKS: Record<string, string> = {
   vegetarian: `Vege${SHY}tarian`,
   sulphites: `Sul${SHY}phites`,
-  crustacean_molluscs: `Crusta${SHY}cean And Molluscs`,
+  crustacean_molluscs: `Crusta${SHY}cean And Mol${SHY}luscs`,
 };
 export function headLabel(columnId: string, label: string): string {
   return HEAD_BREAKS[columnId] ?? label;

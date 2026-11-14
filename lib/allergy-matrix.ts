@@ -60,6 +60,7 @@ export type MatrixColumnId =
   | "eggs"
   | "nuts"
   | "seeds"
+  | "soy"
   | "vegetarian"
   | "vegan"
   | "sulphites"
@@ -78,9 +79,9 @@ export interface MatrixColumn {
 
 /**
  * Troy's columns in his order (10 Oct 2026), then Sulphites and Nitrites, split further for Brendan, the executive chef (7 Nov 2026):
- * Onion and Garlic are separate, Fish is separate from Crustacean And Molluscs, and Nuts and Seeds are separate. That is 14 columns.
- * A separate Molluscs column was deliberately NOT added: 15 columns do not fit A4 landscape at the 11pt floor, and molluscs sit
- * with the crustacea (shellfish) so they never vanish from the sheet. Each dish allergen fills exactly one column (Soy and Lupin have none).
+ * Onion and Garlic are separate, Fish is separate from Crustacean And Molluscs, and Nuts and Seeds are separate. Soy was added by Troy on 14 Nov 2026
+ * (after Seeds). That is 15 columns. A separate Molluscs column was deliberately NOT added: 16 columns do not fit A4 landscape at the 11pt floor, and
+ * molluscs sit with the crustacea (shellfish) so they never vanish from the sheet. Each dish allergen fills exactly one column (Lupin has none).
  */
 export const MATRIX_COLUMNS: readonly MatrixColumn[] = [
   { id: "gluten_free", label: "Gluten Free", short: "GF", kind: "gluten", allergens: ["gluten"] },
@@ -93,6 +94,7 @@ export const MATRIX_COLUMNS: readonly MatrixColumn[] = [
   { id: "eggs", label: "Eggs", short: "Eggs", kind: "allergen", allergens: ["egg"] },
   { id: "nuts", label: "Nuts", short: "Nuts", kind: "allergen", allergens: ["peanuts", "tree_nuts"] },
   { id: "seeds", label: "Seeds", short: "Seeds", kind: "allergen", allergens: ["sesame"] },
+  { id: "soy", label: "Soy", short: "Soy", kind: "allergen", allergens: ["soy"] },
   { id: "vegetarian", label: "Vegetarian", short: "Veg", kind: "vegetarian", allergens: [] },
   { id: "vegan", label: "Vegan", short: "Vegan", kind: "vegan", allergens: [] },
   { id: "sulphites", label: "Sulphites", short: "Sulph", kind: "allergen", allergens: ["sulphites"] },
@@ -106,8 +108,8 @@ export function isMatrixColumnId(id: string): id is MatrixColumnId {
   return MATRIX_COLUMNS.some((c) => c.id === id);
 }
 
-/** Dish allergens a chef can tick that no matrix column covers (Troy's mapping leaves Soy and Lupin out). Shown beside the grid, never hidden. */
-export const UNCOLUMNED_ALLERGENS: readonly AllergenId[] = (["soy", "lupin"] as const);
+/** Dish allergens a chef can tick that no matrix column covers (Lupin only since Soy got its column, 14 Nov 2026). Shown beside the grid, never hidden. */
+export const UNCOLUMNED_ALLERGENS: readonly AllergenId[] = (["lupin"] as const);
 
 /** What a cell needs from a dish. The costing app and the kitchen parser each build one; the rules below never look past it. */
 export interface MatrixDish {
@@ -381,7 +383,7 @@ export function instruction(c: MatrixCell): string {
   }
 }
 
-/** Dish allergens with no column on the sheet (Soy, Lupin). Listed in plain words on a detail card so they are never invisible. */
+/** Dish allergens with no column on the sheet (Lupin). Listed in plain words on a detail card so they are never invisible. */
 export function uncolumnedContains(da: DishAllergens | null): AllergenId[] {
   if (!da || !isConfirmed(da)) return [];
   return UNCOLUMNED_ALLERGENS.filter((id) => containsOf(da).includes(id));

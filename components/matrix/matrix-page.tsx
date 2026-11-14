@@ -160,7 +160,7 @@ export function MatrixPage() {
           ) : null}
 
           <p className="mt-3 text-[13px] text-label-2">
-            {shownRows.length} {shownRows.length === 1 ? "dish" : "dishes"} shown. Read only: to change an answer, change the dish. Gluten Free, Vegetarian and Vegan come from the dish&rsquo;s marks and options. Soy and Lupin have no column; they are listed on the dish card.
+            {shownRows.length} {shownRows.length === 1 ? "dish" : "dishes"} shown. Read only: to change an answer, change the dish. Gluten Free, Vegetarian and Vegan come from the dish&rsquo;s marks and options. Lupin has no column; it is listed on the dish card.
           </p>
         </>
       )}

@@ -103,7 +103,7 @@ function Cell({ cell, label }: { cell: MatrixCell; label: string }) {
 export function MatrixTable({ sections, showSectionHeads }: { sections: readonly MatrixSection[]; showSectionHeads: boolean }) {
   return (
     <div className="hidden overflow-x-auto rounded-2xl bg-surface lg:block">
-      <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-[13px]">
+      <table className="w-full min-w-[1240px] border-separate border-spacing-0 text-[13px]">
         <thead>
           <tr>
             <th scope="col" className="sticky left-0 z-[2] min-w-[170px] bg-surface px-3 py-2 text-left text-[13px] font-medium text-label-2">

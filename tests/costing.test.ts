@@ -147,3 +147,18 @@ describe("costPerShot (bar mixes, 30 ml, no wastage)", () => {
     expect(costPerShot(p("Pre-mix", "L", 0))).toBe(0);
   });
 });
+
+describe("gstBasisLabel (the tag next to the big price on an ingredient page)", () => {
+  it("says Ex GST, Inc GST or GST Free, and GST free wins over the inc GST switch like the costing does", async () => {
+    const { gstBasisLabel } = await import("@/lib/costing");
+    expect(gstBasisLabel({ gst_free: false, price_inc_gst: false })).toBe("Ex GST");
+    expect(gstBasisLabel({ gst_free: false, price_inc_gst: true })).toBe("Inc GST");
+    expect(gstBasisLabel({ gst_free: true, price_inc_gst: false })).toBe("GST Free");
+    expect(gstBasisLabel({ gst_free: true, price_inc_gst: true })).toBe("GST Free");
+  });
+  it("is drawn beside the pack price in DealPriceBlock", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("components/deal-editor.tsx", "utf8");
+    expect(src).toMatch(/data-gst-basis[\s\S]{0,200}\{gstBasisLabel\(ing\)\}/);
+  });
+});

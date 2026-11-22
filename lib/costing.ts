@@ -38,6 +38,15 @@ export function unitBase(unit: LineUnit): PackUnit {
   }
 }
 
+/**
+ * How an ingredient's pack price is entered, in words, for the big price on its page (Troy, 23 Nov 2026: "show ex gst or inc gst or gst free
+ * next to the main price"). GST-free wins over the inc GST switch, exactly as `ingredientExGstPackPrice` reads them.
+ */
+export type GstBasisLabel = "Ex GST" | "Inc GST" | "GST Free";
+export function gstBasisLabel(ing: Pick<Ingredient, "gst_free" | "price_inc_gst">): GstBasisLabel {
+  return ing.gst_free ? "GST Free" : ing.price_inc_gst ? "Inc GST" : "Ex GST";
+}
+
 /** Ex-GST pack price of an ingredient. */
 export function ingredientExGstPackPrice(ing: Pick<Ingredient, "pack_price" | "gst_free" | "price_inc_gst">, gst: number): number {
   const price = Number(ing.pack_price) || 0;

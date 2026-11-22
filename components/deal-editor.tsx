@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase } from "@/lib/costing";
+import { gstBasisLabel, ingredientCostPerBase } from "@/lib/costing";
 import {
   daysBetween,
   DEAL_KINDS,
@@ -54,12 +54,15 @@ export function DealPriceBlock({ ing, updatedText }: { ing: Ingredient; updatedT
   return (
     <>
       <p className="text-[15px] font-medium text-label-2">{res.deal ? "Pack price with deal" : "Pack price"}</p>
-      <p className="display mt-1 text-[64px] tnum text-accent">
-        {money(res.price)}
-        {res.deal ? <span className="ml-3 align-middle text-[28px] text-label-3 line-through decoration-2">{money(res.base)}</span> : null}
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p className="display text-[64px] tnum text-accent">{money(res.price)}</p>
+        <span data-gst-basis className="rounded-full bg-surface-2 px-3 py-1 text-[15px] font-semibold text-label-2">
+          {gstBasisLabel(ing)}
+        </span>
+        {res.deal ? <span className="text-[28px] text-label-3 line-through decoration-2 tnum">{money(res.base)}</span> : null}
+      </div>
       <p className="mt-2 text-[15px] text-label-2 tnum">
-        {basisText(ing)} · {money(unitCost)}/{unitShort(ing.pack_unit)}
+        {money(unitCost)}/{unitShort(ing.pack_unit)} ex GST
         {res.deal ? ` · ${Math.round(res.savingPct * 1000) / 10}% off` : ""}
         {updatedText ?? ""}
       </p>

@@ -13,7 +13,7 @@ import { NO_LOOKUPS, buildChangeLog, fmtMoney, fmtPercent, humanise, isMissingTa
 import { fieldLabel } from "./draft-changes";
 import { describeDishAllergens } from "./dish-allergens";
 import { cleanGelatoLabels, gelatoLabelText } from "./gelato-labels";
-import { countText, isOrderingTable, orderingFieldLabel, orderingFmt, orderingName, orderingSummary, orderingWord, type OrderingLookups } from "./ordering-history";
+import { countText, followedIngredientRowIds, isOrderingTable, orderingFieldLabel, orderingFmt, orderingName, orderingSummary, orderingWord, type OrderingLookups } from "./ordering-history";
 import { formatQty } from "./parse-qty";
 import type { LineUnit } from "./types";
 
@@ -133,6 +133,7 @@ const LABELS: Record<string, string> = {
   gst_free: "GST Free",
   supplier_id: "Supplier",
   supplier_code: "Supplier Code",
+  carton_qty: "Carton Holds",
   allergens_reviewed: "Allergens Reviewed",
   diet_flags: "Diet Flags",
   ingredient_id: "Keg",
@@ -607,6 +608,8 @@ export function buildFullChangeLog(
   const gone = namesFromHistory(rows);
   const lk2: HistoryLookups = { ...lk, recordName: (t, k) => lk.recordName(t, k) ?? gone.get(`${t}|${k}`) };
   const hide = hiddenChildIds(rows);
+  // an order item whose name or item code only followed its ingredient is part of the ingredient's own change, not a second event
+  for (const id of followedIngredientRowIds(rows)) hide.add(id);
   const fresh: ChangeEvent[] = [];
   for (const r of rows) {
     if (hide.has(String(r.id))) continue;

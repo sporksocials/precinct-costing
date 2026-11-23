@@ -41,6 +41,7 @@ export interface OrderingSupplier extends Stamped {
   min_order_value: number | null;
   /** cartons, kegs or bottles; a warning only */
   min_order_units: number | null;
+  /** no longer shown or written by any screen (the order screen always shows a line price when there is one); the column stays */
   show_prices_on_order: boolean;
   notes: string | null;
   active: boolean;
@@ -59,36 +60,43 @@ export interface OrderingCategory extends Stamped {
   unit_name: string;
 }
 
+/**
+ * One venue's order item: a THIN shell over an ingredient (one card per product, Troy, 23 Nov 2026). People edit only the
+ * per-venue things: the shelf group (category_id, sort), "Counted By" (unit_name), "Build To" (par), pack_multiple, notes and
+ * whether it is on this venue's order list (active). The name, the supplier and the supplier item code are COPIES the database
+ * keeps equal to the ingredient's (trigger ordering_products_follow_ingredient), so the count screen, its offline copy and the
+ * history pages can keep reading plain product rows.
+ */
 export interface OrderingProduct extends Stamped {
   id: string;
   venue_id: number;
   category_id: string;
   sort: number;
+  /** a copy of the ingredient's full name, kept by the database (an item with no ingredient keeps the name it had) */
   name: string;
-  /** one counted and ordered unit: carton, keg, bag, bottle */
+  /** "Counted By": one counted and ordered unit (carton, keg, bag, bottle, tub, each) */
   unit_name: string;
-  /**
-   * The terms row for this supplier at this venue (ordering_suppliers.id). When the product is linked to an ingredient the
-   * database sets this from the ingredient's supplier, so it is never chosen on the product; an order-only product picks it.
-   */
+  /** the terms row of the ingredient's supplier at this venue (ordering_suppliers.id), set by the database from the ingredient */
   supplier_id: string | null;
+  /** a copy of the ingredient's Supplier Code, kept by the database */
   supplier_item_code: string | null;
   /** orders round UP to a multiple of this (Star spirits: 6 or 12); most products 1 */
   pack_multiple: number;
-  /** price of one order unit, inc GST */
+  /**
+   * NO LONGER SHOWN OR WRITTEN BY ANY SCREEN (thin order items, 23 Nov 2026; the columns stay in the database). The price,
+   * the free-unit deal and the packs in a carton are read from the ingredient by lib/ordering-facts.ts. The stored price and
+   * deal are read only as the FALLBACK for an item that has no ingredient yet.
+   */
   price_inc_gst: number | null;
-  /** "buy X, get Y free" (Star Super Crisp keg: buy 8, the 9th is free). Both set or both null. Order in multiples of X + Y. */
   deal_buy_qty?: number | null;
   deal_free_qty?: number | null;
-  /** the same item at another supplier (advisory: the order screen notes it when this price is 10% or more over): same unit and size, inc GST */
   alt_supplier_name?: string | null;
   alt_item_code?: string | null;
   alt_price_inc_gst?: number | null;
   alt_price_on?: string | null;
-  /** optional link to the costing ingredient (cost_ingredients.id) */
-  ingredient_id: string | null;
-  /** costing packs in one order unit (24 cans per carton) */
   costing_packs_per_unit: number | null;
+  /** the ingredient this order item is (cost_ingredients.id). Null only for an old item that has not been given one yet. */
+  ingredient_id: string | null;
   /** "Build To": the stock level an order brings the product back up to, in its unit */
   par: number;
   notes: string | null;
@@ -231,10 +239,13 @@ export interface SupplierOrderGroup {
 /** What the totals functions and the text builder read from a line (an order line row fits). */
 export interface PricedLine {
   ordered_qty: number;
+  /** one unit, inc GST */
   price_inc_gst: number | null;
   /** buy X get Y free: the free units are in ordered_qty but are not paid for */
   deal_buy_qty?: number | null;
   deal_free_qty?: number | null;
+  /** the line has no GST in it, so its ex GST value is the same as its inc GST value */
+  gst_free?: boolean | null;
 }
 export interface OrderTextLine extends PricedLine {
   product_name: string;

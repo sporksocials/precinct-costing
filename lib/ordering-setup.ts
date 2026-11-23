@@ -1,10 +1,11 @@
 /**
- * Ordering module: pure helpers for the Setup screens (suppliers, categories, products) and "Copy Products From Another
- * Venue". No React, no database. Everything here works on ONE venue's rows; the copy plan reads one venue and prepares rows
- * for another, and never carries counts, prices, Build To levels or account numbers across (each venue is independent).
+ * Ordering module: pure helpers for the Setup screens (suppliers, categories, and the read-only Products list). No React, no
+ * database. Everything here works on ONE venue's rows. A product is edited on its ingredient (one card per product, Troy,
+ * 23 Nov 2026), so nothing here builds or prices a product: prices come from lib/ordering-facts.ts. "Copy Products From
+ * Another Venue" was removed that day (it made order items with no ingredient behind them).
  */
-import { cleanEmailList, cleanUrl, exGst, plainText, qtyText, supplierMethodFromContact } from "./ordering";
-import type { CategoryDraft, ProductDraft, SupplierDraft } from "./ordering-data";
+import { cleanEmailList, cleanUrl, plainText, supplierMethodFromContact } from "./ordering";
+import type { SupplierDraft } from "./ordering-data";
 import type { OrderingCategory, OrderingMethod, OrderingProduct, OrderingSupplier } from "./ordering-types";
 import { cleanSupplierName, findSupplier } from "./suppliers";
 
@@ -213,70 +214,6 @@ export function planAddSupplier(typed: string, masters: readonly MasterSupplier[
   return { kind: "existing", master: match };
 }
 
-/** The chips for choosing the supplier of an order-only product: the active suppliers, plus the current one even if it is switched off. */
-export function supplierChoices(masters: readonly MasterSupplier[], currentCostSupplierId: number | null): { value: string; label: string }[] {
-  const rows = byName(masters.filter((m) => isActiveMaster(m) || m.id === currentCostSupplierId));
-  return [{ value: "", label: "No Supplier" }, ...rows.map((m) => ({ value: String(m.id), label: isActiveMaster(m) ? m.name : `${m.name} (inactive)` }))];
-}
-
-export type ProductSupplierView =
-  /** linked to an ingredient: the supplier is the ingredient's and is changed there */
-  | { kind: "ingredient"; ingredientId: string; ingredientName: string | null; supplierName: string | null; costSupplierId: number | null }
-  /** not linked: the supplier is chosen on the product */
-  | { kind: "direct"; supplierName: string | null; costSupplierId: number | null };
-
-/**
- * How a product's supplier is shown and set. A product linked to an ingredient takes its supplier from the ingredient (the
- * database keeps them in step), so the screen reads the ingredient's supplier and offers a link instead of a choice. The
- * ingredient may be missing from the loaded list; the terms row's name is then the best that is known.
- */
-export function productSupplierView(
-  product: Pick<OrderingProduct, "ingredient_id" | "supplier_id">,
-  ingredient: { id: string; name: string; supplier_id: number | null } | null,
-  masters: readonly MasterSupplier[],
-  terms: readonly Pick<OrderingSupplier, "id" | "name" | "cost_supplier_id">[],
-): ProductSupplierView {
-  const row = product.supplier_id ? terms.find((t) => t.id === product.supplier_id) ?? null : null;
-  if (product.ingredient_id) {
-    const costId = ingredient ? ingredient.supplier_id : row?.cost_supplier_id ?? null;
-    const name = costId != null ? masters.find((m) => m.id === costId)?.name ?? row?.name ?? null : null;
-    return { kind: "ingredient", ingredientId: product.ingredient_id, ingredientName: ingredient?.name ?? null, supplierName: name, costSupplierId: costId };
-  }
-  return { kind: "direct", supplierName: row?.name ?? null, costSupplierId: row?.cost_supplier_id ?? null };
-}
-
-/** The sentence under a linked product's supplier. */
-export function ingredientSupplierSentence(v: Extract<ProductSupplierView, { kind: "ingredient" }>): string {
-  if (v.supplierName == null) return "No supplier yet. Set one on the ingredient.";
-  return `${v.supplierName} is the supplier of ${v.ingredientName ?? "the linked ingredient"}. It is changed there, and every venue's order list follows.`;
-}
-
-/* ------------------------------------------------------------------ product pricing */
-
-export interface ProductPricing {
-  /** the order unit's price ex GST (inc / 1.1) */
-  ex: number | null;
-  /** price of one costing pack when a pack count is set (carton price / 24), inc and ex GST */
-  perPackInc: number | null;
-  perPackEx: number | null;
-}
-
-/** The ex GST price beside the inc GST one, and the price of one costing pack when the product is linked with a pack count. */
-export function productPricing(priceInc: number | null | undefined, packsPerUnit: number | null | undefined): ProductPricing {
-  const inc = priceInc == null || !Number.isFinite(Number(priceInc)) ? null : Number(priceInc);
-  const packs = packsPerUnit != null && Number(packsPerUnit) > 0 ? Number(packsPerUnit) : null;
-  const perInc = inc != null && packs ? Math.round((inc / packs) * 100) / 100 : null;
-  return { ex: inc != null ? exGst(inc) : null, perPackInc: perInc, perPackEx: perInc != null ? exGst(perInc) : null };
-}
-
-/** "24 cans at $2.58 each" style sentence for the Packs Per Unit field, or null until both numbers exist. */
-export function packsSentence(unit: string, priceInc: number | null | undefined, packs: number | null | undefined, packName = "pack"): string | null {
-  const p = productPricing(priceInc, packs);
-  if (p.perPackInc == null || !packs) return null;
-  const u = plainText(unit) || "unit";
-  return `One ${u} holds ${qtyText(packs)} ${packName}${packs === 1 ? "" : "s"}, so each ${packName} costs $${p.perPackInc.toFixed(2)} inc GST ($${(p.perPackEx ?? 0).toFixed(2)} ex GST).`;
-}
-
 /* ------------------------------------------------------------------ reordering */
 
 /** A new array with the item at `from` moved to `to` (indexes clamp; the input is not changed). */
@@ -357,12 +294,15 @@ export function inactiveProductCount(products: readonly OrderingProduct[]): numb
   return products.filter((p) => !p.active).length;
 }
 
-/** The sub line of a product row: unit, supplier, price. "Carton · Star · $62.00". */
-export function productSub(p: OrderingProduct, supplierNameById: ReadonlyMap<string, string>): string {
+/**
+ * The sub line of a product row: Counted By, supplier, price. "Carton · Star · $62.00". The price is the one worked out
+ * from the ingredient (lib/ordering-facts.ts `orderPriceShort`), passed in already formatted; "" leaves it out.
+ */
+export function productSub(p: Pick<OrderingProduct, "unit_name" | "supplier_id">, supplierNameById: ReadonlyMap<string, string>, price = ""): string {
   const bits = [unitTitle(p.unit_name)];
   const s = p.supplier_id ? supplierNameById.get(p.supplier_id) : null;
   bits.push(s ?? "No supplier");
-  if (p.price_inc_gst != null) bits.push(`$${Number(p.price_inc_gst).toFixed(2)}`);
+  if (price) bits.push(price);
   return bits.filter(Boolean).join(" · ");
 }
 
@@ -370,142 +310,4 @@ export function productSub(p: OrderingProduct, supplierNameById: ReadonlyMap<str
 export function nameTaken(name: string, rows: readonly { id: string; name: string }[], exceptId?: string): boolean {
   const n = norm(name);
   return !!n && rows.some((r) => r.id !== exceptId && norm(r.name) === n);
-}
-
-/* ------------------------------------------------------------------ Copy Products From Another Venue */
-
-export interface CopySource {
-  suppliers: readonly OrderingSupplier[];
-  categories: readonly OrderingCategory[];
-  products: readonly OrderingProduct[];
-}
-
-export interface CopyPlan {
-  suppliers: SupplierDraft[];
-  categories: CategoryDraft[];
-  /**
-   * The category is named, not identified: its id is only known once the row exists in the target venue. The supplier is the
-   * one in the supplier list (`costSupplierId`), never matched by name: the target's terms row for it is made when needed.
-   */
-  products: { categoryName: string; costSupplierId: number | null; draft: Omit<ProductDraft, "category_id" | "supplier_id"> }[];
-  /** rows the target venue already has (matched by name), left alone */
-  skipped: { suppliers: number; categories: number; products: number };
-}
-
-/**
- * What copying one venue's list into another would add. Categories and products match by name (case-insensitive) and suppliers by the supplier
- * they are (cost_supplier_id), never by name, so running it twice, or into a
- * venue that already has some of the list, adds only what is missing and never duplicates.
- * Copied: categories (name, order, second place, default unit), suppliers (name, how orders go out, email, login link, rep,
- * minimums, price switch, notes) and ACTIVE products (name, unit, supplier, item code, pack multiple, notes).
- * Left behind on purpose: counts and orders, prices, Build To (starts at 0), costing links and account numbers, so each venue
- * sets its own and nothing is ever shared.
- */
-export function planVenueCopy(source: CopySource, target: CopySource): CopyPlan {
-  const haveCat = new Set(target.categories.map((c) => norm(c.name)));
-  const haveSup = new Set(target.suppliers.map((s) => s.cost_supplier_id));
-  const targetCatName = new Map(target.categories.map((c) => [c.id, norm(c.name)]));
-  const haveProd = new Set(target.products.map((p) => `${targetCatName.get(p.category_id) ?? ""}|${norm(p.name)}`));
-  const nextCatSort = Math.max(0, ...target.categories.map((c) => c.sort)) + 1;
-  const nextSupSort = Math.max(0, ...target.suppliers.map((s) => s.sort)) + 1;
-  const skipped = { suppliers: 0, categories: 0, products: 0 };
-
-  const srcCats = bySortThenName(source.categories);
-  const categories: CategoryDraft[] = [];
-  srcCats.forEach((c) => {
-    if (haveCat.has(norm(c.name))) {
-      skipped.categories += 1;
-      return;
-    }
-    categories.push({ name: c.name, sort: nextCatSort + categories.length, second_location_label: c.second_location_label, unit_name: c.unit_name });
-  });
-
-  const srcSups = bySortThenName(source.suppliers);
-  const suppliers: SupplierDraft[] = [];
-  srcSups.forEach((s) => {
-    if (haveSup.has(s.cost_supplier_id)) {
-      skipped.suppliers += 1;
-      return;
-    }
-    suppliers.push({
-      name: s.name,
-      cost_supplier_id: s.cost_supplier_id,
-      method: s.method,
-      email_to: s.email_to,
-      login_url: s.login_url,
-      rep_name: s.rep_name,
-      rep_phone: s.rep_phone,
-      account_no: null,
-      min_order_value: s.min_order_value,
-      min_order_units: s.min_order_units,
-      show_prices_on_order: s.show_prices_on_order,
-      notes: s.notes,
-      active: s.active,
-      sort: nextSupSort + suppliers.length,
-    });
-  });
-
-  const catName = new Map(source.categories.map((c) => [c.id, c.name]));
-  const supCostId = new Map(source.suppliers.map((s) => [s.id, s.cost_supplier_id]));
-  const targetMaxSort = new Map<string, number>();
-  for (const p of target.products) targetMaxSort.set(norm(targetCatName.get(p.category_id)), Math.max(targetMaxSort.get(norm(targetCatName.get(p.category_id))) ?? 0, p.sort));
-  const perCat = new Map<string, number>();
-  const products: CopyPlan["products"] = [];
-  const ordered = [...source.products]
-    .filter((p) => p.active)
-    .sort((a, b) => {
-      const ca = srcCats.findIndex((c) => c.id === a.category_id);
-      const cb = srcCats.findIndex((c) => c.id === b.category_id);
-      return ca - cb || a.sort - b.sort || a.name.localeCompare(b.name);
-    });
-  for (const p of ordered) {
-    const cn = catName.get(p.category_id);
-    if (!cn) continue;
-    const key = norm(cn);
-    if (haveProd.has(`${key}|${norm(p.name)}`)) {
-      skipped.products += 1;
-      continue;
-    }
-    const n = (perCat.get(key) ?? 0) + 1;
-    perCat.set(key, n);
-    products.push({
-      categoryName: cn,
-      costSupplierId: p.supplier_id ? supCostId.get(p.supplier_id) ?? null : null,
-      draft: {
-        sort: (targetMaxSort.get(key) ?? 0) + n,
-        name: p.name,
-        unit_name: p.unit_name,
-        supplier_item_code: p.supplier_item_code,
-        pack_multiple: p.pack_multiple,
-        price_inc_gst: null,
-        deal_buy_qty: p.deal_buy_qty ?? null,
-        deal_free_qty: p.deal_free_qty ?? null,
-        ingredient_id: null,
-        costing_packs_per_unit: null,
-        par: 0,
-        notes: p.notes,
-        active: true,
-      },
-    });
-  }
-  return { suppliers, categories, products, skipped };
-}
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-
-/** The impact lines shown before a copy is confirmed. */
-export function copyImpactLines(plan: CopyPlan, sourceName: string, targetName: string): string[] {
-  const out: string[] = [];
-  const added = [plural(plan.categories.length, "category", "categories"), plural(plan.suppliers.length, "supplier"), plural(plan.products.length, "product")];
-  out.push(`This adds ${added.join(", ")} from ${sourceName} to ${targetName}.`);
-  out.push("Counts, orders, prices and account numbers are not copied. Build To starts at 0, so each venue sets its own.");
-  const skipped = plan.skipped.categories + plan.skipped.suppliers + plan.skipped.products;
-  if (skipped) out.push(`${plural(skipped, "item")} ${targetName} already has (matched by name) are left as they are.`);
-  out.push(`After the copy ${targetName} is independent: changes at one venue never touch the other.`);
-  return out;
-}
-
-/** True when there is nothing to add. */
-export function copyIsEmpty(plan: CopyPlan): boolean {
-  return !plan.categories.length && !plan.suppliers.length && !plan.products.length;
 }

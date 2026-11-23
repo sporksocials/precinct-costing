@@ -6,7 +6,7 @@
  * Implements just the query-builder surface the app uses.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { FIXTURE_MASTER_SUPPLIERS, orderingDemoTables } from "../ordering-fixture";
+import { FIXTURE_MASTER_SUPPLIERS, fixtureDeals, fixtureIngredients, orderingDemoTables } from "../ordering-fixture";
 import { supplierKey } from "../suppliers";
 
 type Row = Record<string, unknown>;
@@ -62,8 +62,10 @@ function loadTables(): Promise<Tables> {
         const t: Tables = {};
         for (const [table, key] of Object.entries(TABLE_KEYS)) t[table] = json[key] ?? [];
         // Ordering example data (Drift and Greedy), only when the demo data has none: invented names and prices, memory only
-        if (!(t.ordering_products ?? []).length) Object.assign(t, orderingDemoTables());
+        const seeded = !(t.ordering_products ?? []).length;
+        if (seeded) Object.assign(t, orderingDemoTables());
         linkOrderingSuppliers(t);
+        if (seeded) seedOrderingIngredients(t);
         return t;
       });
   }
@@ -177,6 +179,9 @@ function orderingStamp(table: string, row: Row): Row {
 }
 /** The two ordering rules the unique constraints cannot show by column list: one count in progress per venue, and a unique client_uuid. */
 function orderingChecks(table: string, row: Row, rows: Row[]) {
+  if (table === "ordering_products" && row.active !== false && row.ingredient_id != null && rows.some((x) => x.id !== row.id && x.active !== false && x.venue_id === row.venue_id && x.ingredient_id === row.ingredient_id)) {
+    throw new DemoError('duplicate key value violates unique constraint "ordering_products_one_active_per_ingredient"', "23505");
+  }
   if (table === "ordering_count_sessions" && row.status === "in_progress" && rows.some((x) => x.id !== row.id && x.venue_id === row.venue_id && x.status === "in_progress")) {
     throw new DemoError('duplicate key value violates unique constraint "ordering_count_sessions_one_open_idx"', "23505");
   }
@@ -190,8 +195,10 @@ function orderingChecks(table: string, row: Row, rows: Row[]) {
  *   ordering_terms_row(venue, supplier)   finds or creates the terms row, filled from the same supplier at another venue
  *   ordering_suppliers_link trigger       a terms row always points at a supplier and carries that supplier's name
  *   cost_suppliers_rename trigger         renaming a supplier renames every terms row
- *   ordering_products_follow_ingredient   a product linked to an ingredient takes its supplier from the ingredient
- *   cost_ingredients_supplier_moved       changing an ingredient's supplier moves every venue's product for it
+ *   ordering_products_follow_ingredient   an order item that has an ingredient takes its supplier from the ingredient and, while
+ *                                         it is active, its NAME and SUPPLIER ITEM CODE too (migration 20261123130000_thin_order_items.sql);
+ *                                         an inactive item holding that name in the same category steps aside as "<name> (old)"
+ *   cost_ingredients_supplier_moved       changing an ingredient's supplier, name or supplier code flows to every venue's order item
  */
 function resolveMaster(tables: Tables, name: string): number {
   const masters = (tables.cost_suppliers ??= []);
@@ -232,19 +239,40 @@ function termsRow(tables: Tables, venueId: number, supplierId: number): string {
   logHistory(tables, "ordering_suppliers", "insert", null, fresh);
   return fresh.id as string;
 }
-/** Before insert / update of an ordering product: a linked product's supplier is the ingredient's (null when the ingredient has none). */
+/** "<name> (old)", or "(old 2)" and so on when that is taken in the venue category: the name an inactive item steps aside to. */
+function oldName(tables: Tables, row: Row, name: string): string {
+  const base = name.replace(/ \(old( \d+)?\)$/, "");
+  const taken = (n: string) => (tables.ordering_products ?? []).some((o) => o.id !== row.id && o.venue_id === row.venue_id && o.category_id === row.category_id && o.name === n);
+  let candidate = `${base} (old)`;
+  for (let n = 2; taken(candidate); n++) candidate = `${base} (old ${n})`;
+  return candidate;
+}
+/**
+ * Before insert / update of an order item that has an ingredient: its supplier is the ingredient's (null when the ingredient has
+ * none) and, while it is active, so are its name and supplier item code. An inactive item holding the name steps aside.
+ */
 function followIngredient(tables: Tables, row: Row) {
   if (row.ingredient_id == null) return;
   const ing = (tables.cost_ingredients ?? []).find((i) => String(i.id) === String(row.ingredient_id));
   const s = ing?.supplier_id ?? null;
   row.supplier_id = s == null ? null : termsRow(tables, row.venue_id as number, Number(s));
+  if (!ing || row.active === false) return;
+  row.name = ing.name;
+  row.supplier_item_code = String(ing.supplier_code ?? "").trim() || null;
+  for (const o of tables.ordering_products ?? []) {
+    if (o.id === row.id || o.active !== false || o.venue_id !== row.venue_id || o.category_id !== row.category_id || o.name !== row.name) continue;
+    const was = { ...o };
+    o.name = oldName(tables, o, String(o.name));
+    logHistory(tables, "ordering_products", "update", was, o);
+  }
 }
+const FOLLOW_COLUMNS = ["ingredient_id", "supplier_id", "name", "supplier_item_code", "active", "category_id"];
 /** The BEFORE triggers on the ordering tables. `patch` is the update's columns (an update fires a trigger only when it names one of its columns). */
 function applyBefore(tables: Tables, table: string, row: Row, patch?: Row) {
   if (table === "ordering_suppliers" && (!patch || "name" in patch || "cost_supplier_id" in patch)) linkTerms(tables, row);
-  if (table === "ordering_products" && (!patch || "ingredient_id" in patch || "supplier_id" in patch)) followIngredient(tables, row);
+  if (table === "ordering_products" && (!patch || FOLLOW_COLUMNS.some((c) => c in patch))) followIngredient(tables, row);
 }
-/** The AFTER UPDATE triggers: a renamed supplier renames its terms rows; a moved ingredient moves every venue's product for it. */
+/** The AFTER UPDATE triggers: a renamed supplier renames its terms rows; an ingredient's supplier, name or supplier code flows to every venue's order item for it. */
 function applyAfterUpdate(tables: Tables, table: string, before: Row, after: Row) {
   if (table === "cost_suppliers" && before.name !== after.name) {
     for (const r of tables.ordering_suppliers ?? []) {
@@ -254,18 +282,43 @@ function applyAfterUpdate(tables: Tables, table: string, before: Row, after: Row
       logHistory(tables, "ordering_suppliers", "update", was, r);
     }
   }
-  if (table === "cost_ingredients" && before.supplier_id !== after.supplier_id) {
-    for (const r of tables.ordering_products ?? []) {
-      if (String(r.ingredient_id) !== String(after.id)) continue;
+  if (table === "cost_ingredients" && (before.supplier_id !== after.supplier_id || before.name !== after.name || (before.supplier_code ?? null) !== (after.supplier_code ?? null))) {
+    // active items first (they take the name and move an inactive holder aside), then the inactive ones
+    const mine = (tables.ordering_products ?? []).filter((r) => String(r.ingredient_id) === String(after.id)).sort((a, b) => Number(b.active !== false) - Number(a.active !== false));
+    for (const r of mine) {
       const was = { ...r };
       const next = { ...r };
       followIngredient(tables, next);
-      if (next.supplier_id === r.supplier_id) continue;
+      if (next.active === false) {
+        const free = !(tables.ordering_products ?? []).some((o) => o.id !== r.id && o.venue_id === r.venue_id && o.category_id === r.category_id && o.name === after.name);
+        next.name = free ? after.name : String(r.name).startsWith(`${after.name} (old`) ? r.name : oldName(tables, r, String(after.name));
+        next.supplier_item_code = String(after.supplier_code ?? "").trim() || null;
+      }
+      if (next.supplier_id === r.supplier_id && next.name === r.name && (next.supplier_item_code ?? null) === (r.supplier_item_code ?? null)) continue;
       Object.assign(r, orderingStamp("ordering_products", next));
       logHistory(tables, "ordering_products", "update", was, r);
     }
   }
 }
+/**
+ * Demo data load, only when the ordering example data was seeded: the invented ingredients behind the example order items join
+ * the ingredient list (with the supplier of the same name) and one free-unit deal joins the deals, then every order item takes
+ * its supplier, name and item code from its ingredient exactly as the database trigger would.
+ */
+function seedOrderingIngredients(t: Tables) {
+  const ings = (t.cost_ingredients ??= []);
+  const masters = t.cost_suppliers ?? [];
+  for (const f of fixtureIngredients()) {
+    if (ings.some((i) => i.id === f.id)) continue;
+    const fixtureName = FIXTURE_MASTER_SUPPLIERS.find((m) => m.id === f.supplier_id)?.name ?? "";
+    const master = masters.find((m) => supplierKey(String(m.name)) === supplierKey(fixtureName));
+    ings.push({ ...f, supplier_id: master?.id ?? null } as unknown as Row);
+  }
+  const deals = (t.cost_ingredient_deals ??= []);
+  for (const d of fixtureDeals()) if (!deals.some((x) => x.id === d.id)) deals.push(d as unknown as Row);
+  for (const p of t.ordering_products ?? []) followIngredient(t, p);
+}
+
 /** Demo data load: the example suppliers join the supplier list (reusing one of the same name), and every terms row points at its supplier. */
 function linkOrderingSuppliers(t: Tables) {
   const masters = (t.cost_suppliers ??= []);

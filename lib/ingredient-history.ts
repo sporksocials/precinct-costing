@@ -21,6 +21,7 @@ const LABELS: Record<string, string> = {
   name: "Name",
   supplier_id: "Supplier",
   supplier_code: "Supplier code",
+  carton_qty: "Carton holds",
 };
 
 /** Plain-words label for an audited column ("pack_size" becomes "Pack size"). Unknown columns are humanised. */

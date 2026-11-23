@@ -28,10 +28,11 @@ import {
   updateSupplier,
 } from "@/lib/ordering-data";
 import { insertRow } from "@/lib/store";
-import { buildSupplierOrders, draftLinesFromSuggestions } from "@/lib/ordering";
-import { copyVenueSetup } from "@/lib/ordering-screens-data";
-import { copyIsEmpty, planVenueCopy } from "@/lib/ordering-setup";
-import { fixtureId } from "@/lib/ordering-fixture";
+import { buildSupplierOrders } from "@/lib/ordering";
+import { factsFrom } from "@/lib/ordering-facts";
+import { draftLinesFromGroup, draftsToOrderLines } from "@/lib/ordering-orders-ui";
+import { fixtureId, fixtureIngredientId } from "@/lib/ordering-fixture";
+import type { Ingredient } from "@/lib/types";
 import type { CountEdit, OrderingProduct } from "@/lib/ordering-types";
 
 let sb: SupabaseClient;
@@ -57,17 +58,29 @@ describe("loading one venue", () => {
       expect([...set.suppliers, ...set.categories, ...set.products, ...set.sessions].every((r) => r.venue_id === v)).toBe(true);
     }
     expect(drift.suppliers.map((s) => s.name)).toContain("Star");
-    expect(greedy.suppliers.map((s) => s.name)).not.toContain("Star");
-    expect(drift.products.find((p) => p.name.startsWith("Lift"))?.name).toContain("15 L");
-    expect(greedy.products.find((p) => p.name.startsWith("Lift"))?.name).toContain("5 L");
+    // an ingredient has ONE supplier everywhere, so Greedy's items of Star's ingredients are on a Star terms row of Greedy's own
+    expect(greedy.suppliers.map((s) => s.name)).toContain("Star");
+    expect(drift.products.find((p) => p.name.startsWith("Lift"))?.name).toContain("15L");
+    expect(greedy.products.find((p) => p.name.startsWith("Lift"))?.name).toContain("5L");
     expect(drift.openSession).toBeNull();
     expect(drift.sessions).toHaveLength(1);
     expect((await loadVenueOrdering(sb, 2)).products).toEqual([]);
   });
-  it("a name can repeat across categories at one venue (Coke as post-mix and as cans)", async () => {
+  it("the demo order items are thin: each has its ingredient, carries the ingredient's full name and code, and holds no price", async () => {
     const drift = await loadVenueOrdering(sb, 1);
-    const cokes = drift.products.filter((p) => p.name === "Coke");
-    expect(cokes.map((p) => p.unit_name).sort()).toEqual(["bag", "carton"]);
+    const ings = ((await sb.from("cost_ingredients").select("*")).data ?? []) as Ingredient[];
+    const linked = drift.products.filter((p) => p.ingredient_id);
+    expect(linked).toHaveLength(drift.products.length - 1); // Water Bottles is left with no ingredient, to show the fallback
+    for (const p of linked) {
+      const ing = ings.find((i) => i.id === p.ingredient_id)!;
+      expect(p.name).toBe(ing.name);
+      expect(p.supplier_item_code ?? null).toBe(ing.supplier_code ?? null);
+      expect(p.price_inc_gst).toBeNull();
+    }
+    // the same product as a post-mix bag and as cans is two ingredients, so two names
+    expect(drift.products.filter((p) => p.name.startsWith("Coke")).map((p) => `${p.name}: ${p.unit_name}`).sort()).toEqual(["Coke Cans (24 x 375ml): carton", "Coke Post-Mix (15L): bag"]);
+    expect(drift.products.find((p) => !p.ingredient_id)).toMatchObject({ name: "Water Bottles", price_inc_gst: 28 });
+    expect(ings.find((i) => i.id === fixtureIngredientId(6))).toMatchObject({ carton_qty: 6, price_inc_gst: false });
   });
 });
 
@@ -95,7 +108,7 @@ describe("suppliers, categories and products", () => {
     await expect(createProduct(sb, 2, blankProduct(soft.id, "Coke"))).resolves.toMatchObject({ name: "Coke", pack_multiple: 1, par: 0, active: true });
   });
   it("updates a product and the change history keeps who, the old value and the new one", async () => {
-    const p = (await loadVenueOrdering(sb, 1)).products.find((x) => x.name === "Bourbon Bottle")!;
+    const p = (await loadVenueOrdering(sb, 1)).products.find((x) => x.name === "Bourbon (700ml)")!;
     const after = await updateProduct(sb, p.id, { par: 24 });
     expect(after.par).toBe(24);
     const rows = (await history("ordering_products")).filter((h) => h.op === "update");
@@ -214,15 +227,22 @@ describe("orders", () => {
     const sessionId = fixtureId("ses", 1, 1); // the finalised example count (earlier tests start newer sessions)
     const lines = await loadCountLines(sb, sessionId);
     const groups = buildSupplierOrders(data.products, lines, { suppliers: data.suppliers, categories: data.categories });
-    return { data, sessionId, star: groups.find((g) => g.supplierName === "Star")! };
+    // the lines an order saves: made from the count with the facts worked out from each item's ingredient
+    const ings = new Map((((await sb.from("cost_ingredients").select("*")).data ?? []) as Ingredient[]).map((i) => [i.id, i]));
+    const factsOf = factsFrom({ ingredientById: (id) => ings.get(id), gstRate: 0.1 });
+    const star = groups.find((g) => g.supplierName === "Star")!;
+    return { data, sessionId, star, drafts: draftsToOrderLines(draftLinesFromGroup(star, factsOf)) };
   };
 
   it("saves a draft order with snapshot lines, skipping zero lines", async () => {
-    const { data, sessionId, star } = await driftOrder();
-    const drafts = draftLinesFromSuggestions(star.lines);
+    const { data, sessionId, star, drafts } = await driftOrder();
     expect(drafts.length).toBeGreaterThan(0);
-    const { order, lines } = await createOrder(sb, 1, { supplierId: star.supplierId!, sessionId, kind: "count", showPrices: true, lines: [...drafts, { ...drafts[0], ordered_qty: 0 }] });
-    expect(order).toMatchObject({ venue_id: 1, status: "draft", kind: "count", show_prices: true, supplier_id: star.supplierId });
+    const { order, lines } = await createOrder(sb, 1, { supplierId: star.supplierId!, sessionId, kind: "count", showPrices: false, lines: [...drafts, { ...drafts[0], ordered_qty: 0 }] });
+    expect(order).toMatchObject({ venue_id: 1, status: "draft", kind: "count", show_prices: false, supplier_id: star.supplierId });
+    // the snapshot: the full name, the item code and the price DERIVED from the ingredient (the items themselves hold no price)
+    expect(lines[0]).toMatchObject({ product_name: "Lager Cans (24 x 375ml)", supplier_item_code: "100101", unit_name: "carton", price_inc_gst: 62 });
+    expect(lines.find((l) => l.product_name === "House Sauvignon Blanc (750ml)")).toMatchObject({ price_inc_gst: 96 }); // 6 bottles a carton
+    expect(lines.find((l) => l.product_name === "House Prosecco (750ml)")?.price_inc_gst).toBeNull(); // a carton nobody has sized: no price
     expect(lines).toHaveLength(drafts.length);
     expect(lines.every((l) => l.order_id === order.id && l.venue_id === 1)).toBe(true);
     expect(lines.map((l) => l.sort)).toEqual(drafts.map((_, i) => i));
@@ -233,8 +253,8 @@ describe("orders", () => {
   });
 
   it("edits a draft, then Mark As Sent keeps the exact text and the order never changes again", async () => {
-    const { star } = await driftOrder();
-    const { order, lines } = await createOrder(sb, 1, { supplierId: star.supplierId!, sessionId: null, kind: "top_up", showPrices: false, lines: draftLinesFromSuggestions(star.lines) });
+    const { star, drafts } = await driftOrder();
+    const { order, lines } = await createOrder(sb, 1, { supplierId: star.supplierId!, sessionId: null, kind: "top_up", showPrices: false, lines: drafts });
     expect(order.session_id).toBeNull();
     const changed = await updateDraftOrderLine(sb, order.id, lines[0].id, { ordered_qty: 12 });
     expect(changed.ordered_qty).toBe(12);
@@ -311,6 +331,27 @@ describe("one supplier list (the demo client stands in for the database)", () =>
     await sb.from("cost_ingredients").update({ supplier_id: null }).eq("id", "ing-keg");
     expect((await loadVenueOrdering(sb, 8)).products.find((p) => p.id === mine.id)!.supplier_id).toBeNull();
   });
+  it("a product that has an ingredient carries the ingredient's NAME and SUPPLIER CODE too, and follows a rename at every venue", async () => {
+    const at = async (v: number) => (await loadVenueOrdering(sb, v)).products.filter((p) => p.ingredient_id === "ing-keg");
+    // whatever name was sent, the ingredient's is what is stored
+    expect((await at(8)).map((p) => p.name)).toEqual(["Test Keg"]);
+    expect((await at(1)).map((p) => p.name)).toEqual(["Test Keg"]);
+    await sb.from("cost_ingredients").update({ name: "Test Keg (49.5L)", supplier_code: " K-49 " }).eq("id", "ing-keg");
+    for (const v of [8, 1]) expect((await at(v))[0]).toMatchObject({ name: "Test Keg (49.5L)", supplier_item_code: "K-49" });
+    // a name or code typed on the product is put straight back
+    const mine = (await at(8))[0];
+    expect(await updateProduct(sb, mine.id, { name: "Hann Super Dry", supplier_item_code: "x" })).toMatchObject({ name: "Test Keg (49.5L)", supplier_item_code: "K-49" });
+    // a second ACTIVE product for the same ingredient at the same venue is refused
+    const cat = (await loadVenueOrdering(sb, 8)).categories[0];
+    await expect(createProduct(sb, 8, { ...blankProduct(cat.id, "Again", "keg"), ingredient_id: "ing-keg" })).rejects.toMatchObject({ code: "23505" });
+    // switched off, it keeps its name; a rename then moves it aside only if the active one needs the name
+    const spare = await createProduct(sb, 8, { ...blankProduct(cat.id, "Spare", "keg"), ingredient_id: "ing-keg", active: false });
+    expect(spare.name).toBe("Spare");
+    await sb.from("cost_ingredients").update({ name: "Spare" }).eq("id", "ing-keg");
+    const after = await at(8);
+    expect(after.find((p) => p.id === mine.id)?.name).toBe("Spare");
+    expect(after.find((p) => p.id === spare.id)?.name).toBe("Spare (old)");
+  });
   it("an order-only product has its supplier chosen directly", async () => {
     const cat = (await loadVenueOrdering(sb, 8)).categories.find((c) => c.name === "Kegs")!;
     const straws = await createProduct(sb, 8, blankProduct(cat.id, "Straws", "carton"));
@@ -318,23 +359,6 @@ describe("one supplier list (the demo client stands in for the database)", () =>
     const row = await ensureTermsRow(sb, 8, COKE);
     expect((await updateProduct(sb, straws.id, { supplier_id: row.id })).supplier_id).toBe(row.id);
     expect((await updateProduct(sb, straws.id, { supplier_id: null })).supplier_id).toBeNull();
-  });
-  it("Copy Products matches suppliers by the supplier, copies the source venue's terms, and never mixes venues", async () => {
-    const src = await loadVenueOrdering(sb, 1);
-    const empty = await loadVenueOrdering(sb, 9);
-    const plan = planVenueCopy(src, empty);
-    const result = await copyVenueSetup(sb, 9, plan, { categories: empty.categories, suppliers: empty.suppliers });
-    expect(result.suppliers).toBe(plan.suppliers.length);
-    const copied = await loadVenueOrdering(sb, 9);
-    expect(copied.suppliers.every((t) => t.venue_id === 9)).toBe(true);
-    const star = copied.suppliers.find((t) => t.cost_supplier_id === STAR)!;
-    expect(star).toMatchObject({ email_to: "orders@star.example.com", show_prices_on_order: true, account_no: null, name: "Star" });
-    // every copied product points at the target venue's own terms row for the same supplier
-    const vodka = copied.products.find((p) => p.name === "Vodka Bottle")!;
-    expect(vodka.supplier_id).toBe(star.id);
-    for (const p of copied.products) if (p.supplier_id) expect(copied.suppliers.some((t) => t.id === p.supplier_id)).toBe(true);
-    // a second copy has nothing left to add
-    expect(copyIsEmpty(planVenueCopy(src, copied))).toBe(true);
   });
 });
 

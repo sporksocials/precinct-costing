@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
+import type { FactsOf } from "@/lib/ordering-facts";
 import type { OrderingProduct, OrderingSupplier, SuggestedLine } from "@/lib/ordering-types";
 import type { Venue } from "@/lib/types";
 import { OrderCard } from "./order-card";
@@ -17,6 +18,8 @@ export function TopUpPanel({
   venue,
   suppliers,
   products,
+  factsOf,
+  gstRate,
   senderName,
   userEmail,
   nameOf,
@@ -26,6 +29,8 @@ export function TopUpPanel({
   venue: Venue;
   suppliers: readonly OrderingSupplier[];
   products: readonly OrderingProduct[];
+  factsOf: FactsOf;
+  gstRate: number;
   senderName: string | null;
   userEmail: string | null;
   nameOf: (email: string | null | undefined) => string | null;
@@ -57,6 +62,8 @@ export function TopUpPanel({
             supplier={supplier}
             products={products}
             suppliers={suppliers}
+            factsOf={factsOf}
+            gstRate={gstRate}
             suggestions={NO_SUGGESTIONS}
             initialLines={[]}
             notNeeded={[]}

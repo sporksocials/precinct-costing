@@ -10,6 +10,7 @@ import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
 import { money } from "@/lib/format";
 import { orderingVenueName, qtyText, qtyWithUnit } from "@/lib/ordering";
+import { lineGstFree } from "@/lib/ordering-facts";
 import { SEND_METHOD_LABEL, brisbaneStamp, countLabel, linePrice, plural, sentLine, sentSummary, unitsText } from "@/lib/ordering-orders-ui";
 import type { OrderingOrder, OrderingOrderLine, OrderingSupplier } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
@@ -30,8 +31,12 @@ export function OrderDetailScreen() {
   return <DetailForVenue venue={venue} orderId={id} />;
 }
 
+/** A saved order line with whether it is GST free (read from its ingredient as it is now; the line keeps only its inc GST price). */
+type DetailLine = OrderingOrderLine & { gst_free?: boolean };
+
 function DetailForVenue({ venue, orderId }: { venue: Venue; orderId: string }) {
   const nameOf = usePersonName();
+  const store = useStore();
   const { data, status: venueStatus, error: venueError } = useVenueOrders(venue.id);
   const [state, setState] = useState<{ status: "loading" | "ready" | "error"; error: string | null; order: OrderingOrder | null; lines: OrderingOrderLine[] }>({ status: "loading", error: null, order: null, lines: [] });
   useEffect(() => {
@@ -47,7 +52,11 @@ function DetailForVenue({ venue, orderId }: { venue: Venue; orderId: string }) {
 
   const back = `/ordering/${venue.slug}/orders`;
   const venueName = orderingVenueName(venue);
-  const { order, lines } = state;
+  const { order } = state;
+  const lines = useMemo<DetailLine[]>(
+    () => state.lines.map((l) => ({ ...l, gst_free: lineGstFree(l.product_id, data?.products ?? [], (id) => store.ingredients.find((i) => i.id === id)) })),
+    [state.lines, data?.products, store.ingredients],
+  );
   const supplier = data?.suppliers.find((s) => s.id === order?.supplier_id) ?? null;
   const session = data?.sessions.find((s) => s.id === order?.session_id) ?? null;
 
@@ -63,7 +72,7 @@ function DetailForVenue({ venue, orderId }: { venue: Venue; orderId: string }) {
       {venueStatus === "error" ? <Banner>{venueError}</Banner> : null}
       {state.status === "ready" && !order ? <Empty title="Order Not Found" body="It may belong to a different venue, or it may have been removed." action={<Link href={back} className={btnPrimary}>Back To Orders</Link>} /> : null}
       {state.status === "ready" && order ? (
-        <OrderDetail venueName={venueName} order={order} lines={lines} supplierName={supplier?.name ?? "Supplier"} supplierFacts={supplier} countText={session ? countLabel(session, nameOf) : null} nameOf={nameOf} />
+        <OrderDetail venueName={venueName} order={order} lines={lines} gstRate={store.settings.gst_rate} supplierName={supplier?.name ?? "Supplier"} supplierFacts={supplier} countText={session ? countLabel(session, nameOf) : null} nameOf={nameOf} />
       ) : null}
     </div>
   );
@@ -73,6 +82,7 @@ function OrderDetail({
   venueName,
   order,
   lines,
+  gstRate,
   supplierName,
   supplierFacts,
   countText,
@@ -80,21 +90,23 @@ function OrderDetail({
 }: {
   venueName: string;
   order: OrderingOrder;
-  lines: OrderingOrderLine[];
+  lines: DetailLine[];
+  gstRate: number;
   supplierName: string;
   supplierFacts: OrderingSupplier | null;
   countText: string | null;
   nameOf: (email: string | null | undefined) => string | null;
 }) {
   const sent = order.status === "sent";
-  const summary = useMemo(() => sentSummary(lines), [lines]);
+  const summary = useMemo(() => sentSummary(lines, gstRate), [lines, gstRate]);
   const [ref, wide] = useWide<HTMLDivElement>(720);
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const timer = useRef<number>();
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  const showPrices = order.show_prices;
+  // the price each line was made with is always shown here; the TEXT sent to the supplier never carries prices
+  const showPrices = summary.totals.pricedLines > 0;
   const text = order.body_text ?? "";
 
   const doCopy = () => {
@@ -136,7 +148,7 @@ function OrderDetail({
       </section>
 
       <section ref={ref} className="mt-4 overflow-hidden rounded-2xl bg-surface" aria-label="Order lines">
-        {wide ? <DetailTable lines={lines} showPrices={showPrices} /> : <DetailList lines={lines} showPrices={showPrices} />}
+        {wide ? <DetailTable lines={lines} showPrices={showPrices} gstRate={gstRate} /> : <DetailList lines={lines} showPrices={showPrices} gstRate={gstRate} />}
         <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-t border-[color:var(--separator)] px-4 py-3">
           <p className="text-[15px] text-label-2 tnum">
             {plural(summary.products, "product")}, {unitsText(lines)}
@@ -150,7 +162,7 @@ function OrderDetail({
             <p className="text-[13px] text-label-2">No prices were saved with this order.</p>
           )}
         </div>
-        {summary.totals.pricedLines > 0 && !showPrices ? <p className="px-4 pb-3 text-[13px] text-label-2">Prices were not included in the text sent to the supplier.</p> : null}
+        {summary.totals.pricedLines > 0 && !order.show_prices ? <p className="px-4 pb-3 text-[13px] text-label-2">Prices were not included in the text sent to the supplier.</p> : null}
       </section>
 
       <section className="mt-4 rounded-2xl bg-surface px-4 py-4" aria-label="The text that was sent">
@@ -185,7 +197,7 @@ function OrderDetail({
   );
 }
 
-function ProductCell({ l }: { l: OrderingOrderLine }) {
+function ProductCell({ l }: { l: DetailLine }) {
   return (
     <>
       <span className="block text-[16px] font-medium text-label">{l.product_name}</span>
@@ -198,8 +210,8 @@ function ProductCell({ l }: { l: OrderingOrderLine }) {
 }
 
 /** One price per line: the line total inc GST, with what one costs small. ex GST is only in the order total. */
-function Price({ qty, priceInc, deal }: { qty: number; priceInc: number | null; deal?: { buy?: number | null; free?: number | null } }) {
-  const p = linePrice(qty, priceInc, undefined, deal);
+function Price({ l, gstRate }: { l: DetailLine; gstRate: number }) {
+  const p = linePrice(l.ordered_qty, l.price_inc_gst, gstRate, { buy: l.deal_buy_qty, free: l.deal_free_qty }, !!l.gst_free);
   if (!p) return <span className="text-[13px] text-label-2">No price</span>;
   return (
     <span className="block text-[16px] font-medium leading-snug text-label tnum">
@@ -209,7 +221,7 @@ function Price({ qty, priceInc, deal }: { qty: number; priceInc: number | null; 
   );
 }
 
-function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPrices: boolean }) {
+function DetailTable({ lines, showPrices, gstRate }: { lines: DetailLine[]; showPrices: boolean; gstRate: number }) {
   return (
     <table className="w-full table-fixed text-left">
       <thead>
@@ -226,7 +238,7 @@ function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPr
             <td className="px-4 py-2.5"><ProductCell l={l} /></td>
             <td className="px-1 py-2.5 text-right text-[15px] tnum text-label-2">{l.suggested_qty == null ? "-" : qtyText(l.suggested_qty)}</td>
             <td className="px-3 py-2.5 text-right text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</td>
-            {showPrices ? <td className="px-1 py-2.5"><Price qty={l.ordered_qty} priceInc={l.price_inc_gst} deal={{ buy: l.deal_buy_qty, free: l.deal_free_qty }} /></td> : null}
+            {showPrices ? <td className="px-1 py-2.5"><Price l={l} gstRate={gstRate} /></td> : null}
           </tr>
         ))}
       </tbody>
@@ -234,7 +246,7 @@ function DetailTable({ lines, showPrices }: { lines: OrderingOrderLine[]; showPr
   );
 }
 
-function DetailList({ lines, showPrices }: { lines: OrderingOrderLine[]; showPrices: boolean }) {
+function DetailList({ lines, showPrices, gstRate }: { lines: DetailLine[]; showPrices: boolean; gstRate: number }) {
   return (
     <ul>
       {lines.map((l) => (
@@ -245,7 +257,7 @@ function DetailList({ lines, showPrices }: { lines: OrderingOrderLine[]; showPri
           </div>
           <div className="shrink-0 text-right">
             <span className="block text-[16px] font-semibold tnum text-label">{qtyWithUnit(l.ordered_qty, l.unit_name)}</span>
-            {showPrices ? <Price qty={l.ordered_qty} priceInc={l.price_inc_gst} deal={{ buy: l.deal_buy_qty, free: l.deal_free_qty }} /> : null}
+            {showPrices ? <Price l={l} gstRate={gstRate} /> : null}
           </div>
         </li>
       ))}

@@ -9,10 +9,12 @@ import { VenueAccent } from "@/components/venue";
 import { usePersonName } from "@/components/use-person-name";
 import { Banner, Empty, ListSkeleton, PageHeader } from "@/components/ui";
 import { ORDER_SIGN_OFF, buildSupplierOrders, orderingVenueName } from "@/lib/ordering";
+import { lineGstFree } from "@/lib/ordering-facts";
 import { brisbaneTime, countLabel, draftLinesFromGroup, orderCardGroups, pickCount, plural, sentOrdersFor, unassignedAction } from "@/lib/ordering-orders-ui";
 import type { SuggestedLine, SupplierOrderGroup } from "@/lib/ordering-types";
 import { useStore } from "@/lib/store";
 import type { Venue } from "@/lib/types";
+import { useOrderFacts } from "../use-order-facts";
 import { OrderCard, type SentEntry } from "./order-card";
 import { Notice, btnPrimary, btnText } from "./parts";
 import { PastOrders } from "./past-orders";
@@ -37,6 +39,9 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
   const store = useStore();
   const nameOf = usePersonName();
   const senderName = ORDER_SIGN_OFF;
+  // every price on this screen is worked out from the product's ingredient, never read from a price typed on the order item
+  const factsOf = useOrderFacts();
+  const gstRate = store.settings.gst_rate;
   const { status, error, data, orders, reloadOrders } = useVenueOrders(venue.id);
   const [topUp, setTopUp] = useState(false);
 
@@ -78,7 +83,7 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
 
       {status === "ready" && data ? (
         <>
-          {topUp ? <TopUpPanel venue={venue} suppliers={data.suppliers} products={data.products} senderName={senderName} userEmail={store.userEmail} nameOf={nameOf} onSaved={() => void reloadOrders()} onClose={() => setTopUp(false)} /> : null}
+          {topUp ? <TopUpPanel venue={venue} suppliers={data.suppliers} products={data.products} factsOf={factsOf} gstRate={gstRate} senderName={senderName} userEmail={store.userEmail} nameOf={nameOf} onSaved={() => void reloadOrders()} onClose={() => setTopUp(false)} /> : null}
 
           <section className="mt-6" aria-label="Count to order from">
             <h2 className="px-1 pb-2 text-[13px] font-medium text-label-2">Count To Order From</h2>
@@ -118,7 +123,11 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
               {cards.assigned.map((g) => {
                 const supplier = g.supplier!;
                 const suggestions = new Map<string, SuggestedLine>([...g.lines, ...g.zeroLines, ...g.uncountedLines].map((l) => [l.product.id, l]));
-                const sent: SentEntry[] = sentOrdersFor(orders, session.id, supplier.id).map((order) => ({ order, lines: sentLines.get(order.id) ?? null }));
+                // a saved line keeps only its inc GST price: whether it is GST free is read from its ingredient as it is now
+                const sent: SentEntry[] = sentOrdersFor(orders, session.id, supplier.id).map((order) => ({
+                  order,
+                  lines: sentLines.get(order.id)?.map((l) => ({ ...l, gst_free: lineGstFree(l.product_id, data.products, (id) => store.ingredients.find((i) => i.id === id)) })) ?? null,
+                }));
                 return (
                   <OrderCard
                     key={`${session.id}:${supplier.id}`}
@@ -126,8 +135,10 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
                     supplier={supplier}
                     products={data.products}
                     suppliers={data.suppliers}
+                    factsOf={factsOf}
+                    gstRate={gstRate}
                     suggestions={suggestions}
-                    initialLines={draftLinesFromGroup(g)}
+                    initialLines={draftLinesFromGroup(g, factsOf)}
                     notNeeded={g.zeroLines}
                     uncounted={g.uncountedLines}
                     kind="count"
@@ -141,7 +152,7 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
                   />
                 );
               })}
-              {cards.unassigned ? <UnassignedCard group={cards.unassigned} base={`/ordering/${venue.slug}`} /> : null}
+              {cards.unassigned ? <UnassignedCard group={cards.unassigned} /> : null}
             </div>
           ) : null}
 
@@ -153,19 +164,19 @@ function OrdersForVenue({ venue }: { venue: Venue }) {
 }
 
 /** Products with no supplier: they cannot be ordered until a supplier is set, so this is a warning and a list, never a send. */
-function UnassignedCard({ group, base }: { group: SupplierOrderGroup; base: string }) {
+function UnassignedCard({ group }: { group: SupplierOrderGroup }) {
   return (
     <section aria-label="Products with no supplier" className="overflow-hidden rounded-2xl bg-surface">
       <div className="px-4 pt-4">
         <h3 className="text-[20px] font-semibold text-label">Unassigned</h3>
         <Notice tone="warn" className="mt-3" role="status">
           <p className="font-medium">{plural(group.lines.length + group.uncountedLines.length, "product")} with no supplier.</p>
-          <p className="mt-0.5 text-[14px] text-label-2">These are not on any order. A product linked to an ingredient takes its supplier from the ingredient. Any other product has its supplier set on the product.</p>
+          <p className="mt-0.5 text-[14px] text-label-2">These are not on any order. A product takes its supplier from its ingredient, so set the supplier there.</p>
         </Notice>
       </div>
       <ul className="mt-2 pb-2">
         {[...group.lines.map((l) => ({ l, note: `Suggested ${l.suggestion.orderQty}` })), ...group.uncountedLines.map((l) => ({ l, note: "Not counted" }))].map(({ l, note }) => {
-          const action = unassignedAction(l.product, base);
+          const action = unassignedAction(l.product);
           return (
             <li key={l.product.id} className="border-t border-[color:var(--separator)] px-4 py-2 first:border-t-0">
               <div className="flex items-center gap-3">

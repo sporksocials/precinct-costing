@@ -2,14 +2,20 @@ import { nameKey } from "./rename";
 
 /**
  * Rename everywhere (Troy, 13 Oct 2026: "if we change the bottle name, the nips and anything else associated with it should
- * change as well as the ordering"). Renaming an ingredient offers to carry the new name to the things that are named after it:
- * the dishes that use it and start with its name (a spirit's "- 30ml Nip" menu item) and the ordering products that point at it
- * (or, when nothing points at it yet, are called exactly its name). Pure rules, no store and no database, so the preview and the
- * tests see the same plan the screen applies. Nothing here writes.
+ * change as well as the ordering"). Renaming an ingredient offers to carry the new name to the DISHES that are named after it:
+ * the ones that use it and start with its name (a spirit's "- 30ml Nip" menu item). Pure rules, no store and no database, so
+ * the preview and the tests see the same plan the screen applies. Nothing here writes.
  *
- * The part of an ingredient's name that the others copy is its BASE: the name without the trailing size in brackets, so
+ * ORDER ITEMS are not part of the plan any more (one card per product, Troy, 23 Nov 2026): an order item that has an
+ * ingredient carries the ingredient's FULL name, kept by the database (trigger ordering_products_follow_ingredient), so they
+ * follow every rename by themselves at every venue. The plan's `products` list is therefore always empty (it is kept so the
+ * callers that read it keep working). What this file does for order items is the CHECK BEFORE SAVING: `orderItemRenameClash`
+ * says in plain words when the new name is already taken on a venue's order list, so the rename is refused before the
+ * database refuses it.
+ *
+ * The part of an ingredient's name that the dishes copy is its BASE: the name without the trailing size in brackets, so
  * "Bombay Sapphire London Dry Gin (700ml)" has the base "Bombay Sapphire London Dry Gin". A rename that keeps the base (only the
- * size changed) carries nothing.
+ * size changed) carries nothing to the dishes.
  */
 
 /** "Jack Daniel's (1L)" gives "Jack Daniel's"; a name with no trailing brackets is its own base. */
@@ -45,6 +51,8 @@ export interface LinkedProduct {
   category_id: string;
   name: string;
   ingredient_id: string | null;
+  /** absent on rows read without it: such a row counts as active */
+  active?: boolean | null;
 }
 
 export interface LinkedDishRename {
@@ -72,6 +80,7 @@ export interface LinkedRenamePlan {
   oldBase: string;
   newBase: string;
   dishes: LinkedDishRename[];
+  /** always empty since 23 Nov 2026: order items follow the ingredient's name in the database */
   products: LinkedProductRename[];
   skipped: LinkedSkip[];
 }
@@ -89,7 +98,8 @@ export function planLinkedRenames(input: {
   ingredients: readonly { id: string; name: string }[];
   items: readonly LinkedItem[];
   lines: readonly LinkedLine[];
-  products: readonly LinkedProduct[];
+  /** not read any more (order items follow in the database); accepted so older callers need no change */
+  products?: readonly LinkedProduct[];
 }): LinkedRenamePlan {
   const oldBase = baseName(input.oldName);
   const newBase = baseName(input.newName);
@@ -113,21 +123,37 @@ export function planLinkedRenames(input: {
     plan.dishes.push({ id: it.id, venue_id: it.venue_id, from: it.name, to });
   }
 
-  // a bare name is only trusted to mean THIS ingredient when no other ingredient shares the base
-  const sharesBase = input.ingredients.some((g) => g.id !== input.ingredientId && nameKey(baseName(g.name)) === nameKey(oldBase));
-  const productTaken = new Set(input.products.map((p) => `${p.venue_id}|${p.category_id}|${nameKey(p.name)}`));
-  for (const p of input.products) {
-    const pointsHere = p.ingredient_id === input.ingredientId;
-    const sameName = p.ingredient_id == null && !sharesBase && nameKey(p.name) === nameKey(oldBase);
-    if (!pointsHere && !sameName) continue;
-    // a linked product keeps any extra wording after the base (a product called "<base> 1L"); a bare-name match is the base alone
-    const to = pointsHere ? (swapLeadingBase(p.name, oldBase, newBase) ?? (nameKey(p.name) === nameKey(oldBase) ? newBase : null)) : newBase;
-    if (!to || nameKey(to) === nameKey(p.name)) continue;
-    if (productTaken.has(`${p.venue_id}|${p.category_id}|${nameKey(to)}`)) {
-      plan.skipped.push({ kind: "product", from: p.name, to, venue_id: p.venue_id, reason: "A product with that name already exists in that category." });
-      continue;
-    }
-    plan.products.push({ id: p.id, venue_id: p.venue_id, from: p.name, to, link: !pointsHere });
-  }
   return plan;
+}
+
+/* ------------------------------------------------------------------ order items: the check before saving */
+
+export interface OrderItemClash {
+  venue_id: number;
+  /** the order item that already holds the new name on that venue's list */
+  taken_by: string;
+}
+
+/**
+ * Would renaming this ingredient collide on a venue's order list? An order item carries its ingredient's full name and a name
+ * is unique within a venue's category, so the database would refuse the rename when an ACTIVE order item of this ingredient
+ * sits in the same category as ANOTHER active order item that already has the new name (an item with no ingredient that was
+ * typed with that name, in practice). An inactive holder never blocks: the database moves it aside (" (old)"). Names compare
+ * exactly as the database compares them, capitals and all. Returns the first clash, or null.
+ */
+export function orderItemRenameClash(input: { ingredientId: string; newName: string; products: readonly LinkedProduct[] }): OrderItemClash | null {
+  const name = input.newName.trim();
+  if (!name) return null;
+  const mine = input.products.filter((p) => p.ingredient_id === input.ingredientId && p.active !== false);
+  for (const m of mine) {
+    const other = input.products.find((p) => p.id !== m.id && p.ingredient_id !== input.ingredientId && p.active !== false && p.venue_id === m.venue_id && p.category_id === m.category_id && p.name === name);
+    if (other) return { venue_id: m.venue_id, taken_by: other.name };
+  }
+  return null;
+}
+
+/** "Drift's order list already has a product called Coke in the same category. Pick a different name, or rename that one first." */
+export function orderItemClashMessage(clash: OrderItemClash, venueName: string | null | undefined): string {
+  const where = venueName ? `${venueName}'s order list` : "An order list";
+  return `${where} already has a product called ${clash.taken_by} in the same category. Pick a different name, or rename that one first.`;
 }

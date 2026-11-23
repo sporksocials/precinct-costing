@@ -233,15 +233,17 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
   ];
   const answers = (keys: string[]) => keys.map((key, i) => ({ key, answer: { questionIds: [`q${i}`], optionId: "custom:x" } }));
 
-  it("plans the names that follow, like a single rename: dishes that use it, linked and bare-name products; never the martini", () => {
+  // Order items are not part of a rename plan since 23 Nov 2026 (one card per product): an order item carries its ingredient's full
+  // name and the DATABASE keeps it so, so the plan's product list is always empty and nothing here writes an order item's name.
+  it("plans the names that follow, like a single rename: dishes that use it, never the martini, and no order items (they follow in the database)", () => {
     const plan = planBatchRenames({ renames, ...world });
     expect(plan.ingredients).toHaveLength(2);
     expect(plan.dishes.map((d) => d.to)).toEqual(["Bombay Sapphire Gin - 30ml Nip"]);
-    expect(plan.products.map((p) => [p.id, p.to, p.link])).toEqual([["p1", "Bombay Sapphire Gin", false], ["p2", "Bacon Middle Rindless Gas Flushed", true]]);
-    expect(linkedCount(plan)).toBe(3);
+    expect(plan.products).toEqual([]);
+    expect(linkedCount(plan)).toBe(1);
   });
 
-  it("saves the matches first, then the ingredient, then the dishes, then the products (linking a bare-name product)", async () => {
+  it("saves the matches first, then the ingredient, then the dishes; no order item is written", async () => {
     const { deps, log } = fakeDeps();
     const plan = planBatchRenames({ renames, ...world });
     const out = await runMatchSave(deps, { answers: answers(["k-gin", "k-bacon"]), plan });
@@ -250,12 +252,10 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
       "ing:gin:Bombay Sapphire Gin (700ml)",
       "ing:bacon:Bacon Middle Rindless Gas Flushed",
       "dish:nip:Bombay Sapphire Gin - 30ml Nip",
-      "prod:p1:Bombay Sapphire Gin:-",
-      "prod:p2:Bacon Middle Rindless Gas Flushed:bacon",
     ]);
     expect(out.renamedIngredients).toBe(2);
-    expect(out.renamedLinked).toBe(3);
-    expect(renameSummary(out)).toBe("Renamed 2 items and 3 linked names.");
+    expect(out.renamedLinked).toBe(1);
+    expect(renameSummary(out)).toBe("Renamed 2 items and 1 linked name.");
   });
 
   it("Only Save The Matches (no plan) changes no name", async () => {
@@ -287,19 +287,17 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
     expect(out.renamedIngredients).toBe(1);
   });
 
-  it("Undo Renames puts every name back, and unlinks a product it linked", async () => {
+  it("Undo Renames puts every name back", async () => {
     const { deps, log, names } = fakeDeps();
     const out = await runMatchSave(deps, { answers: answers(["k-gin", "k-bacon"]), plan: planBatchRenames({ renames, ...world }) });
     log.length = 0;
     const undone = await undoRenames(deps, out.applied);
-    expect(undone.restored).toBe(5);
+    expect(undone.restored).toBe(3);
     expect(undone.failed).toEqual([]);
     expect(names.get("ing:gin")).toBe("Bombay Sapphire London Dry Gin (700ml)");
     expect(names.get("ing:bacon")).toBe("Bacon");
     expect(names.get("dish:nip")).toBe("Bombay Sapphire London Dry Gin - 30ml Nip");
-    expect(names.get("prod:p1")).toBe("Bombay Sapphire London Dry Gin");
-    expect(names.get("prod:p2")).toBe("Bacon");
-    expect(log).toContain("prod:p2:Bacon:null");
+    expect(log.some((l) => l.startsWith("prod:"))).toBe(false);
   });
 
   it("Undo reports what it could not put back", async () => {
@@ -315,7 +313,7 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
     const cut = onlyKeys(plan, new Set(["k-bacon"]));
     expect(cut.ingredients.map((r) => r.key)).toEqual(["k-bacon"]);
     expect(cut.dishes).toEqual([]);
-    expect(cut.products.map((p) => p.id)).toEqual(["p2"]);
+    expect(cut.products).toEqual([]);
   });
 
   it("chosenRenames lists only settled rows that will really rename", () => {

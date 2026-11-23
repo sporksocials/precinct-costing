@@ -5,7 +5,17 @@
  *
  * Each venue gets its own ids, suppliers, categories and products, so a screen can be checked for "nothing mixes venues":
  * Drift's post-mix lift is a 15 L bag, Greedy's a 5 L bag, and Greedy has no Star order form. "Coke" exists as a post-mix bag and as a carton of cans: names are unique per category, not per venue.
+ *
+ * TWO SHAPES (one card per product, Troy, 23 Nov 2026):
+ *   orderingFixture(venue)    order items as they were BEFORE the change: no ingredient, their own short name, item code and
+ *                             stored price. Tests use these as the "old item with no ingredient" fallback.
+ *   orderingDemoTables()      what DEMO MODE loads: the same items given their ingredient (FIXTURE_INGREDIENTS, all invented),
+ *                             so each carries the ingredient's full name and code and NO stored price, and every price on
+ *                             screen is worked out by lib/ordering-facts.ts. One item (Water Bottles) is left with no
+ *                             ingredient so the "Needs An Ingredient" fallback can be seen, one wine carton has no carton
+ *                             size so "No price: say how many a carton holds" can be seen, and one keg has a free-unit deal.
  */
+import type { Ingredient, IngredientDeal } from "./types";
 import type {
   OrderingCategory,
   OrderingCountLine,
@@ -103,6 +113,100 @@ export function orderingFixture(venueId: number): OrderingFixture {
   return { suppliers, categories, products, sessions: [session], countLines };
 }
 
+/* ------------------------------------------------------------------ the ingredients behind the example items (demo mode) */
+
+/** A stable invented ingredient id: "56000000-0000-4000-8000-000000000004". */
+export const fixtureIngredientId = (n: number): string => `56000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+interface FixtureIngredient {
+  n: number;
+  /** the example order item's name it stands behind; `greedy` picks the venue when the two venues buy a different size */
+  product: string;
+  greedy?: boolean;
+  /** the ingredient's full name, size in brackets */
+  name: string;
+  category: string;
+  /** n of FIXTURE_MASTER_SUPPLIERS */
+  supplier: number;
+  code: string | null;
+  pack_size: number;
+  pack_unit: "L" | "each";
+  /** the price of ONE order unit inc GST, as the old item held it: the ingredient's ex GST pack price is worked back from it */
+  unitInc: number;
+  /** packs in a carton: 1 = the pack is the carton, null = nobody has said */
+  carton_qty: number | null;
+  /** how many packs the price above is for (a wine carton is 6 bottles even when carton_qty is not recorded) */
+  packsInUnit?: number;
+}
+
+const FIXTURE_ING: readonly FixtureIngredient[] = [
+  { n: 1, product: "XXXX Gold Keg", name: "XXXX Gold Keg (49.5L)", category: "Beer", supplier: 2, code: null, pack_size: 49.5, pack_unit: "L", unitInc: 210, carton_qty: null },
+  { n: 2, product: "Pale Ale Keg", name: "Pale Ale Keg (49.5L)", category: "Beer", supplier: 2, code: null, pack_size: 49.5, pack_unit: "L", unitInc: 230, carton_qty: null },
+  { n: 3, product: "Ginger Beer Keg", name: "Ginger Beer Keg (30L)", category: "Beer", supplier: 3, code: null, pack_size: 30, pack_unit: "L", unitInc: 190, carton_qty: null },
+  { n: 4, product: "Lager Cans", name: "Lager Cans (24 x 375ml)", category: "Beer", supplier: 1, code: "100101", pack_size: 24, pack_unit: "each", unitInc: 62, carton_qty: 1 },
+  { n: 5, product: "Seltzer Cans", name: "Seltzer Cans (24 x 330ml)", category: "RTD", supplier: 1, code: "100102", pack_size: 24, pack_unit: "each", unitInc: 58, carton_qty: 1 },
+  { n: 6, product: "House Sauvignon Blanc", name: "House Sauvignon Blanc (750ml)", category: "Wine", supplier: 1, code: "200201", pack_size: 0.75, pack_unit: "L", unitInc: 96, carton_qty: 6, packsInUnit: 6 },
+  { n: 7, product: "House Prosecco", name: "House Prosecco (750ml)", category: "Wine", supplier: 1, code: "200202", pack_size: 0.75, pack_unit: "L", unitInc: 110, carton_qty: null, packsInUnit: 6 },
+  { n: 8, product: "Bourbon Bottle", name: "Bourbon (700ml)", category: "Spirits", supplier: 1, code: "300301", pack_size: 0.7, pack_unit: "L", unitInc: 45, carton_qty: 6 },
+  { n: 9, product: "Aperol Bottle", name: "Aperol (700ml)", category: "Spirits", supplier: 1, code: "300302", pack_size: 0.7, pack_unit: "L", unitInc: 31, carton_qty: 6 },
+  { n: 10, product: "Vodka Bottle", name: "Vodka (1L)", category: "Spirits", supplier: 1, code: "300303", pack_size: 1, pack_unit: "L", unitInc: 52, carton_qty: 12 },
+  { n: 11, product: "Coke:5", name: "Coke Post-Mix (15L)", category: "Soft Drinks", supplier: 4, code: null, pack_size: 15, pack_unit: "L", unitInc: 130, carton_qty: null },
+  { n: 12, product: "Coke:5", greedy: true, name: "Coke Post-Mix (5L)", category: "Soft Drinks", supplier: 4, code: null, pack_size: 5, pack_unit: "L", unitInc: 75, carton_qty: null },
+  { n: 13, product: "Lift Post-Mix Bag (15 L)", name: "Lift Post-Mix (15L)", category: "Soft Drinks", supplier: 4, code: null, pack_size: 15, pack_unit: "L", unitInc: 125, carton_qty: null },
+  { n: 14, product: "Lift Post-Mix Bag (5 L)", greedy: true, name: "Lift Post-Mix (5L)", category: "Soft Drinks", supplier: 4, code: null, pack_size: 5, pack_unit: "L", unitInc: 70, carton_qty: null },
+  { n: 15, product: "Coke:6", name: "Coke Cans (24 x 375ml)", category: "Soft Drinks", supplier: 4, code: null, pack_size: 24, pack_unit: "each", unitInc: 40, carton_qty: 1 },
+];
+
+/** The example item's key: its name, with the category number added for "Coke" (the one name used in two categories). */
+const productKey = (name: string, categoryN: number): string => (name === "Coke" ? `Coke:${categoryN}` : name);
+
+/** The invented ingredients, as cost_ingredients rows. `supplier_id` is the FIXTURE master id; the demo client maps it to the supplier of that name. */
+export function fixtureIngredients(): Ingredient[] {
+  return FIXTURE_ING.map((f) => ({
+    id: fixtureIngredientId(f.n),
+    name: f.name,
+    category: f.category,
+    supplier_id: masterId(f.supplier),
+    supplier_code: f.code,
+    pack_size: f.pack_size,
+    pack_unit: f.pack_unit,
+    // prices are stored ex GST, to 4 places like the live data
+    pack_price: Math.round((f.unitInc / 1.1 / (f.packsInUnit ?? 1)) * 10000) / 10000,
+    price_inc_gst: false,
+    gst_free: false,
+    rebate: 0,
+    yield_pct: 1,
+    venues: "All",
+    active: true,
+    last_price_update: "2026-09-20",
+    previous_price: null,
+    source: "Demo data",
+    notes: null,
+    updated_at: null,
+    carton_qty: f.carton_qty,
+  }));
+}
+
+/** One free-unit deal, so an order line with free units can be seen: the XXXX Gold keg is buy 5, get the 6th free. */
+export function fixtureDeals(): IngredientDeal[] {
+  return [{ id: "57000000-0000-4000-8000-000000000001", ingredient_id: fixtureIngredientId(1), kind: "buy_x_get_y", buy_qty: 5, free_qty: 1, min_qty: null, pct_off: null, unit_price: null, special_pack_price: null, starts_on: null, ends_on: null, note: "Demo deal", active: true }];
+}
+
+/**
+ * The example items as THIN order items: each given its ingredient, so it carries the ingredient's full name and code and no
+ * stored price (the database does the copying live; here it is done by hand). Water Bottles is left with no ingredient.
+ */
+export function linkedFixtureProducts(venueId: number): OrderingProduct[] {
+  const greedy = venueId === 3;
+  const catN = (categoryId: string): number => Number(categoryId.slice(-2));
+  return orderingFixture(venueId).products.map((p) => {
+    const key = productKey(p.name, catN(p.category_id));
+    const f = FIXTURE_ING.find((x) => x.product === key && !!x.greedy === greedy) ?? FIXTURE_ING.find((x) => x.product === key && !x.greedy && !FIXTURE_ING.some((y) => y.product === key && y.greedy));
+    if (!f) return p;
+    return { ...p, ingredient_id: fixtureIngredientId(f.n), name: f.name, supplier_item_code: f.code, price_inc_gst: null };
+  });
+}
+
 /** The table-name keyed rows the demo client loads (only for venues that exist in the demo data: Drift is 1, Greedy 3). */
 export function orderingDemoTables(venueIds: readonly number[] = [1, 3]): Record<string, Record<string, unknown>[]> {
   const out: Record<string, Record<string, unknown>[]> = {
@@ -111,6 +215,10 @@ export function orderingDemoTables(venueIds: readonly number[] = [1, 3]): Record
   };
   for (const v of venueIds) {
     const f = orderingFixture(v);
+    const linked = linkedFixtureProducts(v);
+    const nameOf = new Map(linked.map((p) => [p.id, p.name]));
+    f.products = linked;
+    f.countLines = f.countLines.map((l) => ({ ...l, product_name: nameOf.get(l.product_id) ?? l.product_name }));
     out.ordering_suppliers.push(...(f.suppliers as unknown as Record<string, unknown>[]));
     out.ordering_categories.push(...(f.categories as unknown as Record<string, unknown>[]));
     out.ordering_products.push(...(f.products as unknown as Record<string, unknown>[]));

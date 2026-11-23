@@ -101,3 +101,72 @@ describe("ordering wording in the Change Log", () => {
     expect(countText({ store_qty: null, second_qty: null })).toBe("Not counted");
   });
 });
+
+/* ------------------------------------------------------------------ an ingredient rename shows once (thin order items, 23 Nov 2026) */
+
+import { followedIngredientRowIds, orderingFieldLabel as fieldLabelOf } from "@/lib/ordering-history";
+type FullRow = HistoryRow;
+
+describe("order items that only followed their ingredient are folded into the ingredient's change", () => {
+  const AT = "2026-11-23T04:00:00.000Z";
+  let id = 100;
+  const h = (over: Partial<FullRow>): FullRow => ({ id: id++, tx_id: 7, table_name: "ordering_products", row_key: "p", op: "update", old_row: null, new_row: null, changed_fields: [], parent_table: null, parent_id: null, changed_by: "troy@x.com", changed_at: AT, ...over });
+  const ingRename = h({ table_name: "cost_ingredients", row_key: "ing1", old_row: { id: "ing1", name: "Bombay Sapphire" }, new_row: { id: "ing1", name: "Bombay Sapphire London Dry Gin (700ml)" }, changed_fields: ["name"] });
+  const follow = (venue: number, over: Partial<FullRow> = {}) =>
+    h({ row_key: `p${venue}`, old_row: { id: `p${venue}`, venue_id: venue, name: "Bombay Sapphire", ingredient_id: "ing1" }, new_row: { id: `p${venue}`, venue_id: venue, name: "Bombay Sapphire London Dry Gin (700ml)", ingredient_id: "ing1" }, changed_fields: ["name"], ...over });
+
+  it("hides the per-venue rows a rename caused, in the same transaction", () => {
+    const rows = [ingRename, follow(1), follow(2)];
+    expect([...followedIngredientRowIds(rows)].sort()).toEqual([String(rows[1].id), String(rows[2].id)].sort());
+  });
+  it("a supplier code change is the same", () => {
+    const code = h({ table_name: "cost_ingredients", row_key: "ing1", changed_fields: ["supplier_code"], new_row: { id: "ing1" } });
+    const p = follow(1, { changed_fields: ["supplier_item_code"] });
+    expect(followedIngredientRowIds([code, p]).has(String(p.id))).toBe(true);
+    const both = follow(2, { changed_fields: ["name", "supplier_item_code"] });
+    expect(followedIngredientRowIds([ingRename, both]).has(String(both.id))).toBe(true);
+  });
+  it("with no transaction id, a row stamped within a few seconds of the ingredient's change is folded, a later one is not", () => {
+    const ing = { ...ingRename, tx_id: null };
+    const near = follow(1, { tx_id: null, changed_at: "2026-11-23T04:00:02.000Z" });
+    const far = follow(2, { tx_id: null, changed_at: "2026-11-23T04:10:00.000Z" });
+    const hide = followedIngredientRowIds([ing, near, far]);
+    expect(hide.has(String(near.id))).toBe(true);
+    expect(hide.has(String(far.id))).toBe(false);
+  });
+  it("direct database work on a linked item's name (the migration that first copied the names) is folded too", () => {
+    const mig = follow(1, { tx_id: 99, changed_by: null });
+    expect(followedIngredientRowIds([mig]).has(String(mig.id))).toBe(true);
+  });
+  it("never hides what a person changed: Build To, Counted By, Active, a note, a category", () => {
+    for (const fields of [["par"], ["unit_name", "par", "pack_multiple"], ["active"], ["notes"], ["category_id"], ["name", "par"]]) {
+      const r = follow(1, { changed_fields: fields });
+      expect(followedIngredientRowIds([ingRename, r]).has(String(r.id)), fields.join()).toBe(false);
+    }
+  });
+  it("never hides a rename of an item with no ingredient, or one a person made in another transaction", () => {
+    const unlinked = follow(1, { new_row: { id: "p1", venue_id: 1, name: "Bar Mats", ingredient_id: null } });
+    const other = follow(2, { tx_id: 8 });
+    const hide = followedIngredientRowIds([ingRename, unlinked, other]);
+    expect(hide.has(String(unlinked.id))).toBe(false);
+    expect(hide.has(String(other.id))).toBe(false);
+    // and an insert or a delete is never one of these
+    expect(followedIngredientRowIds([ingRename, follow(1, { op: "insert" })]).size).toBe(0);
+  });
+  it("the Change Log shows no Ordering Product event for the rename, and still shows a real Build To change", () => {
+    const par = h({ tx_id: 12, row_key: "p1", old_row: { id: "p1", venue_id: 1, name: "X", par: 4, ingredient_id: "ing1" }, new_row: { id: "p1", venue_id: 1, name: "X", par: 6, ingredient_id: "ing1" }, changed_fields: ["par"] });
+    const f1 = follow(1);
+    const f2 = follow(2);
+    const events = buildFullChangeLog({ history: [ingRename, f1, f2, par] });
+    const ordering = events.filter((e) => e.table === "ordering_products");
+    // the two per-venue name rows are gone; the Build To change a person made is still there, once
+    expect(ordering.map((e) => String(e.historyId))).toEqual([String(par.id)]);
+    expect(ordering[0].title).toContain("Build To");
+    // without the fold both would have been events
+    expect(buildFullChangeLog({ history: [f1, f2].map((r) => ({ ...r, tx_id: 500 })) }).filter((e) => e.table === "ordering_products")).toHaveLength(2);
+  });
+  it("an order item's unit reads Counted By; a category's default keeps Unit", () => {
+    expect(fieldLabelOf("ordering_products", "unit_name")).toBe("Counted By");
+    expect(fieldLabelOf("ordering_categories", "unit_name")).toBe("Unit");
+  });
+});

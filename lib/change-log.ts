@@ -135,6 +135,7 @@ const INGREDIENT_COLUMNS: Record<string, { label: string; fmt?: (v: unknown) => 
   category: { label: "Category" },
   supplier_id: { label: "Supplier" },
   supplier_code: { label: "Supplier code" },
+  carton_qty: { label: "Carton holds" },
   pack_size: { label: "Pack size" },
   pack_unit: { label: "Pack unit" },
   pack_price: { label: "Pack price", fmt: fmtMoney },

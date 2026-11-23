@@ -116,6 +116,8 @@ const LABELS: Record<string, string> = {
 /** The plain label for a column of an ordering table. */
 export function orderingFieldLabel(table: string, field: string): string {
   if (field === "method") return table === "ordering_orders" ? "Sent Using" : "How It Is Sent";
+  // what an order item is counted and ordered by reads "Counted By" (a category's default keeps "Unit")
+  if (field === "unit_name" && table === "ordering_products") return "Counted By";
   return LABELS[field] ?? field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -185,4 +187,57 @@ export function countText(r: R): string {
   const u = unit ? ` ${unit}` : "";
   const parts = [store != null ? `Store ${store}${u}` : "", second != null ? `second place ${second}${u}` : ""].filter(Boolean);
   return parts.length ? parts.join(", ") : "Not counted";
+}
+
+/* ------------------------------------------------------------------ order items that only followed their ingredient */
+
+/** The columns of an order item the database copies from its ingredient (trigger ordering_products_follow_ingredient). */
+const FOLLOWED_FIELDS: ReadonlySet<string> = new Set(["name", "supplier_item_code"]);
+/** How far apart (ms) an ingredient change and the order item rows it caused may be stamped when there is no transaction id to match on. */
+const FOLLOW_WINDOW = 5000;
+
+interface FollowRow {
+  id: number | string;
+  tx_id?: number | string | null;
+  table_name: string;
+  row_key: string;
+  op: string;
+  new_row: Record<string, unknown> | null;
+  changed_fields: string[] | null;
+  changed_by: string | null;
+  changed_at: string;
+}
+
+/**
+ * History rows the Change Log should not repeat: an order item whose NAME or ITEM CODE changed only because its ingredient's
+ * did (one card per product, Troy, 23 Nov 2026). Renaming an ingredient writes one ordering_products row per venue; the
+ * rename is already reported once, on the ingredient, so those rows are folded into it. A row is hidden when it is an UPDATE
+ * of an order item that has an ingredient, every changed column is one the database copies from the ingredient, and either
+ *   - the same transaction (or, with no transaction id, the same few seconds) holds that ingredient's own name or code change, or
+ *   - nobody is named on it (direct database work: the migration that first copied the ingredient names across).
+ * A change a person made to an order item (Build To, Counted By, Active, category, note) is never hidden. Returns the ids to hide.
+ */
+export function followedIngredientRowIds(rows: readonly FollowRow[]): Set<string> {
+  const byTx = new Set<string>();
+  const times = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.table_name !== "cost_ingredients" || r.op !== "update") continue;
+    if (!(r.changed_fields ?? []).some((f) => f === "name" || f === "supplier_code")) continue;
+    if (r.tx_id != null) byTx.add(`${r.tx_id}|${r.row_key}`);
+    const at = Date.parse(r.changed_at);
+    if (Number.isFinite(at)) times.set(r.row_key, [...(times.get(r.row_key) ?? []), at]);
+  }
+  const hide = new Set<string>();
+  for (const r of rows) {
+    if (r.table_name !== "ordering_products" || r.op !== "update") continue;
+    const fields = r.changed_fields ?? [];
+    if (!fields.length || !fields.every((f) => FOLLOWED_FIELDS.has(f))) continue;
+    const ingredientId = str(r.new_row?.ingredient_id);
+    if (!ingredientId) continue;
+    const sameTx = r.tx_id != null && byTx.has(`${r.tx_id}|${ingredientId}`);
+    const at = Date.parse(r.changed_at);
+    const near = r.tx_id == null && Number.isFinite(at) && (times.get(ingredientId) ?? []).some((t) => Math.abs(t - at) <= FOLLOW_WINDOW);
+    if (sameTx || near || r.changed_by == null) hide.add(String(r.id));
+  }
+  return hide;
 }

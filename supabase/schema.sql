@@ -2976,3 +2976,9 @@ language sql stable security definer set search_path to 'public' as $$
   from cost_venues v
   where v.slug = p_venue;
 $$;
+
+-- Ingredient carton size (mirrors supabase/migrations/20261123090000_ingredient_carton_qty.sql)
+alter table public.cost_ingredients add column if not exists carton_qty numeric;
+alter table public.cost_ingredients drop constraint if exists cost_ingredients_carton_qty_check;
+alter table public.cost_ingredients add constraint cost_ingredients_carton_qty_check check (carton_qty is null or carton_qty > 0);
+comment on column public.cost_ingredients.carton_qty is 'How many of this ingredient''s packs one carton holds (6 bottles a carton). Null = not recorded. 1 = the pack itself is the carton.';

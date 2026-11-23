@@ -1,22 +1,24 @@
 "use client";
 
+import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { qtyText } from "@/lib/ordering";
-import { countedLine, linePrice, notPackMultiple, type DraftLine } from "@/lib/ordering-orders-ui";
-import { QtyControl, RemoveButton } from "./parts";
+import { NEEDS_INGREDIENT, NEEDS_INGREDIENT_HREF, countedLine, ingredientOrderingHref, linePrice, notPackMultiple, type DraftLine } from "@/lib/ordering-orders-ui";
+import { QtyControl, RemoveButton, btnText } from "./parts";
 
 /**
  * The lines of one order, editable: a table when the card is wide, stacked rows when it is narrow. Same controls either
  * way (44 px buttons, a typed field). Each line is the product, "Per carton, Item 100101", one quiet "Counted 5 of 8" line,
- * the quantity (it starts at the suggestion) and, when the supplier shows prices, ONE price. A quantity of 0 keeps the line
- * on screen as "Not ordered"; Remove takes it off.
+ * the quantity (it starts at the suggestion) and ONE price, worked out from the product's ingredient (a line with no price
+ * says why, with a link to where it is fixed). A quantity of 0 keeps the line on screen as "Not ordered"; Remove takes it off.
  */
-export function LineEditor({ lines, showPrices, wide, onQty, onRemove }: { lines: DraftLine[]; showPrices: boolean; wide: boolean; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void }) {
+export function LineEditor({ lines, gstRate, wide, onQty, onRemove }: { lines: DraftLine[]; gstRate: number; wide: boolean; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void }) {
   if (!lines.length) return <p className="px-4 py-4 text-[15px] text-label-2">Nothing on this order yet. Use Add Product to put something on it.</p>;
-  return wide ? <LineTable lines={lines} showPrices={showPrices} onQty={onQty} onRemove={onRemove} /> : <LineList lines={lines} showPrices={showPrices} onQty={onQty} onRemove={onRemove} />;
+  const showPrices = lines.some((l) => l.price != null || l.noPrice);
+  return wide ? <LineTable lines={lines} showPrices={showPrices} gstRate={gstRate} onQty={onQty} onRemove={onRemove} /> : <LineList lines={lines} showPrices={showPrices} gstRate={gstRate} onQty={onQty} onRemove={onRemove} />;
 }
 
-type Handlers = { lines: DraftLine[]; showPrices: boolean; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void };
+type Handlers = { lines: DraftLine[]; showPrices: boolean; gstRate: number; onQty: (key: string, qty: number) => void; onRemove: (key: string) => void };
 
 function ProductCell({ line }: { line: DraftLine }) {
   const counted = countedLine(line);
@@ -26,11 +28,10 @@ function ProductCell({ line }: { line: DraftLine }) {
       <span className="block text-[16px] font-medium leading-snug text-label">{line.name}</span>
       <span className="mt-0.5 block text-[13px] text-label-2">{small}</span>
       {counted ? <span className="block text-[13px] text-label-2 tnum">{counted}</span> : null}
-      {line.switchNote ? (
-        <span className="mt-1 flex items-start gap-1 text-[13px] leading-snug text-warn">
-          <AlertTriangle aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
-          <span>{line.switchNote}</span>
-        </span>
+      {line.needsIngredient ? (
+        <Link href={NEEDS_INGREDIENT_HREF} className={`${btnText} -ml-2`}>
+          {NEEDS_INGREDIENT}
+        </Link>
       ) : null}
     </>
   );
@@ -46,11 +47,20 @@ function PackNote({ line }: { line: DraftLine }) {
   );
 }
 
-/** One price: the line total inc GST, with what one costs small. */
-function Price({ line }: { line: DraftLine }) {
+/** One price: the line total inc GST, with what one costs small. A line with no price says why, and links to its ingredient. */
+function Price({ line, gstRate }: { line: DraftLine; gstRate: number }) {
   if (line.qty <= 0) return null;
-  const p = linePrice(line.qty, line.price, undefined, { buy: line.dealBuy, free: line.dealGet });
-  if (!p) return <span className="text-[13px] text-label-2">No price</span>;
+  const p = linePrice(line.qty, line.price, gstRate, { buy: line.dealBuy, free: line.dealGet }, !!line.gstFree);
+  if (!p) {
+    if (!line.noPrice) return null; // a typed line has no price and nothing to fix
+    return line.ingredientId ? (
+      <Link href={ingredientOrderingHref(line.ingredientId)} className="inline-flex min-h-[44px] items-center text-left text-[13px] leading-snug text-accent">
+        {line.noPrice}
+      </Link>
+    ) : (
+      <span className="text-[13px] text-label-2">{line.noPrice}</span>
+    );
+  }
   return (
     <span className="block text-[16px] font-medium leading-snug text-label tnum">
       {p.total}
@@ -59,14 +69,14 @@ function Price({ line }: { line: DraftLine }) {
   );
 }
 
-function LineTable({ lines, showPrices, onQty, onRemove }: Handlers) {
+function LineTable({ lines, showPrices, gstRate, onQty, onRemove }: Handlers) {
   return (
     <table className="w-full table-fixed text-left">
       <thead>
         <tr className="text-[12px] font-medium uppercase tracking-wide text-label-2">
           <th scope="col" className="px-4 pb-1 pt-3 font-medium">Product</th>
           <th scope="col" className="w-[204px] px-3 pb-1 pt-3 font-medium">Order</th>
-          {showPrices ? <th scope="col" className="w-[124px] px-1 pb-1 pt-3 font-medium">Price</th> : null}
+          {showPrices ? <th scope="col" className="w-[140px] px-1 pb-1 pt-3 font-medium">Price</th> : null}
           <th scope="col" className="w-[60px] px-2 pb-1 pt-3"><span className="sr-only">Remove</span></th>
         </tr>
       </thead>
@@ -83,7 +93,7 @@ function LineTable({ lines, showPrices, onQty, onRemove }: Handlers) {
             </td>
             {showPrices ? (
               <td className="px-1 py-2.5">
-                <Price line={l} />
+                <Price line={l} gstRate={gstRate} />
               </td>
             ) : null}
             <td className="px-2 py-2.5 text-right"><RemoveButton name={l.name} onClick={() => onRemove(l.key)} /></td>
@@ -94,7 +104,7 @@ function LineTable({ lines, showPrices, onQty, onRemove }: Handlers) {
   );
 }
 
-function LineList({ lines, showPrices, onQty, onRemove }: Handlers) {
+function LineList({ lines, showPrices, gstRate, onQty, onRemove }: Handlers) {
   return (
     <ul>
       {lines.map((l) => (
@@ -111,7 +121,7 @@ function LineList({ lines, showPrices, onQty, onRemove }: Handlers) {
               <span className="text-[13px] font-medium text-label-2">Not ordered</span>
             ) : showPrices ? (
               <div className="min-w-0 text-right">
-                <Price line={l} />
+                <Price line={l} gstRate={gstRate} />
               </div>
             ) : null}
           </div>

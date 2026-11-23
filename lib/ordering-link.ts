@@ -1,16 +1,19 @@
 /**
- * Ingredients and Ordering are one system (Troy, 29 Oct 2026: "this system should all be interconnected in every way").
- * An ordering product that points at an ingredient takes its supplier from that ingredient, so the ingredient page is where a
- * product is put on a venue's order list, taken off it, and where its supplier is chosen. This file holds:
+ * Ingredients and Ordering are one system (Troy, 29 Oct 2026: "this system should all be interconnected in every way"), and
+ * since 23 Nov 2026 ONE CARD PER PRODUCT: an order item is a thin per-venue shell over its ingredient. The ingredient page is
+ * the ONLY editor: it is where a product is put on a venue's order list and taken off it, where its shelf group, Counted By and
+ * Build To are set, and where everything about the product itself lives (name, supplier, item code, price, how many a carton
+ * holds). The database copies the name, supplier and item code onto the order item; the price is worked out at read
+ * (lib/ordering-facts.ts). This file holds:
  *   - the pure rules and wording (which venues, the product name, the sentences) with tests in tests/ordering-link.test.ts, and
  *   - the few data helpers the ingredient screens need, over the same Supabase client the rest of the app uses.
  * Every insert goes through lib/ordering-data.ts `createProduct`, which uses insertRow (strips null keys). Nothing here
  * edits the Ordering screens' own data layer.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { baseName } from "./rename-linked";
-import { tidyName } from "./name-tidy";
+import { unitWord } from "./ordering";
 import { createProduct, T, updateProduct } from "./ordering-data";
+import { isCartonUnit } from "./ordering-facts";
 import { looksLikeKeg } from "./ingredient-categories";
 import type { PackUnit } from "./types";
 
@@ -39,7 +42,15 @@ export interface LinkProduct {
   ingredient_id: string | null;
   par: number;
   active: boolean;
+  /** orders round up to a multiple of this; absent on rows read before it was selected (reads as 1) */
+  pack_multiple?: number | null;
+  notes?: string | null;
+  supplier_item_code?: string | null;
+  /** the stored price: read only as the fallback for an item with no ingredient */
+  price_inc_gst?: number | null;
 }
+/** The columns the ingredient screens read from an order item. */
+const LINK_PRODUCT_COLUMNS = "id,venue_id,category_id,name,unit_name,supplier_id,ingredient_id,par,active,pack_multiple,notes,supplier_item_code,price_inc_gst";
 export interface LinkTerms {
   id: string;
   venue_id: number;
@@ -49,9 +60,12 @@ export interface LinkTerms {
 
 /* ------------------------------------------------------------------ pure rules */
 
-/** The ordering product's name for an ingredient: its name without the trailing size in brackets ("Red (750ml)" gives "Red"), tidied like every other name. */
+/**
+ * The order item's name for an ingredient: the ingredient's FULL name, size in brackets included ("Red (750ml)" stays
+ * "Red (750ml)"). The database forces this on every order item that has an ingredient, so this is only what an insert sends.
+ */
 export function orderingProductName(ingredientName: string): string {
-  return tidyName(baseName(ingredientName));
+  return ingredientName.trim();
 }
 
 /** The venues that have an ordering list at all (at least one category), in venue order. A venue with none cannot be ordered from yet. */
@@ -71,10 +85,19 @@ export function unitSuggestions(ing: { name: string; pack_unit?: PackUnit | stri
   return [first, ...["carton", "bottle", "keg", "bag"].filter((u) => u !== first)];
 }
 
-/** The unit chips for the sheet: the category's own unit (when it has one) leads, then the ingredient's best guesses, no repeats. */
-export function unitChips(ing: Parameters<typeof unitSuggestions>[0], categoryUnit?: string | null): string[] {
+/**
+ * The Counted By chips: the category's own unit (when it has one) leads, then the units that venue already counts by (most
+ * used first), then the ingredient's best guesses, no repeats.
+ */
+export function unitChips(ing: Parameters<typeof unitSuggestions>[0], categoryUnit?: string | null, venueUnits: readonly string[] = []): string[] {
+  const used = new Map<string, number>();
+  for (const raw of venueUnits) {
+    const u = raw.trim().toLowerCase();
+    if (u) used.set(u, (used.get(u) ?? 0) + 1);
+  }
+  const byUse = [...used.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([u]) => u);
   const out: string[] = [];
-  for (const u of [categoryUnit?.trim().toLowerCase(), ...unitSuggestions(ing)]) if (u && !out.includes(u)) out.push(u);
+  for (const u of [categoryUnit?.trim().toLowerCase(), ...byUse, ...unitSuggestions(ing)]) if (u && !out.includes(u)) out.push(u);
   return out;
 }
 
@@ -87,7 +110,11 @@ export function parsePar(text: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** The ordering_products row an "Order At" creates. Nulls are left for the database defaults (insertRow strips them). */
+/**
+ * The ordering_products row an "Order At" creates: the per-venue things only (shelf group, Counted By, Build To). No price,
+ * item code or deal is ever sent: the database copies the name, supplier and item code from the ingredient and the price is
+ * worked out at read. Nulls are left for the database defaults (insertRow strips them).
+ */
 export function linkedProductDraft(input: { ingredientId: string; ingredientName: string; categoryId: string; unit: string; par: number }) {
   return {
     category_id: input.categoryId,
@@ -148,12 +175,12 @@ export function venueLinks(input: { venues: readonly LinkVenue[]; categories: re
     });
 }
 
-/** "Bar Mixers, per carton, DCG Wines": where it sits on the order list. The supplier is always the ingredient's, never a separate choice. */
+/** "Bar Mixers, counted by the carton, DCG Wines": where it sits on the order list. The supplier is always the ingredient's, never a separate choice. */
 export function orderedDetail(v: LinkedProductView): string {
-  return [v.categoryName, `per ${v.product.unit_name}`, v.supplierName ?? "no supplier yet"].filter(Boolean).join(", ");
+  return [v.categoryName, `counted by the ${v.product.unit_name}`, v.supplierName ?? "no supplier yet"].filter(Boolean).join(", ");
 }
 
-/** "Chiobu: Bar Mixers, per carton, DCG Wines". */
+/** "Chiobu: Bar Mixers, counted by the carton, DCG Wines". */
 export function orderedAtSentence(venueName: string, v: LinkedProductView): string {
   return `${venueName}: ${orderedDetail(v)}`;
 }
@@ -174,7 +201,85 @@ export function addedToast(venueName: string, supplierName: string | null): stri
 export const stoppedToast = (ingredientName: string, venueName: string): string => `${ingredientName} is off ${venueName}'s order list`;
 export const orderAgainToast = (ingredientName: string, venueName: string): string => `${ingredientName} is back on ${venueName}'s order list`;
 
-export const productSetupHref = (venueSlug: string, productId: string): string => `/ordering/${venueSlug}/setup/products/${productId}`;
+/** The counts and orders of one order item (the per-product History page). */
+export const productHistoryHref = (venueSlug: string, productId: string): string => `/ordering/${venueSlug}/history/products/${productId}`;
+
+/* ------------------------------------------------------------------ a carton, and changing Counted By */
+
+/**
+ * The word for ONE of the ingredient's packs, for "A Carton Holds 6 bottles": what a venue counts it by when that is not the
+ * carton (bottle, keg, bag, tub), else a guess from the ingredient, else "pack".
+ */
+export function packWord(ing: DefaultsIngredient, countedBy: readonly string[] = []): string {
+  const other = countedBy.map((u) => u.trim().toLowerCase()).find((u) => u && !isCartonUnit(u) && u !== "each");
+  if (other) return other;
+  if (ing.pack_unit === "each" && (Number(ing.pack_size) || 0) > 1) return "pack";
+  const guess = fallbackUnit(ing);
+  return guess === "carton" ? "pack" : guess;
+}
+
+/** A carton size typed by a person: a number above zero, or null for an empty box. `undefined` means it is not a usable number. */
+export function parseCartonQty(text: string): number | null | undefined {
+  const t = text.trim();
+  if (t === "") return null;
+  if (!/^\d+(\.\d+)?$/.test(t)) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** A pack multiple typed by a person: a whole number of 1 or more, else null. Blank means 1. */
+export function parseMultiple(text: string): number | null {
+  const t = text.trim();
+  if (t === "") return 1;
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  return n >= 1 ? n : null;
+}
+
+const numText = (n: number): string => String(Math.round(n * 100) / 100);
+
+export interface CountedByPlan {
+  /** nothing changes: the same unit was picked */
+  same: boolean;
+  /** the Build To to start the box at in the new unit; null when it cannot be worked out, so the person types it */
+  suggestedPar: number | null;
+  /** "Build To 30 bottles is about 5 cartons." or "Build To is 30 bottles now. Type the new Build To in kegs." */
+  parSentence: string;
+  /** when orders go in multiples today: what happens to that ("Orders went in 6s. They will go one carton at a time...") */
+  multipleSentence: string | null;
+}
+
+/**
+ * What changing Counted By means, in words, BEFORE it is saved. Build To, the pack multiple and the price are all in the
+ * counted unit, so a new unit changes the meaning of every one of them (a Build To of 30 bottles left as "30 cartons" is a
+ * six times order). The new Build To is worked out only between the carton and the ingredient's own pack, and only when the
+ * ingredient says how many a carton holds; in every other case the person types it.
+ */
+export function countedByPlan(input: { fromUnit: string; toUnit: string; par: number; packMultiple?: number | null; cartonQty?: number | null }): CountedByPlan {
+  const from = input.fromUnit.trim().toLowerCase();
+  const to = input.toUnit.trim().toLowerCase();
+  const par = Math.max(0, Number(input.par) || 0);
+  const qty = Number(input.cartonQty);
+  const knows = Number.isFinite(qty) && qty > 0;
+  const multiple = Math.max(1, Math.floor(Number(input.packMultiple) || 1));
+  const now = `${numText(par)} ${unitWord(from, par)}`;
+  if (!to || to === from) return { same: true, suggestedPar: par, parSentence: `Build To is ${now}.`, multipleSentence: null };
+
+  let suggestedPar: number | null = null;
+  let parSentence = `Build To is ${now} now. Type the new Build To in ${unitWord(to, 2)}.`;
+  if (par === 0) {
+    suggestedPar = 0;
+    parSentence = `Build To is 0 now. Type the new Build To in ${unitWord(to, 2)}.`;
+  } else if (knows && isCartonUnit(to) && !isCartonUnit(from)) {
+    suggestedPar = Math.max(1, Math.round(par / qty));
+    parSentence = `Build To ${now} is about ${numText(suggestedPar)} ${unitWord(to, suggestedPar)} (a carton holds ${numText(qty)}).`;
+  } else if (knows && isCartonUnit(from) && !isCartonUnit(to)) {
+    suggestedPar = Math.round(par * qty * 100) / 100;
+    parSentence = `Build To ${now} is ${numText(suggestedPar)} ${unitWord(to, suggestedPar)} (a carton holds ${numText(qty)}).`;
+  }
+  const multipleSentence = multiple > 1 ? `Orders go in multiples of ${multiple} ${unitWord(from, multiple)} today. That goes back to one ${unitWord(to, 1)} at a time unless you keep it.` : null;
+  return { same: false, suggestedPar, parSentence, multipleSentence };
+}
 
 /* ------------------------------------------------------------------ smart defaults (one tap per venue, Troy 29 Oct 2026) */
 
@@ -329,7 +434,7 @@ export async function loadOrderingCategories(sb: SupabaseClient): Promise<LinkCa
 export async function loadIngredientOrdering(sb: SupabaseClient, ingredientId: string): Promise<{ categories: LinkCategory[]; products: LinkProduct[]; terms: LinkTerms[] }> {
   const [categories, prods] = await Promise.all([
     loadOrderingCategories(sb),
-    sb.from(T.products).select("id,venue_id,category_id,name,unit_name,supplier_id,ingredient_id,par,active").eq("ingredient_id", ingredientId),
+    sb.from(T.products).select(LINK_PRODUCT_COLUMNS).eq("ingredient_id", ingredientId),
   ]);
   if (prods.error) throw new Error(prods.error.message);
   const products = (prods.data ?? []) as LinkProduct[];
@@ -355,7 +460,7 @@ export async function addOrderingProduct(
   const saved = await createProduct(sb, input.venueId, linkedProductDraft(input));
   let product = saved as unknown as LinkProduct;
   // the supplier is set by a trigger on insert; read the row again so the toast names what really happened
-  const again = await sb.from(T.products).select("id,venue_id,category_id,name,unit_name,supplier_id,ingredient_id,par,active").eq("id", saved.id).maybeSingle();
+  const again = await sb.from(T.products).select(LINK_PRODUCT_COLUMNS).eq("id", saved.id).maybeSingle();
   if (!again.error && again.data) product = again.data as LinkProduct;
   let supplierName: string | null = null;
   if (product.supplier_id) {
@@ -398,7 +503,21 @@ export async function loadAllProductsForDefaults(sb: SupabaseClient): Promise<{ 
   return (data ?? []) as { venue_id: number; category_id: string; unit_name: string; ingredient_id: string | null }[];
 }
 
-/** The "Change" sheet: an ordered product's category, order unit and Build To. The database records the change in the change history. */
-export async function changeOrderingProduct(sb: SupabaseClient, productId: string, patch: { category_id: string; unit_name: string; par: number }): Promise<void> {
+/**
+ * The per-venue things a person edits on an order item: its shelf group, Counted By, Build To, pack multiple and note. Nothing
+ * else is ever written from the ingredient page (the name, supplier and item code are the database's copies of the ingredient's).
+ * Counted By is only ever sent together with a new Build To and pack multiple (see `countedByPlan`). The database records
+ * each change in the change history.
+ */
+export type OrderItemPatch = Partial<{ category_id: string; par: number; pack_multiple: number; notes: string | null }> | { unit_name: string; par: number; pack_multiple: number };
+
+export async function changeOrderingProduct(sb: SupabaseClient, productId: string, patch: OrderItemPatch): Promise<void> {
   await updateProduct(sb, productId, patch);
+}
+
+/** The units one venue already counts by (one entry per product), for the Counted By chips. */
+export async function loadVenueUnits(sb: SupabaseClient, venueId: number): Promise<string[]> {
+  const { data, error } = await sb.from(T.products).select("unit_name").eq("venue_id", venueId).eq("active", true);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { unit_name: string | null }[]).map((r) => r.unit_name ?? "").filter(Boolean);
 }

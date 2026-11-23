@@ -9,7 +9,9 @@
  *   - The ORDER quantity rounds UP to the product's pack multiple (Star spirits are sold in 6s or 12s; most products 1).
  *   - A product with no count has no suggestion (it is "uncounted", not "zero").
  *   - A supplier minimum is only ever a warning.
- *   - Prices are held inc GST; ex GST is inc / 1.1 rounded to the cent.
+ *   - A line's price is ONE unit inc GST (worked out from the ingredient by lib/ordering-facts.ts, never typed on the order
+ *     item). Ex GST is inc / (1 + rate), except a GST free line, where ex is the same as inc. Totals add the lines up one by
+ *     one, so an order that mixes GST free lines with ordinary ones is right in both columns.
  */
 import { money } from "./format";
 import type {
@@ -18,7 +20,6 @@ import type {
   CountMerge,
   CountProgress,
   MoneyPair,
-  OrderLineDraft,
   OrderTextLine,
   OrderTotals,
   OrderingCategory,
@@ -59,7 +60,7 @@ export function defaultUnitForCategory(categoryName: string): KnownUnit {
   return hit ? hit.unit : UNIT.carton;
 }
 
-/** GST as a rate (the same 10% as the costing setting gst_rate; prices here are held inc GST). */
+/** GST as a rate: the default when a caller has no costing setting to pass (the setting gst_rate is the same 10%). */
 export const GST_RATE = 0.1;
 
 /* ------------------------------------------------------------------ small helpers */
@@ -121,7 +122,18 @@ export function suggestOrder(product: ParProduct, storeQty: number | null | unde
   };
 }
 
-type LineQty = Pick<OrderingCountLine, "product_id" | "store_qty" | "second_qty">;
+/** A count line as the suggestions read it. `unit_name` is the unit the product was counted in, snapshotted on the line. */
+type LineQty = Pick<OrderingCountLine, "product_id" | "store_qty" | "second_qty"> & { unit_name?: string | null };
+
+/**
+ * A count taken in a DIFFERENT unit from the one the product is counted by now cannot be used: 14 bottles is not 14 cartons.
+ * After Counted By is changed the last count's line still holds the old unit, so until the product is counted again it reads
+ * as not counted (no suggestion) instead of a wrong order. A line with no unit recorded (older counts) is trusted as before.
+ */
+export function countedInAnotherUnit(line: { unit_name?: string | null } | null | undefined, product: Pick<OrderingProduct, "unit_name">): boolean {
+  const was = plainText(line?.unit_name).toLowerCase();
+  return !!was && was !== plainText(product.unit_name).toLowerCase();
+}
 
 /** Products in count order: category sort, then product sort, then name. Without categories the input order is kept. */
 export function sortProducts<P extends Pick<OrderingProduct, "category_id" | "sort" | "name">>(products: readonly P[], categories?: readonly Pick<OrderingCategory, "id" | "sort" | "name">[]): P[] {
@@ -159,7 +171,8 @@ export const UNASSIGNED = "Unassigned";
  * Groups one venue's count into one order per supplier. Products with no supplier go in an "Unassigned" group (last).
  * Within a group the product order is kept. `lines` holds what to order (quantity above 0); counted products that need
  * nothing are in `zeroLines` and products with no count in `uncountedLines`, so a screen can show them without them
- * ever reaching an order. Suppliers come out by their sort then name; a supplier with no products is left out.
+ * ever reaching an order. A product counted in a unit it is no longer counted by (Counted By was changed since the count)
+ * is uncounted too. Suppliers come out by their sort then name; a supplier with no products is left out.
  */
 export function buildSupplierOrders(venueProducts: readonly OrderingProduct[], lines: readonly LineQty[], opts: BuildOrdersOptions = {}): SupplierOrderGroup[] {
   const byProduct = new Map<string, LineQty>();
@@ -181,7 +194,8 @@ export function buildSupplierOrders(venueProducts: readonly OrderingProduct[], l
   };
 
   for (const product of products) {
-    const l = byProduct.get(product.id);
+    const counted = byProduct.get(product.id);
+    const l = countedInAnotherUnit(counted, product) ? undefined : counted;
     const storeQty = l?.store_qty ?? null;
     const secondQty = l?.second_qty ?? null;
     const suggestion = suggestOrder(product, storeQty, secondQty);
@@ -194,42 +208,6 @@ export function buildSupplierOrders(venueProducts: readonly OrderingProduct[], l
 
   const rank = (g: SupplierOrderGroup) => (g.supplierId == null ? Number.MAX_SAFE_INTEGER : g.supplier ? suppliers.indexOf(g.supplier) : Number.MAX_SAFE_INTEGER - 1);
   return [...groups.values()].sort((a, b) => rank(a) - rank(b) || a.supplierName.localeCompare(b.supplierName));
-}
-
-/** The order lines to save for a group (or any chosen lines), with quantities as shown or edited. `qtyByProduct` overrides a suggestion. */
-export function draftLinesFromSuggestions(lines: readonly SuggestedLine[], qtyByProduct: Readonly<Record<string, number>> = {}): OrderLineDraft[] {
-  const out: OrderLineDraft[] = [];
-  for (const l of lines) {
-    const qty = qtyByProduct[l.product.id] ?? l.suggestion.orderQty;
-    if (!(qty > 0)) continue;
-    out.push({
-      product_id: l.product.id,
-      product_name: l.product.name,
-      supplier_item_code: l.product.supplier_item_code,
-      unit_name: l.product.unit_name,
-      suggested_qty: l.suggestion.uncounted ? null : l.suggestion.orderQty,
-      ordered_qty: qty,
-      pack_multiple: l.product.pack_multiple,
-      price_inc_gst: l.product.price_inc_gst,
-      sort: out.length,
-    });
-  }
-  return out;
-}
-
-/** One typed line for a top-up order (no count, no suggestion). */
-export function draftLineForProduct(product: OrderingProduct, qty: number, sort = 0): OrderLineDraft {
-  return {
-    product_id: product.id,
-    product_name: product.name,
-    supplier_item_code: product.supplier_item_code,
-    unit_name: product.unit_name,
-    suggested_qty: null,
-    ordered_qty: qty,
-    pack_multiple: product.pack_multiple,
-    price_inc_gst: product.price_inc_gst,
-    sort,
-  };
 }
 
 /* ------------------------------------------------------------------ prices */
@@ -258,20 +236,25 @@ export function paidUnits(qty: number, deal?: FreeDeal | null): number {
   return qty - freeUnits(qty, deal);
 }
 
-/** A line's value for a quantity at one inc GST unit price: inc is qty x price to the cent, ex is that divided by 1.1. */
-export function lineTotals(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): MoneyPair | null {
+/**
+ * A line's value for a quantity at one inc GST unit price: inc is the paid units x price to the cent, ex is that divided by
+ * 1 + rate. A GST free line has no GST in it, so its ex is the same as its inc.
+ */
+export function lineTotals(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null, gstFree = false): MoneyPair | null {
   if (priceInc == null || !Number.isFinite(Number(priceInc))) return null;
   const inc = round2(paidUnits(qty, deal) * Number(priceInc));
-  return { inc, ex: round2(inc / (1 + rate)) };
+  return { inc, ex: gstFree ? inc : round2(inc / (1 + rate)) };
 }
 
 /**
  * An order's totals. Lines with no quantity are ignored; lines with a quantity but no price are counted in `unpricedLines`
- * and left out of the money. Total ex is the total inc divided by 1.1 (not the sum of rounded line values), so inc and ex
- * always agree with each other.
+ * and left out of the money. Inc and ex are each added up line by line before rounding (a GST free line adds the same to
+ * both; any other line adds its inc divided by 1 + rate to ex), so an order of ordinary lines still reads "ex = inc / 1.1"
+ * and an order with GST free lines in it is right in both columns.
  */
 export function orderTotals(lines: readonly PricedLine[], rate: number = GST_RATE): OrderTotals {
   let rawInc = 0;
+  let rawEx = 0;
   let priced = 0;
   let unpriced = 0;
   let units = 0;
@@ -281,16 +264,18 @@ export function orderTotals(lines: readonly PricedLine[], rate: number = GST_RAT
     if (l.price_inc_gst == null) unpriced += 1;
     else {
       priced += 1;
-      rawInc += paidUnits(l.ordered_qty, { buy: l.deal_buy_qty, free: l.deal_free_qty }) * Number(l.price_inc_gst);
+      const inc = paidUnits(l.ordered_qty, { buy: l.deal_buy_qty, free: l.deal_free_qty }) * Number(l.price_inc_gst);
+      rawInc += inc;
+      rawEx += l.gst_free ? inc : inc / (1 + rate);
     }
   }
-  const inc = round2(rawInc);
-  return { inc, ex: round2(inc / (1 + rate)), pricedLines: priced, unpricedLines: unpriced, units: clean(units) };
+  return { inc: round2(rawInc), ex: round2(rawEx), pricedLines: priced, unpricedLines: unpriced, units: clean(units) };
 }
 
 /* ------------------------------------------------------------------ minimum order */
 
-function unitWord(unit: string | null | undefined, n: number): string {
+/** "carton" / "cartons", "box" / "boxes": a unit word for a count of n ("unit" / "units" when none is named). */
+export function unitWord(unit: string | null | undefined, n: number): string {
   const u = plainText(unit).toLowerCase();
   if (!u) return n === 1 ? "unit" : "units";
   const base = u === "ctn" || u === "ctns" || u === "cartons" ? "carton" : u.endsWith("s") && u.length > 3 ? u.slice(0, -1) : u;
@@ -369,13 +354,25 @@ export interface OrderText {
 }
 
 /**
+ * The supplier's item code as it is printed at the end of an order line: " #150012", or "" when there is no code.
+ * Kept as short as it can be and still read as an item number, because every character counts against the length an email
+ * link can carry (MAX_LINK_LENGTH): in a mailto link " #150012" costs 12 characters, " [150012]" would cost 15.
+ */
+export function codeSuffix(code: string | null | undefined): string {
+  const c = plainText(code);
+  return c ? ` #${c}` : "";
+}
+
+/**
  * The exact text of an order. Subject "<Venue> Order". Body:
  *   Hi <rep first name>,                      (just "Hi," with no rep)
  *   Order for <Venue>, account <no>:          (", account <no>" only when set)
- *   <name> - <qty> <unit>                     one line per product with a quantity above 0, in the order given
+ *   <name> - <qty> <unit> #<item code>        one line per product with a quantity above 0, in the order given; the name is
+ *                                             the full ingredient name (its size is in it), the code only when there is one
  *   Thanks, / <sender>
- * With showPrices each line adds the item code (when there is one) and `@ $X ex GST / $Y inc GST = $A ex GST / $B inc GST`,
- * and the body ends with the order total ex and inc GST. No em or en dashes anywhere (they become hyphens).
+ * With showPrices each line also adds `@ $X ex GST / $Y inc GST = $A ex GST / $B inc GST`, and the body ends with the order
+ * total ex and inc GST. NO SCREEN PASSES showPrices TRUE: order emails and copied text never carry prices (Troy, 29 Oct 2026).
+ * No em or en dashes anywhere (they become hyphens).
  */
 export function buildOrderText(input: OrderTextInput): OrderText {
   const venue = plainText(input.venueName);
@@ -386,15 +383,14 @@ export function buildOrderText(input: OrderTextInput): OrderText {
   out.push(rep ? `Hi ${rep},` : "Hi,", "");
   out.push(`Order for ${venue}${account ? `, account ${account}` : ""}:`, "");
   for (const l of lines) {
-    let text = `${plainText(l.product_name)} - ${qtyWithUnit(l.ordered_qty, l.unit_name)}`;
+    let text = `${plainText(l.product_name)} - ${qtyWithUnit(l.ordered_qty, l.unit_name)}${codeSuffix(l.supplier_item_code)}`;
     const deal = { buy: l.deal_buy_qty, free: l.deal_free_qty };
     const free = freeUnits(l.ordered_qty, deal);
     if (input.showPrices) {
-      const code = plainText(l.supplier_item_code);
-      if (code) text += ` (item ${code})`;
       if (free > 0) text += ` (${qtyText(l.ordered_qty - free)} paid, ${qtyText(free)} free)`;
-      const v = lineTotals(l.ordered_qty, l.price_inc_gst, undefined, deal);
-      if (v && l.price_inc_gst != null) text += ` @ ${money(exGst(l.price_inc_gst))} ex GST / ${money(l.price_inc_gst)} inc GST = ${money(v.ex)} ex GST / ${money(v.inc)} inc GST`;
+      const v = lineTotals(l.ordered_qty, l.price_inc_gst, undefined, deal, !!l.gst_free);
+      const unitEx = l.price_inc_gst == null ? null : l.gst_free ? l.price_inc_gst : exGst(l.price_inc_gst);
+      if (v && l.price_inc_gst != null && unitEx != null) text += ` @ ${money(unitEx)} ex GST / ${money(l.price_inc_gst)} inc GST = ${money(v.ex)} ex GST / ${money(v.inc)} inc GST`;
     }
     out.push(text);
   }

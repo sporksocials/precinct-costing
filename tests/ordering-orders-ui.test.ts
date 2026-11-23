@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildSupplierOrders } from "@/lib/ordering";
-import { orderingFixture } from "@/lib/ordering-fixture";
+import { fixtureDeals, fixtureIngredients, linkedFixtureProducts, orderingFixture } from "@/lib/ordering-fixture";
+import { NO_CARTON_QTY, factsFrom, storedFactsOf } from "@/lib/ordering-facts";
 import {
+  NEEDS_INGREDIENT,
   NO_EMAIL_REASON,
   NO_LINES_REASON,
   NO_LOGIN_REASON,
@@ -90,7 +92,7 @@ describe("which count", () => {
 
 describe("the draft lines of a supplier card", () => {
   it("start from the count's suggestions, rounded up to the pack multiple", () => {
-    const star = draftLinesFromGroup(groupFor("Star"));
+    const star = draftLinesFromGroup(groupFor("Star"), storedFactsOf);
     expect(star.map((l) => [l.name, l.qty, l.suggested])).toEqual([
       ["Lager Cans", 3, 3],
       ["Seltzer Cans", 4, 4],
@@ -104,29 +106,29 @@ describe("the draft lines of a supplier card", () => {
   });
   it("leave out what is at or over Build To and what was not counted", () => {
     const diablo = groupFor("Diablo");
-    expect(draftLinesFromGroup(diablo)).toEqual([]);
+    expect(draftLinesFromGroup(diablo, storedFactsOf)).toEqual([]);
     expect(diablo.zeroLines.map((l) => notNeededNote(l))).toEqual(["Over by 1"]);
     expect(groupFor("Coke").uncountedLines.map((l) => l.product.name)).toEqual(["Water Bottles", "Coke"]);
   });
   it("edit quantities, remove lines and add each product once", () => {
-    let lines = draftLinesFromGroup(groupFor("Lion"));
+    let lines = draftLinesFromGroup(groupFor("Lion"), storedFactsOf);
     lines = setLineQty(lines, lines[0].key, 9);
     expect(lines[0].qty).toBe(9);
     expect(setLineQty(lines, lines[0].key, -4)[0].qty).toBe(0);
     expect(setLineQty(lines, lines[0].key, 99999)[0].qty).toBe(9999);
     expect(removeLine(lines, lines[0].key)).toHaveLength(lines.length - 1);
     const ginger = groupFor("Diablo").zeroLines[0];
-    const added = addLine(lines, draftLineFromProduct(ginger.product, ginger));
+    const added = addLine(lines, draftLineFromProduct(ginger.product, storedFactsOf, ginger));
     expect(added).toHaveLength(lines.length + 1);
-    expect(addLine(added, draftLineFromProduct(ginger.product, ginger))).toHaveLength(added.length);
+    expect(addLine(added, draftLineFromProduct(ginger.product, storedFactsOf, ginger))).toHaveLength(added.length);
   });
   it("an added product starts at its suggestion, else one pack", () => {
     const vodka = fx.products.find((p) => p.name === "Vodka Bottle")!;
-    expect(draftLineFromProduct(vodka).qty).toBe(12); // pack multiple, never 1 of a 12 pack
-    expect(draftLineFromProduct(vodka).suggested).toBeNull();
+    expect(draftLineFromProduct(vodka, storedFactsOf).qty).toBe(12); // pack multiple, never 1 of a 12 pack
+    expect(draftLineFromProduct(vodka, storedFactsOf).suggested).toBeNull();
     const ginger = groupFor("Diablo").zeroLines[0];
-    expect(draftLineFromProduct(ginger.product, ginger).qty).toBe(1);
-    expect(draftLineFromProduct(vodka, null, 24).qty).toBe(24);
+    expect(draftLineFromProduct(ginger.product, storedFactsOf, ginger).qty).toBe(1);
+    expect(draftLineFromProduct(vodka, storedFactsOf, null, 24).qty).toBe(24);
   });
   it("a typed line has no product, price or code, and an empty name makes none", () => {
     const f = freeTextLine("  Bar   mats ", 2)!;
@@ -182,7 +184,7 @@ describe("quantities", () => {
 });
 
 describe("Add Product search", () => {
-  const onOrder = draftLinesFromGroup(groupFor("Coke"));
+  const onOrder = draftLinesFromGroup(groupFor("Coke"), storedFactsOf);
   it("a count card offers only its own supplier's products that are not on the order", () => {
     const found = addCandidates(fx.products, { supplierId: sup("Coke").id, scope: "supplier", onOrder, query: "" });
     expect(found.map((c) => c.product.name)).toEqual(["Coke", "Water Bottles"]);
@@ -231,57 +233,57 @@ describe("card groups", () => {
 });
 
 describe("the text, prices and minimum of a supplier order", () => {
-  it("builds the exact text, and never prints prices in it (Troy, 29 Oct 2026), whatever the supplier switch says", () => {
+  it("builds the exact text, and never prints prices in it (Troy, 29 Oct 2026): there is no switch for it any more", () => {
     const star = sup("Star");
-    const lines = draftLinesFromGroup(groupFor("Star")).slice(0, 2);
-    const on = buildSupplierSend({ venueName: "Drift", supplier: star, lines, showPrices: true, senderName: "Troy" });
+    const lines = draftLinesFromGroup(groupFor("Star"), storedFactsOf).slice(0, 2);
+    const on = buildSupplierSend({ venueName: "Drift", supplier: star, lines, senderName: "Troy" });
     expect(on.subject).toBe("Drift Order");
     expect(on.body).toContain("Hi Mark,");
     expect(on.body).toContain("Order for Drift, account A1001:");
-    expect(on.body).toContain("Lager Cans - 3 ctns");
+    expect(on.body).toContain("\nLager Cans - 3 ctns #100101\n"); // the supplier's item code is on the line
     expect(on.body).not.toContain("$");
     expect(on.body).not.toContain("item ");
     expect(on.body).not.toContain("Total");
     expect(on.body.endsWith("Thanks,\nTroy")).toBe(true);
-    const off = buildSupplierSend({ venueName: "Drift", supplier: star, lines, showPrices: false, senderName: "Troy" });
+    const off = buildSupplierSend({ venueName: "Drift", supplier: star, lines, senderName: "Troy" });
     expect(off.body).not.toContain("$");
     expect(off.totals.inc).toBe(418); // totals still known on screen, just not printed
   });
   it("greets by the rep's first name and signs with the sender", () => {
-    const lion = buildSupplierSend({ venueName: "Drift", supplier: sup("Lion"), lines: draftLinesFromGroup(groupFor("Lion")), showPrices: false, senderName: "Abbey" });
+    const lion = buildSupplierSend({ venueName: "Drift", supplier: sup("Lion"), lines: draftLinesFromGroup(groupFor("Lion"), storedFactsOf), senderName: "Abbey" });
     expect(lion.body.startsWith("Hi Jason,")).toBe(true);
     expect(lion.body).toContain("Pale Ale Keg - 3 kegs");
     expect(lion.body.endsWith("Abbey")).toBe(true);
   });
   it("makes a mailto link with CRLF line breaks and the supplier's address", () => {
-    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: draftLinesFromGroup(groupFor("Star")).slice(0, 1), showPrices: false, senderName: "Troy" });
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: draftLinesFromGroup(groupFor("Star"), storedFactsOf).slice(0, 1), senderName: "Troy" });
     expect(send.mailto.url.startsWith("mailto:orders@star.example.com?subject=Drift%20Order&body=Hi%20Mark%2C%0D%0A")).toBe(true);
     expect(send.mailto.tooLong).toBe(false);
   });
   it("flags a long order for Copy", () => {
     const many = Array.from({ length: 40 }, (_, i) => line({ key: `k${i}`, name: `A long product name number ${i}`, qty: 12 }));
-    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: many, showPrices: true, senderName: "Troy" });
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: many, senderName: "Troy" });
     expect(send.mailto.tooLong).toBe(true);
   });
   it("warns about a minimum in dollars (ex GST), with the supplier note kept for the screen", () => {
     const coke = sup("Coke");
-    const small = buildSupplierSend({ venueName: "Drift", supplier: coke, lines: [line({ qty: 2, price: 66 })], showPrices: false, senderName: null });
+    const small = buildSupplierSend({ venueName: "Drift", supplier: coke, lines: [line({ qty: 2, price: 66 })], senderName: null });
     expect(small.warning).toBe("Order is $30.00 short of the $150.00 minimum"); // 2 x $66 inc is $120 ex GST
-    const big = buildSupplierSend({ venueName: "Drift", supplier: coke, lines: [line({ qty: 4, price: 66 })], showPrices: false, senderName: null });
+    const big = buildSupplierSend({ venueName: "Drift", supplier: coke, lines: [line({ qty: 4, price: 66 })], senderName: null });
     expect(big.warning).toBeNull();
   });
   it("warns about a minimum in units, and a typed line does not count as a keg", () => {
     const diablo = sup("Diablo");
     const kegs = line({ unit: "keg", qty: 1, price: 190 });
     const typed = freeTextLine("Bar mats", 1)!;
-    const one = buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [kegs], showPrices: false, senderName: null });
+    const one = buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [kegs], senderName: null });
     expect(one.warning).toBe("Order is 3 kegs short of the 4 keg minimum");
-    const withTyped = buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [kegs, typed], showPrices: false, senderName: null });
+    const withTyped = buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [kegs, typed], senderName: null });
     expect(withTyped.warning).toBe("Order is 3 kegs short of the 4 keg minimum");
-    expect(buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [{ ...kegs, qty: 4 }], showPrices: false, senderName: null }).warning).toBeNull();
+    expect(buildSupplierSend({ venueName: "Drift", supplier: diablo, lines: [{ ...kegs, qty: 4 }], senderName: null }).warning).toBeNull();
   });
   it("has no warning for an empty order", () => {
-    expect(buildSupplierSend({ venueName: "Drift", supplier: sup("Diablo"), lines: [], showPrices: false, senderName: null }).warning).toBeNull();
+    expect(buildSupplierSend({ venueName: "Drift", supplier: sup("Diablo"), lines: [], senderName: null }).warning).toBeNull();
   });
   it("names a shared unit, and counts typed lines apart", () => {
     const kegs = [{ unit_name: "keg", ordered_qty: 3 }, { unit_name: null, ordered_qty: 2 }];
@@ -296,7 +298,7 @@ describe("the text, prices and minimum of a supplier order", () => {
 });
 
 describe("which send buttons exist and work", () => {
-  const send = (supplier: OrderingSupplier, lines: DraftLine[] = [line({ qty: 2, price: 10 })]) => buildSupplierSend({ venueName: "Drift", supplier, lines, showPrices: false, senderName: "Troy" });
+  const send = (supplier: OrderingSupplier, lines: DraftLine[] = [line({ qty: 2, price: 10 })]) => buildSupplierSend({ venueName: "Drift", supplier, lines, senderName: "Troy" });
   it("an email supplier: Open Email (filled) and Copy Order, with no Open In Outlook button", () => {
     const star = sup("Star");
     const a = sendActions(star, send(star));
@@ -337,7 +339,7 @@ describe("which send buttons exist and work", () => {
   it("a long order keeps Open Email working: it copies the order, then opens an empty draft", () => {
     const star = sup("Star");
     const many = Array.from({ length: 40 }, (_, i) => line({ key: `k${i}`, name: `A long product name number ${i}`, qty: 12 }));
-    const long = buildSupplierSend({ venueName: "Drift", supplier: star, lines: many, showPrices: true, senderName: "Troy" });
+    const long = buildSupplierSend({ venueName: "Drift", supplier: star, lines: many, senderName: "Troy" });
     const a = sendActions(star, long);
     expect(a[0]).toMatchObject({ id: "email", label: "Copy And Open Email", enabled: true, reason: null, copiesOrder: true });
     expect(a[0].href).toBe("mailto:orders@star.example.com?subject=Drift%20Order");
@@ -468,7 +470,7 @@ describe("the quiet count line on an order line", () => {
   });
   it("never repeats the suggestion: a count line has Counted and Build To only", () => {
     const g = groupFor("Lion");
-    const lines = draftLinesFromGroup(g);
+    const lines = draftLinesFromGroup(g, storedFactsOf);
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) expect(countedLine(l) ?? "").not.toMatch(/Suggested/i);
   });
@@ -511,9 +513,102 @@ describe("sign-off", () => {
 
 describe("the Unassigned card", () => {
   it("a product linked to an ingredient sends you to the ingredient to set its supplier", () => {
-    expect(unassignedAction({ id: "p1", ingredient_id: "ing-9" }, "/ordering/drift")).toEqual({ label: "Set A Supplier On The Ingredient", href: "/ingredients/ing-9" });
+    expect(unassignedAction({ id: "p1", ingredient_id: "ing-9" })).toEqual({ label: "Set A Supplier On The Ingredient", href: "/ingredients/ing-9#ordering" });
   });
   it("any other product sends you to the product, where its supplier is chosen from the supplier list", () => {
-    expect(unassignedAction({ id: "p1", ingredient_id: null }, "/ordering/drift")).toEqual({ label: "Choose A Supplier", href: "/ordering/drift/setup/products/p1" });
+    expect(unassignedAction({ id: "p1", ingredient_id: null })).toEqual({ label: NEEDS_INGREDIENT, href: "/ingredients" });
+  });
+});
+
+/* ------------------------------------------------------------------ thin order items: every price comes from the ingredient */
+
+describe("order lines made from thin order items (one card per product, 23 Nov 2026)", () => {
+  // the demo shape: each example item given its ingredient, with NO price left on the item
+  const products = linkedFixtureProducts(1);
+  const ings = new Map(fixtureIngredients().map((i) => [i.id, i]));
+  const deals = fixtureDeals();
+  const factsOf = factsFrom({ ingredientById: (id) => ings.get(id), dealsFor: (id) => deals.filter((d) => d.ingredient_id === id), gstRate: 0.1, today: "2026-11-23" });
+  const groups = buildSupplierOrders(products, fx.countLines, { suppliers: fx.suppliers, categories: fx.categories });
+  const group = (name: string) => groups.find((g) => g.supplierName === name)!;
+  const star = draftLinesFromGroup(group("Star"), factsOf);
+  const byName = (n: string) => star.find((l) => l.name === n)!;
+
+  it("carries the ingredient's full name and code, and a price worked out from the ingredient", () => {
+    expect(star.map((l) => l.name)).toEqual(["Lager Cans (24 x 375ml)", "Seltzer Cans (24 x 330ml)", "House Sauvignon Blanc (750ml)", "House Prosecco (750ml)", "Bourbon (700ml)", "Aperol (700ml)", "Vodka (1L)"]);
+    expect(products.every((p) => p.ingredient_id == null || p.price_inc_gst == null)).toBe(true); // nothing to read from the item
+    expect(byName("Lager Cans (24 x 375ml)")).toMatchObject({ code: "100101", unit: "carton", price: 62, gstFree: false, noPrice: null, needsIngredient: false }); // the pack IS the carton
+    expect(byName("House Sauvignon Blanc (750ml)")).toMatchObject({ price: 96, unit: "carton" }); // 6 bottles a carton
+    expect(byName("Bourbon (700ml)")).toMatchObject({ price: 45, unit: "bottle" }); // counted by the bottle: one pack
+  });
+  it("a carton nobody has sized has NO price and says why, never the price of one bottle", () => {
+    const prosecco = byName("House Prosecco (750ml)");
+    expect(prosecco.price).toBeNull();
+    expect(prosecco.noPrice).toBe(NO_CARTON_QTY);
+    expect(prosecco.ingredientId).toBeTruthy();
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: star, senderName: "Matt" });
+    expect(send.totals.unpricedLines).toBe(1);
+    expect(send.totals.pricedLines).toBe(6);
+  });
+  it("totals add up the derived prices, and the dollar minimum is checked ex GST", () => {
+    const two = star.slice(0, 2); // 3 x $62 + 4 x $58
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: two, senderName: "Matt", gstRate: 0.1 });
+    expect(send.totals).toMatchObject({ inc: 418, ex: 380, pricedLines: 2, unpricedLines: 0 });
+    const min = buildSupplierSend({ venueName: "Drift", supplier: { ...sup("Star"), min_order_value: 400 }, lines: two, senderName: "Matt" });
+    expect(min.warning).toBe("Order is $20.00 short of the $400.00 minimum");
+  });
+  it("a GST free line is right in both columns: its ex GST value is its inc GST value", () => {
+    const free: DraftLine = line({ key: "w", name: "Soda Water (24 x 300ml)", qty: 2, price: 20, gstFree: true });
+    const taxed: DraftLine = line({ key: "t", name: "Lager", qty: 1, price: 110 });
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Coke"), lines: [free, taxed], senderName: null });
+    expect(send.totals).toMatchObject({ inc: 150, ex: 140 }); // 40 + 100, not 150 / 1.1
+    expect(send.warning).toBe("Order is $10.00 short of the $150.00 minimum"); // the minimum is compared with the right ex GST total
+    expect(linePrice(2, 20, 0.1, null, true)).toEqual({ total: "$40.00", each: "$20.00 each, GST free" });
+    expect(priceCells(2, 20, 0.1, null, true)).toEqual({ unitEx: "$20.00", unitInc: "$20.00", totalEx: "$40.00", totalInc: "$40.00" });
+    expect(sentSummary([{ ordered_qty: 2, price_inc_gst: 20, gst_free: true }, { ordered_qty: 1, price_inc_gst: 110 }]).totals).toMatchObject({ inc: 150, ex: 140 });
+  });
+  it("free units come from the ingredient's live deal, on the list price", () => {
+    const keg = products.find((p) => p.name === "XXXX Gold Keg (49.5L)")!;
+    const l = draftLineFromProduct(keg, factsOf, null, 6);
+    expect(l).toMatchObject({ price: 210, dealBuy: 5, dealGet: 1 });
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Lion"), lines: [l], senderName: null });
+    expect(send.totals.inc).toBe(1050); // 6 ordered, 5 paid
+    expect(linePrice(6, l.price, 0.1, { buy: l.dealBuy, free: l.dealGet })).toEqual({ total: "$1,050.00", each: "$210.00 each, 1 free" });
+  });
+  it("what an order keeps when it is marked sent: the name, code, unit and the derived price and deal as they stood", () => {
+    const saved = draftsToOrderLines(star);
+    expect(saved[0]).toEqual({ product_id: products.find((p) => p.name === "Lager Cans (24 x 375ml)")!.id, product_name: "Lager Cans (24 x 375ml)", supplier_item_code: "100101", unit_name: "carton", suggested_qty: 3, ordered_qty: 3, pack_multiple: 1, price_inc_gst: 62, deal_buy_qty: null, deal_free_qty: null, sort: 0 });
+    expect(saved.find((x) => x.product_name === "House Prosecco (750ml)")?.price_inc_gst).toBeNull();
+  });
+  it("an old item with no ingredient falls back to what is stored on it and is flagged, and one whose ingredient is not loaded does too", () => {
+    const water = products.find((p) => p.name === "Water Bottles")!;
+    expect(water.ingredient_id).toBeNull();
+    expect(draftLineFromProduct(water, factsOf)).toMatchObject({ name: "Water Bottles", price: 28, needsIngredient: true, ingredientId: null, noPrice: null });
+    const orphan = { ...water, ingredient_id: "gone", price_inc_gst: null };
+    expect(draftLineFromProduct(orphan, factsOf)).toMatchObject({ needsIngredient: true, price: null, noPrice: "No price" });
+  });
+  it("a typed line is unchanged: no product, no price, nothing to fix", () => {
+    const typed = freeTextLine("Bar mats", 2)!;
+    expect(typed.noPrice).toBeUndefined();
+    expect(typed.needsIngredient).toBeUndefined();
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: [typed], senderName: "Matt" });
+    expect(send.body).toContain("\nBar mats - 2\n");
+    expect(send.totals.unpricedLines).toBe(1);
+  });
+  it("the text of a thin order: full names with their size, the item code, and never a price", () => {
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: star, senderName: "Matt" });
+    expect(send.body).toContain("\nLager Cans (24 x 375ml) - 3 ctns #100101\n");
+    expect(send.body).toContain("\nBourbon (700ml) - 6 bottles #300301\n");
+    expect(send.body).not.toMatch(/\$|GST|No price/);
+    expect(send.mailto.tooLong).toBe(false);
+  });
+  it("a 60 line order with codes still has a working long order path", () => {
+    const many = Array.from({ length: 60 }, (_, i) => line({ key: `k${i}`, name: `Some Spirit Name Number ${i} (700ml)`, unit: "bottle", code: `1500${String(i).padStart(2, "0")}`, qty: 6, price: 45 }));
+    const send = buildSupplierSend({ venueName: "Drift", supplier: sup("Star"), lines: many, senderName: "Matt" });
+    expect(send.mailto.tooLong).toBe(true);
+    expect(send.mailto.shortUrl).toBe("mailto:orders@star.example.com?subject=Drift%20Order");
+    const [email] = sendActions(sup("Star"), send);
+    expect(email).toMatchObject({ label: "Copy And Open Email", enabled: true, copiesOrder: true, href: send.mailto.shortUrl });
+    expect(sendReasons(sendActions(sup("Star"), send))).toContain(LONG_ORDER_NOTE);
+    expect(send.body).not.toContain("$");
   });
 });

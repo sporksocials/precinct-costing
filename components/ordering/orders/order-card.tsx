@@ -7,6 +7,7 @@ import { Sheet, cx, useToast } from "@/components/ui";
 import { money } from "@/lib/format";
 import { orderingVenueName } from "@/lib/ordering";
 import { OrderingError, createOrder, markOrderSent } from "@/lib/ordering-data";
+import type { FactsOf } from "@/lib/ordering-facts";
 import {
   METHOD_LABEL,
   SEND_METHOD_LABEL,
@@ -41,7 +42,7 @@ import { SendPanel } from "./send-panel";
 /** A sent order shown on its card. `lines` is null while they are still being loaded. */
 export interface SentEntry {
   order: OrderingOrder;
-  lines: Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst" | "unit_name">[] | null;
+  lines: (Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst" | "unit_name"> & { deal_buy_qty?: number | null; deal_free_qty?: number | null; gst_free?: boolean | null })[] | null;
 }
 
 export interface OrderCardProps {
@@ -50,6 +51,10 @@ export interface OrderCardProps {
   /** every product of this venue (the Add Product search narrows it) */
   products: readonly OrderingProduct[];
   suppliers: readonly OrderingSupplier[];
+  /** the price, GST and deal of a product, worked out from its ingredient (useOrderFacts) */
+  factsOf: FactsOf;
+  /** the costing setting gst_rate */
+  gstRate: number;
   /** the suggestion for every counted or skipped product of this supplier, by product id (empty for a top-up) */
   suggestions: ReadonlyMap<string, SuggestedLine>;
   /** the lines the count suggests (empty for a top-up) */
@@ -93,15 +98,13 @@ export function SupplierFacts({ supplier }: { supplier: Pick<OrderingSupplier, "
 }
 
 export function OrderCard(p: OrderCardProps) {
-  const { venue, supplier, kind } = p;
+  const { venue, supplier, kind, factsOf, gstRate } = p;
   const toast = useToast();
   const [cardRef, wide] = useWide<HTMLElement>(820);
   const venueName = orderingVenueName(venue);
   const titleId = useId();
 
   const [lines, setLines] = useState<DraftLine[]>(p.initialLines);
-  /** prices follow the supplier's own setting (Setup > Suppliers), never a per-order switch */
-  const showPrices = supplier.show_prices_on_order;
   const [open, setOpen] = useState(p.startOpen ?? p.initialLines.length > 0);
   const [adding, setAdding] = useState(false);
   const [notNeededOpen, setNotNeededOpen] = useState(false);
@@ -125,15 +128,15 @@ export function OrderCard(p: OrderCardProps) {
   const mode = cardMode(sentAll.map((e) => e.order), sendAgain);
 
   const send = useMemo(
-    () => buildSupplierSend({ venueName, supplier, lines, showPrices, senderName: p.senderName }),
-    [venueName, supplier, lines, showPrices, p.senderName],
+    () => buildSupplierSend({ venueName, supplier, lines, senderName: p.senderName, gstRate }),
+    [venueName, supplier, lines, p.senderName, gstRate],
   );
   const actions = useMemo(() => sendActions(supplier, send), [supplier, send]);
   const sig = linesSignature(lines);
 
   const setQty = useCallback((key: string, qty: number) => setLines((ls) => setLineQty(ls, key, qty)), []);
   const remove = useCallback((key: string) => setLines((ls) => removeLine(ls, key)), []);
-  const addProduct = useCallback((product: OrderingProduct, suggested: SuggestedLine | null) => setLines((ls) => addLine(ls, draftLineFromProduct(product, suggested))), []);
+  const addProduct = useCallback((product: OrderingProduct, suggested: SuggestedLine | null) => setLines((ls) => addLine(ls, draftLineFromProduct(product, factsOf, suggested))), [factsOf]);
   const addTyped = useCallback((name: string) => {
     const line = freeTextLine(name, 1);
     if (line) setLines((ls) => addLine(ls, line));
@@ -157,12 +160,13 @@ export function OrderCard(p: OrderCardProps) {
       const sb = getSupabaseBrowser();
       let orderId = savedDraft && savedDraft.sig === sig ? savedDraft.id : null;
       if (!orderId) {
-        const made = await createOrder(sb, venue.id, { supplierId: supplier.id, sessionId: p.sessionId, kind, showPrices, lines: draftsToOrderLines(lines) });
+        // the text never carries prices, so the order is saved as "prices not shown"; its lines keep the derived price each was made with
+        const made = await createOrder(sb, venue.id, { supplierId: supplier.id, sessionId: p.sessionId, kind, showPrices: false, lines: draftsToOrderLines(lines) });
         orderId = made.order.id;
         setSavedDraft({ id: orderId, sig });
       }
       const order = await markOrderSent(sb, orderId, { by: p.userEmail, method, subject: send.subject, bodyText: send.body, warningText: send.warning, showPrices: false });
-      const saved = draftsToOrderLines(lines).map((l) => ({ ordered_qty: l.ordered_qty, price_inc_gst: l.price_inc_gst, unit_name: l.unit_name }));
+      const saved = send.textLines.map((l) => ({ ordered_qty: l.ordered_qty, price_inc_gst: l.price_inc_gst, unit_name: l.unit_name, deal_buy_qty: l.deal_buy_qty, deal_free_qty: l.deal_free_qty, gst_free: l.gst_free }));
       setLocalSent((s) => [{ order, lines: saved }, ...s]);
       setConfirming(false);
       setSendAgain(false);
@@ -179,7 +183,7 @@ export function OrderCard(p: OrderCardProps) {
   const hasLines = send.lineCount > 0;
   const latest = sentAll[0] ?? null;
   const earlier = sentAll.slice(1);
-  const summary = latest?.lines ? sentSummary(latest.lines) : null;
+  const summary = latest?.lines ? sentSummary(latest.lines, gstRate) : null;
   const hasPrice = send.totals.pricedLines > 0;
 
   return (
@@ -270,7 +274,7 @@ export function OrderCard(p: OrderCardProps) {
           ) : null}
           {supplier.notes && !send.warning ? <p className="px-4 pb-2 text-[14px] text-label-2">Supplier note: {supplier.notes}</p> : null}
           <div className="border-t border-[color:var(--separator)]">
-            <LineEditor lines={lines} showPrices={showPrices} wide={wide} onQty={setQty} onRemove={remove} />
+            <LineEditor lines={lines} gstRate={gstRate} wide={wide} onQty={setQty} onRemove={remove} />
           </div>
 
           <div className="border-t border-[color:var(--separator)] px-4 py-3">
@@ -321,7 +325,7 @@ export function OrderCard(p: OrderCardProps) {
                   <span className="block text-[14px] text-label-2">{money(send.totals.ex)} ex GST</span>
                 </p>
               ) : (
-                <p className="text-[13px] text-label-2">No prices saved for these products.</p>
+                <p className="text-[13px] text-label-2">No prices for these products yet.</p>
               )}
             </div>
             {send.totals.unpricedLines > 0 && hasPrice ? (

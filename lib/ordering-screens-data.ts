@@ -1,23 +1,11 @@
 /**
  * Ordering module: data access for the home, Setup and History screens (the count and order screens use lib/ordering-data.ts
- * directly). No React. Callers pass the Supabase client. Same rules as ordering-data.ts: one venue at a time, every INSERT
- * goes through insertRows (which strips null keys so a column default applies), a write that touches no row is a failure,
- * and a missing table reads as "Ordering is not set up yet".
+ * directly). No React. Callers pass the Supabase client. Same rules as ordering-data.ts: one venue at a time, a write that
+ * touches no row is a failure, and a missing table reads as "Ordering is not set up yet". Nothing here inserts.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingTable } from "./change-log";
-import {
-  ORDERING_UNAVAILABLE,
-  OrderingError,
-  T,
-  ensureTermsRow,
-  updateCategory,
-  updateProduct,
-  updateSupplier,
-  type SupplierDraft,
-} from "./ordering-data";
-import type { CopyPlan } from "./ordering-setup";
-import { insertRows, newId } from "./store";
+import { ORDERING_UNAVAILABLE, OrderingError, T, updateCategory, updateProduct, updateSupplier } from "./ordering-data";
 import type { OrderingCountLine, OrderingCountSession, OrderingOrder, OrderingOrderLine } from "./ordering-types";
 
 type DbError = { code?: string; message?: string } | null | undefined;
@@ -96,66 +84,6 @@ export async function saveSortChanges(sb: SupabaseClient, table: "suppliers" | "
   for (let i = 0; i < changes.length; i += 10) {
     await Promise.all(changes.slice(i, i + 10).map((c) => write(sb, c.id, { sort: c.sort })));
   }
-}
-
-/* ------------------------------------------------------------------ copy products from another venue */
-
-export interface CopyResult {
-  categories: number;
-  suppliers: number;
-  products: number;
-}
-
-/**
- * Adds what the plan says to the target venue: categories and suppliers first, then products pointing at them. Rows the venue
- * already has are matched (categories by name, suppliers by the supplier they are, never by name), never duplicated, so a copy
- * that stopped half way can simply be run again. A supplier is added by making the venue's terms row for it (the database finds
- * or creates it), then the source venue's terms are written over it. `existing` is the target venue's current categories and
- * suppliers (to find ids for products whose category or supplier already existed).
- */
-export async function copyVenueSetup(
-  sb: SupabaseClient,
-  targetVenueId: number,
-  plan: CopyPlan,
-  existing: { categories: readonly { id: string; name: string }[]; suppliers: readonly { id: string; cost_supplier_id: number }[] },
-): Promise<CopyResult> {
-  const key = (s: string) => s.trim().toLowerCase();
-  const catId = new Map(existing.categories.map((c) => [key(c.name), c.id]));
-  const supId = new Map<number, string>(existing.suppliers.map((s) => [s.cost_supplier_id, s.id]));
-
-  if (plan.categories.length) {
-    const rows = plan.categories.map((c) => ({ ...c, id: newId(), venue_id: targetVenueId }));
-    const { error } = await insertRows(sb, T.categories, rows).select("id");
-    if (error) fail(error);
-    for (const r of rows) catId.set(key(r.name), r.id);
-  }
-  for (const draft of plan.suppliers) {
-    const row = await ensureTermsRow(sb, targetVenueId, draft.cost_supplier_id);
-    // the name and the supplier are the list's; everything else is the source venue's terms
-    const terms: Partial<SupplierDraft> = { ...draft };
-    delete terms.name;
-    delete terms.cost_supplier_id;
-    await updateSupplier(sb, row.id, terms);
-    supId.set(draft.cost_supplier_id, row.id);
-  }
-  // a product's supplier that this venue has no terms row for yet (it is in neither list above): made now, once each
-  for (const p of plan.products) {
-    if (p.costSupplierId != null && !supId.has(p.costSupplierId)) supId.set(p.costSupplierId, (await ensureTermsRow(sb, targetVenueId, p.costSupplierId)).id);
-  }
-  let products = 0;
-  for (let i = 0; i < plan.products.length; i += 100) {
-    const rows = plan.products.slice(i, i + 100).map(({ categoryName, costSupplierId, draft }) => ({
-      ...draft,
-      id: newId(),
-      venue_id: targetVenueId,
-      category_id: catId.get(key(categoryName)),
-      supplier_id: costSupplierId != null ? supId.get(costSupplierId) ?? null : null,
-    }));
-    const { error } = await insertRows(sb, T.products, rows).select("id");
-    if (error) fail(error);
-    products += rows.length;
-  }
-  return { categories: plan.categories.length, suppliers: plan.suppliers.length, products };
 }
 
 /* ------------------------------------------------------------------ history */

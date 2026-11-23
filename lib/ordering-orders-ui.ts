@@ -8,7 +8,7 @@
  * why not, the state of a card (open to edit or already sent), and the wording of the Past Orders list.
  */
 import { money } from "./format";
-import { switchNote } from "./supplier-compare";
+import { factsDeal, type FactsOf } from "./ordering-facts";
 import {
   GST_RATE,
   buildOrderText,
@@ -105,7 +105,11 @@ export function countLabel(session: Pick<OrderingCountSession, "finalised_at" | 
 
 /* ------------------------------------------------------------------ draft lines (what the manager edits) */
 
-/** One line of an order being built. Product lines carry the count; a typed line has no product. Prices are inc GST. */
+/**
+ * One line of an order being built. Product lines carry the count; a typed line has no product. The price, GST and free-unit
+ * deal of a product line are worked out from its ingredient (lib/ordering-facts.ts) when the line is made, never read from a
+ * price typed on the order item.
+ */
 export interface DraftLine {
   /** product id, or "free:<n>" for a typed line */
   key: string;
@@ -114,11 +118,17 @@ export interface DraftLine {
   unit: string | null;
   code: string | null;
   packMultiple: number | null;
-  /** price of one unit, inc GST */
+  /** price of one unit, inc GST; null when there is no price */
   price: number | null;
-  /** note when another supplier is 10% or more cheaper (lib/supplier-compare.ts); null when there is nothing to say */
-  switchNote?: string | null;
-  /** buy X get Y free (null when the product has none) */
+  /** the line has no GST in it (its ex GST value is its inc GST value) */
+  gstFree?: boolean;
+  /** why a product line has no price, in words; null when it has one and for a typed line */
+  noPrice?: string | null;
+  /** the product's ingredient, where a missing price or carton size is fixed; null for a typed line or an item with none */
+  ingredientId?: string | null;
+  /** an order item with no ingredient behind it yet (it shows its stored name, code and price) */
+  needsIngredient?: boolean;
+  /** buy X get Y free, from the ingredient's live deal (null when there is none) */
   dealBuy?: number | null;
   dealGet?: number | null;
   par: number | null;
@@ -126,11 +136,6 @@ export interface DraftLine {
   /** the suggestion rounded up to the pack multiple; null for a line that was added by hand */
   suggested: number | null;
   qty: number;
-}
-
-/** The advisory note for a product that has another supplier's price saved (null when the other supplier is not 10% cheaper). */
-export function productSwitchNote(p: Pick<OrderingProduct, "price_inc_gst" | "alt_supplier_name" | "alt_price_inc_gst" | "unit_name">): string | null {
-  return switchNote({ price: p.price_inc_gst, otherName: p.alt_supplier_name, otherPrice: p.alt_price_inc_gst, unit: p.unit_name });
 }
 
 export const MAX_QTY = 9999;
@@ -146,50 +151,42 @@ export function clampQty(n: number): number {
   return Number.isFinite(n) ? Math.min(MAX_QTY, Math.max(0, Math.round(n))) : 0;
 }
 
-/** The lines to order for one supplier, as suggested from the count (quantity already rounded up to the pack multiple). */
-export function draftLinesFromGroup(group: Pick<SupplierOrderGroup, "lines">): DraftLine[] {
-  return group.lines.map((l) => draftLineFromSuggested(l, l.suggestion.orderQty));
-}
-
-export function draftLineFromSuggested(l: SuggestedLine, qty: number): DraftLine {
-  return {
-    key: l.product.id,
-    productId: l.product.id,
-    name: l.product.name,
-    unit: l.product.unit_name,
-    code: l.product.supplier_item_code,
-    packMultiple: l.product.pack_multiple,
-    price: l.product.price_inc_gst,
-    dealBuy: l.product.deal_buy_qty ?? null,
-    dealGet: l.product.deal_free_qty ?? null,
-    switchNote: productSwitchNote(l.product),
-    par: l.product.par,
-    counted: l.suggestion.counted,
-    suggested: l.suggestion.uncounted ? null : l.suggestion.orderQty,
-    qty,
-  };
-}
-
-/** A product added by hand (a top-up, or one the count did not suggest). Starts at its pack multiple, or its suggestion when there is one. */
-export function draftLineFromProduct(product: OrderingProduct, suggested?: SuggestedLine | null, qty?: number): DraftLine {
-  const start = qty ?? (suggested && suggested.suggestion.orderQty > 0 ? suggested.suggestion.orderQty : Math.max(1, product.pack_multiple || 1));
-  if (suggested) return draftLineFromSuggested(suggested, start);
+/** The product's part of a draft line: what it is and what one costs, from lib/ordering-facts.ts (`factsOf`). */
+function productLine(product: OrderingProduct, factsOf: FactsOf): Pick<DraftLine, "key" | "productId" | "name" | "unit" | "code" | "packMultiple" | "price" | "gstFree" | "noPrice" | "ingredientId" | "needsIngredient" | "dealBuy" | "dealGet" | "par"> {
+  const f = factsOf(product);
+  const deal = factsDeal(f);
   return {
     key: product.id,
     productId: product.id,
-    name: product.name,
-    unit: product.unit_name,
-    code: product.supplier_item_code,
+    name: f.name,
+    unit: f.unit,
+    code: f.code,
     packMultiple: product.pack_multiple,
-    price: product.price_inc_gst,
-    dealBuy: product.deal_buy_qty ?? null,
-    dealGet: product.deal_free_qty ?? null,
-    switchNote: productSwitchNote(product),
+    price: f.unitInc,
+    gstFree: f.gstFree,
+    noPrice: f.noPrice,
+    ingredientId: f.ingredientId,
+    needsIngredient: f.needsIngredient,
+    dealBuy: deal?.buy ?? null,
+    dealGet: deal?.free ?? null,
     par: product.par,
-    counted: null,
-    suggested: null,
-    qty: start,
   };
+}
+
+/** The lines to order for one supplier, as suggested from the count (quantity already rounded up to the pack multiple). */
+export function draftLinesFromGroup(group: Pick<SupplierOrderGroup, "lines">, factsOf: FactsOf): DraftLine[] {
+  return group.lines.map((l) => draftLineFromSuggested(l, l.suggestion.orderQty, factsOf));
+}
+
+export function draftLineFromSuggested(l: SuggestedLine, qty: number, factsOf: FactsOf): DraftLine {
+  return { ...productLine(l.product, factsOf), counted: l.suggestion.counted, suggested: l.suggestion.uncounted ? null : l.suggestion.orderQty, qty };
+}
+
+/** A product added by hand (a top-up, or one the count did not suggest). Starts at its pack multiple, or its suggestion when there is one. */
+export function draftLineFromProduct(product: OrderingProduct, factsOf: FactsOf, suggested?: SuggestedLine | null, qty?: number): DraftLine {
+  const start = qty ?? (suggested && suggested.suggestion.orderQty > 0 ? suggested.suggestion.orderQty : Math.max(1, product.pack_multiple || 1));
+  if (suggested) return draftLineFromSuggested(suggested, start, factsOf);
+  return { ...productLine(product, factsOf), counted: null, suggested: null, qty: start };
 }
 
 let freeCounter = 0;
@@ -229,7 +226,11 @@ export function addLine(lines: readonly DraftLine[], line: DraftLine): DraftLine
   return lines.some((l) => l.key === line.key) ? [...lines] : [...lines, line];
 }
 
-/** The lines as the data layer saves them. Lines with no quantity are left out. */
+/**
+ * The lines as the data layer saves them: the snapshot an order keeps (name, item code, unit and the DERIVED unit price and
+ * deal as they stood when the line was made), so a past order always shows what it was sent with. Lines with no quantity are
+ * left out.
+ */
 export function draftsToOrderLines(lines: readonly DraftLine[]): OrderLineDraft[] {
   const out: OrderLineDraft[] = [];
   for (const l of lines) {
@@ -329,7 +330,7 @@ export function orderCardGroups(groups: readonly SupplierOrderGroup[], sentSuppl
 
 /** The line shape the text builder and totals read. Lines with no quantity are left out. */
 export function textLinesFromDraft(lines: readonly DraftLine[]): OrderTextLine[] {
-  return lines.filter((l) => l.qty > 0).map((l) => ({ product_name: l.name, unit_name: l.unit, supplier_item_code: l.code, ordered_qty: l.qty, price_inc_gst: l.price, deal_buy_qty: l.dealBuy, deal_free_qty: l.dealGet }));
+  return lines.filter((l) => l.qty > 0).map((l) => ({ product_name: l.name, unit_name: l.unit, supplier_item_code: l.code, ordered_qty: l.qty, price_inc_gst: l.price, deal_buy_qty: l.dealBuy, deal_free_qty: l.dealGet, gst_free: !!l.gstFree }));
 }
 
 /** The one unit all the ordered lines share ("carton"), or null when they differ or none is named. Used for a minimum in units. */
@@ -352,9 +353,10 @@ export interface SupplierSendInput {
   venueName: string;
   supplier: Pick<OrderingSupplier, "rep_name" | "account_no" | "email_to" | "min_order_value" | "min_order_units">;
   lines: readonly DraftLine[];
-  showPrices: boolean;
   /** the signed-in person's first name */
   senderName: string | null;
+  /** the costing setting gst_rate, for the ex GST total and the dollar minimum (defaults to 10%) */
+  gstRate?: number;
 }
 
 export interface SupplierSend {
@@ -373,10 +375,10 @@ export interface SupplierSend {
 /** Everything the send panel needs from the lines as they stand: the exact text, both draft links, totals and the minimum warning. */
 export function buildSupplierSend(i: SupplierSendInput): SupplierSend {
   const textLines = textLinesFromDraft(i.lines);
-  // Order emails never carry prices (Troy, 29 Oct 2026: "turn off all prices on email orders"): the text is each product and its quantity.
-  // `showPrices` only decides whether the screen shows line prices.
+  // Order emails never carry prices (Troy, 29 Oct 2026: "turn off all prices on email orders"): the text is each product, its
+  // quantity and the supplier's item code. The SCREEN shows the line price whenever there is one.
   const text = buildOrderText({ venueName: i.venueName, supplier: i.supplier, lines: textLines, showPrices: false, senderName: i.senderName });
-  const totals = orderTotals(textLines);
+  const totals = orderTotals(textLines, i.gstRate);
   const warning = minimumWarning({ totals: { ...totals, units: minimumUnits(textLines) }, unitName: commonUnit(textLines) }, i.supplier);
   return {
     subject: text.subject,
@@ -489,9 +491,9 @@ export function cardMode(sent: readonly OrderingOrder[], sendAgain: boolean): Ca
 }
 
 /** The line a sent card or detail page prints: products and units, and the total when any line has a price. */
-export function sentSummary(lines: readonly Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst" | "deal_buy_qty" | "deal_free_qty">[]): { products: number; units: number; totals: OrderTotals } {
+export function sentSummary(lines: readonly (Pick<OrderingOrderLine, "ordered_qty" | "price_inc_gst" | "deal_buy_qty" | "deal_free_qty"> & { gst_free?: boolean | null })[], rate: number = GST_RATE): { products: number; units: number; totals: OrderTotals } {
   const real = lines.filter((l) => l.ordered_qty > 0);
-  const totals = orderTotals(real);
+  const totals = orderTotals(real, rate);
   return { products: real.length, units: totals.units, totals };
 }
 
@@ -507,19 +509,22 @@ export interface PriceCells {
 }
 
 /** Price and line total of a line, as shown (ex and inc GST), all null when the line has no price. */
-export function priceCells(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): PriceCells {
+export function priceCells(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null, gstFree = false): PriceCells {
   if (priceInc == null) return { unitEx: null, unitInc: null, totalEx: null, totalInc: null };
-  const t = lineTotals(qty, priceInc, rate, deal);
-  return { unitEx: money(exGst(priceInc, rate)), unitInc: money(priceInc), totalEx: t ? money(t.ex) : null, totalInc: t ? money(t.inc) : null };
+  const t = lineTotals(qty, priceInc, rate, deal, gstFree);
+  return { unitEx: money(gstFree ? priceInc : exGst(priceInc, rate)), unitInc: money(priceInc), totalEx: t ? money(t.ex) : null, totalInc: t ? money(t.inc) : null };
 }
 
-/** The ONE price shown on an order line: the line total inc GST and what one unit costs inc GST. Null without a price or a quantity. */
-export function linePrice(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null): { total: string; each: string } | null {
+/**
+ * The ONE price shown on an order line: the line total inc GST and what one unit costs inc GST. Null without a price or a
+ * quantity. A GST free line says so ("$17.50 each, GST free").
+ */
+export function linePrice(qty: number, priceInc: number | null | undefined, rate: number = GST_RATE, deal?: FreeDeal | null, gstFree = false): { total: string; each: string } | null {
   if (priceInc == null || !(qty > 0)) return null;
-  const p = priceCells(qty, priceInc, rate, deal);
+  const p = priceCells(qty, priceInc, rate, deal, gstFree);
   const free = freeUnits(qty, deal);
   // "$410.00 each, 1 free": the total already leaves the free units out
-  return p.totalInc && p.unitInc ? { total: p.totalInc, each: `${p.unitInc} each${free > 0 ? `, ${qtyText(free)} free` : ""}` } : null;
+  return p.totalInc && p.unitInc ? { total: p.totalInc, each: `${p.unitInc} each${free > 0 ? `, ${qtyText(free)} free` : ""}${gstFree ? ", GST free" : ""}` } : null;
 }
 
 /** The one quiet line under an order line: "Counted 5 of 8" (Counted, then Build To). Null for a line that was not counted. */
@@ -528,14 +533,18 @@ export function countedLine(l: Pick<DraftLine, "counted" | "par">): string | nul
   return l.par == null ? `Counted ${qtyText(l.counted)}` : `Counted ${qtyText(l.counted)} of ${qtyText(l.par)}`;
 }
 
+/** Where an order item is edited: its ingredient's page, with the Ordering group in view. */
+export const ingredientOrderingHref = (ingredientId: string): string => `/ingredients/${ingredientId}#ordering`;
+/** The quiet link an order item with no ingredient shows, and where it goes (the Ingredients list, where New Ingredient is). */
+export const NEEDS_INGREDIENT = "Needs An Ingredient";
+export const NEEDS_INGREDIENT_HREF = "/ingredients";
+
 /**
- * What a row in the Unassigned card offers. A product linked to an ingredient takes its supplier from the ingredient (the
- * database keeps them in step), so the way to fix it is on the ingredient; any other product has its supplier set on the product.
+ * What a row in the Unassigned card offers. An order item takes its supplier from its ingredient (the database keeps them in
+ * step), so the way to fix it is on the ingredient; an old item with no ingredient needs one first.
  */
-export function unassignedAction(product: Pick<OrderingProduct, "id" | "ingredient_id">, base: string): { label: string; href: string } {
-  return product.ingredient_id
-    ? { label: "Set A Supplier On The Ingredient", href: `/ingredients/${product.ingredient_id}` }
-    : { label: "Choose A Supplier", href: `${base}/setup/products/${product.id}` };
+export function unassignedAction(product: Pick<OrderingProduct, "id" | "ingredient_id">): { label: string; href: string } {
+  return product.ingredient_id ? { label: "Set A Supplier On The Ingredient", href: ingredientOrderingHref(product.ingredient_id) } : { label: NEEDS_INGREDIENT, href: NEEDS_INGREDIENT_HREF };
 }
 
 /** "2 products, 14 units" style wording for a count of things. */

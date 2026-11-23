@@ -4,25 +4,17 @@ import path from "node:path";
 import {
   applySort,
   contactTarget,
-  ingredientSupplierSentence,
   isActiveMaster,
   planAddSupplier,
-  productSupplierView,
-  supplierChoices,
   suppliersNotAtVenue,
-  copyImpactLines,
-  copyIsEmpty,
   moneyInput,
   moveItem,
   nameTaken,
-  packsSentence,
   parseMoney,
   parseQuantity,
   parseWhole,
-  planVenueCopy,
   placesText,
   productGroups,
-  productPricing,
   productSub,
   resolveContact,
   secondPlaceChoice,
@@ -31,7 +23,8 @@ import {
   suggestMethod,
   unitChoice,
 } from "@/lib/ordering-setup";
-import { orderingFixture, fixtureId } from "@/lib/ordering-fixture";
+import { orderingFixture, fixtureId, fixtureIngredients, linkedFixtureProducts } from "@/lib/ordering-fixture";
+import { factsFrom, orderPriceShort } from "@/lib/ordering-facts";
 import type { OrderingProduct } from "@/lib/ordering-types";
 
 const drift = orderingFixture(1);
@@ -113,25 +106,6 @@ describe("supplier contact: an email address means Email, a web address means Lo
   });
 });
 
-describe("product pricing and the linked-ingredient sentence", () => {
-  it("shows the ex GST price and the price of one costing pack", () => {
-    const p = productPricing(62, 24);
-    expect(p.ex).toBe(56.36);
-    expect(p.perPackInc).toBe(2.58);
-    expect(p.perPackEx).toBe(2.35);
-  });
-  it("no price or no pack count gives nulls, never NaN", () => {
-    expect(productPricing(null, 24)).toEqual({ ex: null, perPackInc: null, perPackEx: null });
-    expect(productPricing(62, null).perPackInc).toBeNull();
-    expect(productPricing(62, 0).perPackInc).toBeNull();
-  });
-  it("the sentence names the unit, the pack count and the per-pack price", () => {
-    expect(packsSentence("carton", 62, 24)).toBe("One carton holds 24 packs, so each pack costs $2.58 inc GST ($2.35 ex GST).");
-    expect(packsSentence("keg", 62, 1)).toContain("holds 1 pack,");
-    expect(packsSentence("carton", null, 24)).toBeNull();
-  });
-});
-
 describe("reordering", () => {
   const rows = [
     { id: "a", sort: 1 },
@@ -191,10 +165,16 @@ describe("the Products list", () => {
     const shown = productGroups({ ...input, products: off, showInactive: true }).flatMap((g) => g.products);
     expect(shown.some((p) => p.name === "XXXX Gold Keg")).toBe(true);
   });
-  it("a product's sub line reads unit, supplier, price", () => {
+  it("a product's sub line reads Counted By, supplier, and the price worked out from its ingredient (never the one stored on it)", () => {
     const names = new Map(drift.suppliers.map((s) => [s.id, s.name]));
-    expect(productSub(drift.products[0], names)).toBe("Keg · Lion · $210.00");
-    expect(productSub({ ...drift.products[0], supplier_id: null, price_inc_gst: null }, names)).toBe("Keg · No supplier");
+    const ings = new Map(fixtureIngredients().map((i) => [i.id, i]));
+    const factsOf = factsFrom({ ingredientById: (id) => ings.get(id), gstRate: 0.1 });
+    const keg = linkedFixtureProducts(1)[0];
+    expect(keg.price_inc_gst).toBeNull(); // nothing stored on the thin item
+    expect(productSub(keg, names, orderPriceShort(factsOf(keg)))).toBe("Keg · Lion · $210.00");
+    expect(productSub({ ...keg, supplier_id: null }, names)).toBe("Keg · No supplier");
+    // a stored price is NOT read by the sub line any more: with no price handed in, none is printed
+    expect(productSub(drift.products[0], names)).toBe("Keg · Lion");
   });
   it("names are unique per list, ignoring case, except the row being edited", () => {
     expect(nameTaken("lion", drift.suppliers)).toBe(true);
@@ -203,89 +183,7 @@ describe("the Products list", () => {
   });
 });
 
-describe("Copy Products From Another Venue", () => {
-  const empty = { suppliers: [], categories: [], products: [] };
-  it("copies categories, suppliers and active products into an empty venue, and nothing venue specific", () => {
-    const plan = planVenueCopy(drift, empty);
-    expect(plan.categories.map((c) => c.name)).toEqual(["Kegs", "Beer & RTD", "Wine", "Spirits", "Post-Mix", "Soft Drink"]);
-    expect(plan.suppliers.map((s) => s.name).sort()).toEqual(["Coke", "Diablo", "Lion", "Star"]);
-    expect(plan.products).toHaveLength(drift.products.length);
-    for (const s of plan.suppliers) expect(s.account_no).toBeNull();
-    for (const p of plan.products) {
-      expect(p.draft.par).toBe(0);
-      expect(p.draft.price_inc_gst).toBeNull();
-      expect(p.draft.ingredient_id).toBeNull();
-      expect(p.draft.costing_packs_per_unit).toBeNull();
-    }
-    const vodka = plan.products.find((p) => p.draft.name === "Vodka Bottle")!;
-    expect(vodka).toMatchObject({ categoryName: "Spirits", costSupplierId: 9001 });
-    expect(vodka.draft.pack_multiple).toBe(12);
-    expect(vodka.draft.supplier_item_code).toBe("300303");
-  });
-  it("the plan holds names and supplier list ids, not venue row ids, so nothing from the source venue can leak into the target", () => {
-    const json = JSON.stringify(planVenueCopy(drift, empty));
-    expect(json).not.toContain("venue_id");
-    for (const p of drift.products) expect(json).not.toContain(p.id);
-    for (const c of drift.categories) expect(json).not.toContain(c.id);
-  });
-  it("leaves inactive products behind", () => {
-    const off = { ...drift, products: drift.products.map((p, i) => (i < 2 ? { ...p, active: false } : p)) };
-    expect(planVenueCopy(off, empty).products).toHaveLength(drift.products.length - 2);
-  });
-  it("matches categories and products by name and suppliers by the supplier they are, so a second copy adds nothing and a partial venue only gets what is missing", () => {
-    // Greedy already has its own list: copying Drift adds only the Star supplier and the 15 L Lift bag (Greedy's is 5 L)
-    const plan = planVenueCopy(drift, greedy);
-    expect(plan.categories).toEqual([]);
-    expect(plan.suppliers.map((s) => s.name)).toEqual(["Star"]);
-    expect(plan.skipped.categories).toBe(6);
-    expect(plan.skipped.suppliers).toBe(3);
-    const copied = plan.products.map((p) => p.draft.name).sort();
-    expect(copied).toEqual(["Lift Post-Mix Bag (15 L)"]);
-    expect(plan.skipped.products).toBe(drift.products.length - 1);
-    // the new product goes after the last product Greedy already has in Post-Mix
-    expect(plan.products[0].draft.sort).toBe(13);
-  });
-  it("suppliers match by the supplier list, never by name: a renamed terms row is still the same supplier", () => {
-    // Greedy's Lion row carries an old name; it is still supplier 9002, so Lion is not offered again
-    const renamed = { ...greedy, suppliers: greedy.suppliers.map((s) => (s.name === "Lion" ? { ...s, name: "Lion Nathan" } : s)) };
-    const plan = planVenueCopy(drift, renamed);
-    expect(plan.suppliers.map((s) => s.cost_supplier_id)).toEqual([9001]);
-    expect(plan.suppliers.map((s) => s.cost_supplier_id)).not.toContain(9002);
-    // and a name that happens to match is not enough: another supplier called Star is a different supplier
-    const other = { ...greedy, suppliers: [{ ...greedy.suppliers[0], name: "Star", cost_supplier_id: 4242 }] };
-    expect(planVenueCopy(drift, other).suppliers.map((s) => s.cost_supplier_id)).toContain(9001);
-  });
-  it("each copied product names the supplier list id of its supplier (null when it has none)", () => {
-    const plan = planVenueCopy(drift, empty);
-    const byName = new Map(plan.products.map((p) => [p.draft.name, p.costSupplierId]));
-    expect(byName.get("XXXX Gold Keg")).toBe(9002);
-    expect(byName.get("Ginger Beer Keg")).toBe(9003);
-    expect(byName.get("Coke")).toBe(9004);
-    const none = planVenueCopy({ ...drift, products: drift.products.map((p) => ({ ...p, supplier_id: null })) }, empty);
-    expect(none.products.every((p) => p.costSupplierId === null)).toBe(true);
-  });
-  it("new rows continue the target's sort order", () => {
-    const target = { suppliers: [], categories: [{ ...drift.categories[0], id: "t1", sort: 7, name: "Kegs" }], products: [] };
-    const plan = planVenueCopy(drift, target);
-    expect(plan.categories[0].name).toBe("Beer & RTD");
-    expect(plan.categories[0].sort).toBe(8);
-  });
-  it("copy again immediately: nothing to add", () => {
-    const first = planVenueCopy(drift, empty);
-    // pretend the target now holds what the plan added
-    const cats = first.categories.map((c, i) => ({ ...drift.categories[0], ...c, id: `c${i}`, venue_id: 9 }));
-    const sups = first.suppliers.map((s, i) => ({ ...drift.suppliers[0], ...s, id: `s${i}`, venue_id: 9 }));
-    const prods = first.products.map((p, i) => ({ ...drift.products[0], ...p.draft, id: `p${i}`, venue_id: 9, category_id: cats.find((c) => c.name === p.categoryName)!.id }));
-    const again = planVenueCopy(drift, { categories: cats, suppliers: sups, products: prods });
-    expect(copyIsEmpty(again)).toBe(true);
-  });
-  it("the impact lines say what is added and what is left behind", () => {
-    const lines = copyImpactLines(planVenueCopy(drift, empty), "Drift", "Chiobu");
-    expect(lines[0]).toBe("This adds 6 categories, 4 suppliers, 14 products from Drift to Chiobu.");
-    expect(lines.join(" ")).toMatch(/Counts, orders, prices and account numbers are not copied/);
-    expect(lines.join(" ")).toMatch(/independent/);
-    expect(lines.join(" ")).not.toMatch(/[—–]/);
-  });
+describe("the example data", () => {
   it("fixture ids differ per venue", () => {
     expect(fixtureId("prd", 1, 1)).not.toBe(fixtureId("prd", 3, 1));
   });
@@ -338,36 +236,6 @@ describe("the one supplier list on the ordering screens", () => {
       expect(planAddSupplier("  new   wine  co ", masters, here)).toEqual({ kind: "new", name: "New Wine Co" });
     });
   });
-  describe("the supplier of a product", () => {
-    const linked = { ingredient_id: "ing1", supplier_id: "t-lion" };
-    const direct = { ingredient_id: null, supplier_id: "t-lion" };
-    const terms = [{ id: "t-lion", name: "Lion", cost_supplier_id: 9002 }];
-    it("a product linked to an ingredient shows the ingredient's supplier and where to change it", () => {
-      const v = productSupplierView(linked, { id: "ing1", name: "XXXX Gold Keg", supplier_id: 9001 }, masters, terms);
-      expect(v).toMatchObject({ kind: "ingredient", ingredientId: "ing1", ingredientName: "XXXX Gold Keg", supplierName: "Star", costSupplierId: 9001 });
-      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toBe("Star is the supplier of XXXX Gold Keg. It is changed there, and every venue's order list follows.");
-    });
-    it("a linked product whose ingredient has no supplier says to set one on the ingredient", () => {
-      const v = productSupplierView({ ingredient_id: "ing1", supplier_id: null }, { id: "ing1", name: "XXXX Gold Keg", supplier_id: null }, masters, terms);
-      expect(v).toMatchObject({ kind: "ingredient", supplierName: null, costSupplierId: null });
-      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toBe("No supplier yet. Set one on the ingredient.");
-    });
-    it("when the ingredient is not loaded, the terms row says what is known", () => {
-      const v = productSupplierView(linked, null, masters, terms);
-      expect(v).toMatchObject({ kind: "ingredient", ingredientName: null, supplierName: "Lion", costSupplierId: 9002 });
-      expect(ingredientSupplierSentence(v as Extract<typeof v, { kind: "ingredient" }>)).toContain("the linked ingredient");
-    });
-    it("an order-only product reads its supplier from its terms row", () => {
-      expect(productSupplierView(direct, null, masters, terms)).toEqual({ kind: "direct", supplierName: "Lion", costSupplierId: 9002 });
-      expect(productSupplierView({ ingredient_id: null, supplier_id: null }, null, masters, terms)).toEqual({ kind: "direct", supplierName: null, costSupplierId: null });
-    });
-    it("the picker for an order-only product lists the active suppliers, None first, and keeps a switched off current one", () => {
-      expect(supplierChoices(masters, null).map((c) => c.label)).toEqual(["No Supplier", "Bidfood", "Coke", "Lion", "Star"]);
-      const withOff = supplierChoices(masters, 9003);
-      expect(withOff.find((c) => c.value === "9003")?.label).toBe("Diablo (inactive)");
-      expect(supplierChoices(masters, null)[0]).toEqual({ value: "", label: "No Supplier" });
-    });
-  });
 });
 
 /* ------------------------------------------------------------------ source guards for the Setup, History and Home screens */
@@ -402,17 +270,17 @@ describe("Ordering home, Setup and History screens: house rules", () => {
     }
     expect(bad).toEqual([]);
   });
-  it("one supplier list: the supplier name is read only on a terms page, and a linked product's supplier is changed on its ingredient", () => {
+  it("one supplier list: the supplier name is read only on a terms page, and a product's supplier is its ingredient's", () => {
     const supplierPage = readFileSync(path.join("app", "(app)", "ordering", "[venue]", "setup", "suppliers", "[id]", "page.tsx"), "utf8");
     expect(supplierPage).toContain("/ingredients?type=suppliers");
     expect(supplierPage).toContain("Renamed on the Suppliers tab of Ingredients");
     expect(supplierPage).not.toMatch(/persist\(\{\s*name/);
+    // a product page writes nothing about the product but Active: it sends the person to the ingredient
     const productPage = readFileSync(path.join("app", "(app)", "ordering", "[venue]", "setup", "products", "[id]", "page.tsx"), "utf8");
-    expect(productPage).toContain("Change It On The Ingredient");
-    expect(productPage).toContain("/ingredients/${supplierView.ingredientId}");
-    expect(productPage).toContain("ensureTermsRow");
-    // the supplier is never written for a linked product from this page
-    expect(productPage).toContain('supplierView?.kind === "ingredient"');
+    expect(productPage).toContain("ingredientOrderingHref(product.ingredient_id)");
+    expect(productPage).toContain("router.replace(goTo)");
+    expect(productPage).not.toMatch(/ensureTermsRow|supplier_id:/);
+    expect([...productPage.matchAll(/updateProduct\(sb, id, (\{[^}]*\})\)/g)].map((m) => m[1])).toEqual(["{ active }"]);
   });
   it("no bare delete: Ordering uses Active switches, never deletes a record", () => {
     for (const f of MY_FILES) expect(readFileSync(f, "utf8"), f).not.toMatch(/\.delete\(\)/);
@@ -420,7 +288,8 @@ describe("Ordering home, Setup and History screens: house rules", () => {
   it("the data layer for these screens has no raw insert and imports the shared helpers", () => {
     const src = readFileSync("lib/ordering-screens-data.ts", "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     expect(src.match(/\.insert\(/g) ?? []).toHaveLength(0);
-    expect(src).toContain("insertRows");
+    // since Copy Products From Another Venue was removed (23 Nov 2026) these screens insert nothing at all
+    expect(src).not.toMatch(/insertRows?\(/);
   });
   it("no em or en dashes in anything a person reads", () => {
     for (const f of [...MY_FILES, "lib/ordering-setup.ts", "lib/ordering-history-view.ts"]) {

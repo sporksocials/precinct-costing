@@ -74,7 +74,7 @@ export default function OrderingProductHistoryPage() {
   return (
     <div className="max-w-5xl lg:pt-6">
       {back}
-      <PageHeader title={product.name} subtitle={`${name} · ${category?.name ?? ""} · ${unitTitle(product.unit_name)}`} trailing={<TouchLink href={`${base}/setup/products/${product.id}`}>Edit</TouchLink>} className="lg:!pt-2" />
+      <PageHeader title={product.name} subtitle={`${name} · ${category?.name ?? ""} · ${unitTitle(product.unit_name)}`} trailing={<TouchLink href={product.ingredient_id ? `/ingredients/${product.ingredient_id}#ordering` : `${base}/setup/products/${product.id}`}>Edit</TouchLink>} className="lg:!pt-2" />
       {error ? <Banner>{error}</Banner> : null}
       <p className="text-[13px] text-label-2">Build To now: {qtyText(product.par)}. Each row uses the level it was set to on the day.</p>
 

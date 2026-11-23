@@ -11,8 +11,7 @@ import { Banner, cx, Empty, PageHeader, Skeleton } from "@/components/ui";
 import { VenueMark } from "@/components/brand";
 import { usePersonName } from "@/components/use-person-name";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
-import { CopyVenueSheet } from "@/components/ordering/copy-venue-sheet";
-import { Tag, TouchBack, TouchButton, TouchLink } from "@/components/ordering/touch";
+import { Tag, TouchBack, TouchLink } from "@/components/ordering/touch";
 
 /** A big, visible card to one of the venue's four areas. The whole card is the link (well over 44px tall). */
 function AreaCard({ href, icon, title, help, tag, primary }: { href: string; icon: React.ReactNode; title: string; help: string; tag?: React.ReactNode; primary?: boolean }) {
@@ -43,7 +42,6 @@ export default function OrderingVenueHome() {
   const sb = useMemo(() => getSupabaseBrowser(), []);
   const [summary, setSummary] = useState<VenueSummary | null>(null);
   const [error, setError] = useState<OrderingError | Error | null>(null);
-  const [copyOpen, setCopyOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -81,13 +79,13 @@ export default function OrderingVenueHome() {
         <div className="mt-4 rounded-[18px] bg-surface">
           <Empty
             title={`${name} has no products yet`}
-            body={`Add ${name}'s drinks one by one, or start from another venue's list. Each venue keeps its own list, counts and orders.`}
+            body={`A product goes on ${name}'s order list from its ingredient: open the ingredient and switch ${name} on under Ordering. ${name} needs its categories first, under Setup.`}
             action={
               <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
-                <TouchLink href={`${base}/setup/products`} variant="primary">
-                  Set Up Products
+                <TouchLink href={`${base}/setup`} variant="primary">
+                  Open Setup
                 </TouchLink>
-                <TouchButton onClick={() => setCopyOpen(true)}>Copy Products From Another Venue</TouchButton>
+                <TouchLink href="/ingredients">Open Ingredients</TouchLink>
               </div>
             }
           />
@@ -111,7 +109,7 @@ export default function OrderingVenueHome() {
             tag={summary.draftOrders > 0 ? <Tag tone="warn">{summary.draftOrders} not sent yet</Tag> : undefined}
           />
           <AreaCard href={`${base}/history`} icon={<History className="h-6 w-6" strokeWidth={2} />} title="History" help="Past counts and orders, and how each product has moved." />
-          <AreaCard href={`${base}/setup`} icon={<SlidersHorizontal className="h-6 w-6" strokeWidth={2} />} title="Setup" help="Suppliers, categories and products with their Build To levels." tag={<Tag>{summary.products} products</Tag>} />
+          <AreaCard href={`${base}/setup`} icon={<SlidersHorizontal className="h-6 w-6" strokeWidth={2} />} title="Setup" help="Suppliers, categories and the order list in shelf order." tag={<Tag>{summary.products} products</Tag>} />
         </div>
       ) : null}
 
@@ -120,8 +118,6 @@ export default function OrderingVenueHome() {
           {name} is separate from every other venue: its own products, Build To levels, counts and orders.
         </p>
       ) : null}
-
-      <CopyVenueSheet target={venue} open={copyOpen} onClose={() => setCopyOpen(false)} onDone={() => void load()} />
     </div>
   );
 }

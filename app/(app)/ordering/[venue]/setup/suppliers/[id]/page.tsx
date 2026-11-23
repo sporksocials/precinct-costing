@@ -9,7 +9,7 @@ import { qtyText } from "@/lib/ordering";
 import { Banner, Empty, Group, PageHeader } from "@/components/ui";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
 import { upsertById, useVenueData } from "@/components/ordering/use-venue-data";
-import { ActiveSwitch, ChoiceBlock, SaveNote, SwitchRow, TextField, TouchBack, TouchLink, TouchSegmented } from "@/components/ordering/touch";
+import { ActiveSwitch, ChoiceBlock, SaveNote, TextField, TouchBack, TouchLink, TouchSegmented } from "@/components/ordering/touch";
 import type { OrderingMethod } from "@/lib/ordering-types";
 
 type Save = { state: "idle" | "saving" | "saved" | "error"; message: string | null };
@@ -134,10 +134,6 @@ export default function OrderingSupplierPage() {
             void persist({ min_order_units: v });
           }}
         />
-      </Group>
-
-      <Group title="Order Text">
-        <SwitchRow checked={supplier.show_prices_on_order} onChange={(v) => void persist({ show_prices_on_order: v })} label="Show Prices On Order" sub="Prints each line price and the total ex and inc GST, for suppliers that need it so the people receiving the delivery can check what was agreed." />
       </Group>
 
       <Group>

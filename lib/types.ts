@@ -88,6 +88,11 @@ export interface Ingredient {
   seafood_origin?: "A" | "I" | null;
   /** seafood the origin standard exempts (fish sauce, canned tuna, bonito powder) */
   seafood_exempt?: boolean | null;
+  /**
+   * How many of this ingredient's packs one CARTON holds (6 bottles a carton). null or absent = nobody has said;
+   * 1 = the ingredient's own pack is the carton (a 24 pack of cans). Ordering reads it for a product counted by the carton.
+   */
+  carton_qty?: number | null;
 }
 
 export interface Prep {

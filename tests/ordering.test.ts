@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   UNASSIGNED,
   buildSupplierOrders,
+  countedInAnotherUnit,
   defaultUnitForCategory,
-  draftLineForProduct,
-  draftLinesFromSuggestions,
   exGst,
   groupProductsByCategory,
   lineTotals,
@@ -160,20 +159,6 @@ describe("groupProductsByCategory", () => {
   });
 });
 
-describe("order lines to save", () => {
-  const p = prod({ id: "a", supplier_item_code: "170240", pack_multiple: 6, price_inc_gst: 29.5, unit_name: "bottle" });
-  it("snapshots the product and skips zero lines", () => {
-    const sug: ReturnType<typeof buildSupplierOrders>[number]["lines"] = [{ product: p, storeQty: 15, secondQty: 0, suggestion: suggestOrder(p, 15, 0) }];
-    const drafts = draftLinesFromSuggestions(sug);
-    expect(drafts).toEqual([{ product_id: "a", product_name: "Jim Beam", supplier_item_code: "170240", unit_name: "bottle", suggested_qty: 6, ordered_qty: 6, pack_multiple: 6, price_inc_gst: 29.5, sort: 0 }]);
-    expect(draftLinesFromSuggestions(sug, { a: 0 })).toEqual([]);
-    expect(draftLinesFromSuggestions(sug, { a: 12 })[0]).toMatchObject({ ordered_qty: 12, suggested_qty: 6 });
-  });
-  it("a top-up line has no suggestion", () => {
-    expect(draftLineForProduct(p, 5, 2)).toMatchObject({ suggested_qty: null, ordered_qty: 5, sort: 2 });
-  });
-});
-
 describe("prices", () => {
   it("ex GST is inc divided by 1.1 to the cent", () => {
     expect(exGst(29.5)).toBe(26.82);
@@ -253,5 +238,32 @@ describe("conventions", () => {
     expect(orderingVenueName({ name: "Drift Bar", slug: "drift" })).toBe("Drift");
     expect(orderingVenueName({ name: "Greedy Gringo's", slug: "greedy" })).toBe("Greedy");
     expect(orderingVenueName({ name: "Somewhere New" })).toBe("Somewhere New");
+  });
+});
+
+describe("a count taken in another unit is not a count (Counted By was changed since)", () => {
+  const bourbon = prod({ id: "b", unit_name: "carton", par: 3 }); // was counted by the bottle, Build To 18; now by the carton, Build To 3
+  it("14 bottles is not 14 cartons: the product reads as not counted, so nothing wrong is suggested", () => {
+    const [g] = buildSupplierOrders([bourbon], [{ product_id: "b", store_qty: 14, second_qty: 0, unit_name: "bottle" }], { suppliers: [supplier()] });
+    expect(g.lines).toEqual([]);
+    expect(g.zeroLines).toEqual([]);
+    expect(g.uncountedLines.map((l) => l.product.id)).toEqual(["b"]);
+    expect(g.uncountedLines[0].suggestion).toMatchObject({ uncounted: true, orderQty: 0 });
+  });
+  it("the other way would have over-ordered: 2 cartons counted against a Build To of 30 bottles is not 28 bottles to order", () => {
+    const bottles = prod({ id: "b", unit_name: "bottle", par: 30 });
+    const [g] = buildSupplierOrders([bottles], [{ product_id: "b", store_qty: 2, second_qty: null, unit_name: "Carton" }], { suppliers: [supplier()] });
+    expect(g.lines).toEqual([]);
+    expect(g.uncountedLines).toHaveLength(1);
+  });
+  it("the same unit (capitals and spaces aside) and a line with no unit recorded are used as before", () => {
+    expect(countedInAnotherUnit({ unit_name: " Carton " }, bourbon)).toBe(false);
+    expect(countedInAnotherUnit({ unit_name: null }, bourbon)).toBe(false);
+    expect(countedInAnotherUnit(undefined, bourbon)).toBe(false);
+    expect(countedInAnotherUnit({ unit_name: "bottle" }, bourbon)).toBe(true);
+    const [g] = buildSupplierOrders([bourbon], [{ product_id: "b", store_qty: 1, second_qty: 0, unit_name: "carton" }], { suppliers: [supplier()] });
+    expect(g.lines.map((l) => l.suggestion.orderQty)).toEqual([2]);
+    const [old] = buildSupplierOrders([bourbon], [{ product_id: "b", store_qty: 1, second_qty: 0 }], { suppliers: [supplier()] });
+    expect(old.lines.map((l) => l.suggestion.orderQty)).toEqual([2]);
   });
 });

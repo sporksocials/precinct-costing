@@ -4,17 +4,19 @@ import React, { useCallback, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { updateProduct } from "@/lib/ordering-data";
-import { planLinkedRenames, plannedCount, type LinkedProduct, type LinkedRenamePlan } from "@/lib/rename-linked";
+import { orderItemClashMessage, orderItemRenameClash, planLinkedRenames, plannedCount, type LinkedProduct, type LinkedRenamePlan } from "@/lib/rename-linked";
 import type { Ingredient, Venue } from "@/lib/types";
 import { Sheet } from "./ui";
 
 /**
- * Rename everywhere (Troy, 13 Oct 2026). When an ingredient is renamed, the dishes named after it (a spirit's nip) and the ordering
- * products that point at it change too, after a preview that lists every name and one Undo that puts all of it back. The rules are
- * in lib/rename-linked.ts; this is the preview sheet and the writing. Dishes go through the store's own updateItem (history, edit
- * stamps, offline behaviour as ever); ordering products through the ordering data layer. Every other path is unchanged: choosing
- * "Only Rename The Ingredient" keeps today's behaviour.
+ * Rename everywhere (Troy, 13 Oct 2026). When an ingredient is renamed, the dishes named after it (a spirit's nip) change too,
+ * after a preview that lists every name and one Undo that puts all of it back. The rules are in lib/rename-linked.ts; this is the
+ * preview sheet and the writing. Dishes go through the store's own updateItem (history, edit stamps, offline behaviour as ever).
+ * Choosing "Only Rename The Ingredient" renames the ingredient alone.
+ *
+ * ORDER ITEMS are not written here any more (one card per product, Troy, 23 Nov 2026): an order item carries its ingredient's
+ * full name and the database keeps it so, at every venue, on every rename and every Undo. What this does for them is refuse a
+ * rename the database would refuse (the new name is already taken on a venue's order list) in plain words BEFORE saving.
  */
 
 type Choice = "all" | "only" | "cancel";
@@ -23,16 +25,16 @@ interface Applied {
   ingredientId: string;
   oldName: string;
   dishes: { id: string; from: string }[];
-  products: { id: string; from: string; link: boolean }[];
 }
 
+/** The order items the clash check reads. Unreadable (ordering not set up, offline) reads as none: the rename is then checked by the database alone. */
 async function loadProducts(): Promise<LinkedProduct[]> {
   try {
-    const { data, error } = await getSupabaseBrowser().from("ordering_products").select("id,venue_id,category_id,name,ingredient_id");
+    const { data, error } = await getSupabaseBrowser().from("ordering_products").select("id,venue_id,category_id,name,ingredient_id,active");
     if (error || !data) return [];
     return data as LinkedProduct[];
   } catch {
-    return []; // ordering not set up, offline: the rename still works, it just carries to dishes only
+    return [];
   }
 }
 
@@ -45,8 +47,10 @@ export function useLinkedRename(ing: Pick<Ingredient, "id" | "name">) {
     async (next: string): Promise<false | string> => {
       const oldName = ing.name;
       applied.current = null;
-      const products = await loadProducts();
-      const plan = planLinkedRenames({ ingredientId: ing.id, oldName, newName: next, ingredients: store.ingredients, items: store.items, lines: store.lines, products });
+      // an order item carries this ingredient's name: refuse a name a venue's order list already has, before anything is saved
+      const clash = orderItemRenameClash({ ingredientId: ing.id, newName: next, products: await loadProducts() });
+      if (clash) throw new Error(orderItemClashMessage(clash, store.venues.find((v) => v.id === clash.venue_id)?.name));
+      const plan = planLinkedRenames({ ingredientId: ing.id, oldName, newName: next, ingredients: store.ingredients, items: store.items, lines: store.lines });
       let choice: Choice = "only";
       if (plannedCount(plan) > 0 || plan.skipped.length > 0) choice = await new Promise<Choice>((resolve) => setAsk({ plan, resolve }));
       setAsk(null);
@@ -54,7 +58,7 @@ export function useLinkedRename(ing: Pick<Ingredient, "id" | "name">) {
       await store.updateIngredient(ing.id, { name: next });
       if (choice === "only" || plannedCount(plan) === 0) return `Renamed to ${next}`;
 
-      const done: Applied = { ingredientId: ing.id, oldName, dishes: [], products: [] };
+      const done: Applied = { ingredientId: ing.id, oldName, dishes: [] };
       let failed = 0;
       for (const d of plan.dishes) {
         try {
@@ -64,17 +68,8 @@ export function useLinkedRename(ing: Pick<Ingredient, "id" | "name">) {
           failed++;
         }
       }
-      const sb = getSupabaseBrowser();
-      for (const p of plan.products) {
-        try {
-          await updateProduct(sb, p.id, p.link ? { name: p.to, ingredient_id: ing.id } : { name: p.to });
-          done.products.push({ id: p.id, from: p.from, link: p.link });
-        } catch {
-          failed++;
-        }
-      }
       applied.current = done;
-      const n = done.dishes.length + done.products.length;
+      const n = done.dishes.length;
       return `Renamed to ${next} and ${n} linked ${n === 1 ? "name" : "names"}${failed ? `. ${failed} could not be changed.` : ""}`;
     },
     [ing.id, ing.name, store],
@@ -87,9 +82,7 @@ export function useLinkedRename(ing: Pick<Ingredient, "id" | "name">) {
       applied.current = null;
       await store.updateIngredient(ing.id, { name: oldName });
       if (!done) return;
-      const sb = getSupabaseBrowser();
       for (const d of done.dishes) await store.updateItem(d.id, { name: d.from }).catch(() => undefined);
-      for (const p of done.products) await updateProduct(sb, p.id, p.link ? { name: p.from, ingredient_id: null } : { name: p.from }).catch(() => undefined);
     },
     [ing.id, store],
   );
@@ -106,13 +99,10 @@ function LinkedRenameSheet({ plan, venues, onChoose }: { plan: LinkedRenamePlan;
       <div className="space-y-5 pb-2">
         <p className="text-[15px] text-label-2">
           {n > 0
-            ? `These are named after “${plan.oldBase}”. They can change to “${plan.newBase}” as well, so the dishes, the ordering lists and the ingredient all agree. One Undo puts everything back.`
+            ? `These are named after “${plan.oldBase}”. They can change to “${plan.newBase}” as well, so the dishes and the ingredient agree. The order lists follow the ingredient by themselves. One Undo puts everything back.`
             : "Nothing else can be renamed to match."}
         </p>
         {plan.dishes.length > 0 ? <Section title="Dishes" rows={plan.dishes.map((d) => ({ key: d.id, where: venueName(d.venue_id), from: d.from, to: d.to }))} /> : null}
-        {plan.products.length > 0 ? (
-          <Section title="Ordering Products" rows={plan.products.map((p) => ({ key: p.id, where: venueName(p.venue_id), from: p.from, to: p.to, note: p.link ? "Also linked to this ingredient" : undefined }))} />
-        ) : null}
         {plan.skipped.length > 0 ? (
           <div>
             <h3 className="text-[13px] font-semibold uppercase tracking-wide text-label-3">Left As They Are</h3>

@@ -1,336 +1,132 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
-import { ensureTermsRow, updateProduct, type ProductDraft } from "@/lib/ordering-data";
-import { exGst, qtyText } from "@/lib/ordering";
-import { brisbaneToday } from "@/lib/deals";
-import { dateShort } from "@/lib/format";
-import { compareSentence } from "@/lib/supplier-compare";
-import { bySortThenName, ingredientSupplierSentence, isActiveMaster, moneyInput, nameTaken, packsSentence, parseMoney, parseQuantity, parseWhole, productSupplierView, supplierChoices, UNIT_CHOICE_OPTIONS, unitChoice, unitTitle, type UnitChoice } from "@/lib/ordering-setup";
-import { Banner, Empty, Group, PageHeader } from "@/components/ui";
+import { updateProduct } from "@/lib/ordering-data";
+import { qtyText } from "@/lib/ordering";
+import { orderPriceSentence } from "@/lib/ordering-facts";
+import { NEEDS_INGREDIENT, NEEDS_INGREDIENT_HREF, ingredientOrderingHref } from "@/lib/ordering-orders-ui";
+import { unitTitle } from "@/lib/ordering-setup";
+import { Empty, Group, PageHeader } from "@/components/ui";
 import { useOrderingVenue } from "@/components/ordering/venue-context";
 import { upsertById, useVenueData } from "@/components/ordering/use-venue-data";
-import { ActiveSwitch, ChoiceBlock, SaveNote, TextField, TouchBack, TouchButton, TouchChips, TouchLink } from "@/components/ordering/touch";
-import { IngredientPickerSheet, ingredientPackText } from "@/components/ordering/ingredient-picker";
+import { useOrderFacts } from "@/components/ordering/use-order-facts";
+import { ActiveSwitch, SaveNote, TouchBack, TouchLink } from "@/components/ordering/touch";
 
 type Save = { state: "idle" | "saving" | "saved" | "error"; message: string | null };
 
+/** One read-only fact on the fallback card. */
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-[48px] items-center justify-between gap-3 px-4 py-2">
+      <span className="text-[15px] text-label-2">{label}</span>
+      <span className="min-w-0 truncate text-right text-[17px] text-label">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * A product's own page no longer edits anything (one card per product, Troy, 23 Nov 2026): a product is its ingredient, so
+ * this address sends the person on to the ingredient page with the Ordering group in view. The only product that stays here
+ * is an OLD one with no ingredient (or whose ingredient cannot be found): it gets a small read-only card with what is
+ * stored on it, its Active switch, and "Needs An Ingredient".
+ */
 export default function OrderingProductPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { venue, name, base } = useOrderingVenue();
   const store = useStore();
+  const factsOf = useOrderFacts();
   const { sb, data, status, apply } = useVenueData(venue.id);
   const [save, setSave] = useState<Save>({ state: "idle", message: null });
-  const [errors, setErrors] = useState<Record<string, string | null>>({});
-  const [picking, setPicking] = useState(false);
-  const [otherUnit, setOtherUnit] = useState<boolean | null>(null);
 
   const product = data?.products.find((p) => p.id === id) ?? null;
-  const categories = useMemo(() => bySortThenName(data?.categories ?? []), [data?.categories]);
-  const category = categories.find((c) => c.id === product?.category_id) ?? null;
-  const ingredient = product?.ingredient_id ? store.ingredients.find((i) => i.id === product.ingredient_id) ?? null : null;
-  // the one supplier list: a linked product's supplier is its ingredient's; an order-only product picks one from the list
-  const masters = store.suppliers;
-  const supplierView = useMemo(() => (product ? productSupplierView(product, ingredient, masters, data?.suppliers ?? []) : null), [product, ingredient, masters, data?.suppliers]);
-  const ownSupplierId = supplierView?.costSupplierId ?? null;
-  const setError = (k: string, v: string | null) => setErrors((e) => ({ ...e, [k]: v }));
+  const category = data?.categories.find((c) => c.id === product?.category_id) ?? null;
+  const supplier = data?.suppliers.find((s) => s.id === product?.supplier_id) ?? null;
+  const ingredientFound = !!product?.ingredient_id && store.ingredients.some((i) => i.id === product.ingredient_id);
+  const goTo = product?.ingredient_id && ingredientFound ? ingredientOrderingHref(product.ingredient_id) : null;
 
-  const persist = useCallback(
-    async (patch: Partial<ProductDraft>): Promise<boolean> => {
+  useEffect(() => {
+    if (goTo) router.replace(goTo);
+  }, [goTo, router]);
+
+  const setActive = useCallback(
+    async (active: boolean) => {
       setSave({ state: "saving", message: null });
       try {
-        const row = await updateProduct(sb, id, patch);
+        const row = await updateProduct(sb, id, { active });
         apply((d) => ({ ...d, products: upsertById(d.products, row) }));
         setSave({ state: "saved", message: null });
-        return true;
       } catch (e) {
         setSave({ state: "error", message: e instanceof Error ? e.message : String(e) });
-        return false;
       }
     },
     [sb, id, apply],
   );
 
-  /** An order-only product's supplier: make this venue's terms row for it (or find it), then point the product at it. */
-  async function chooseSupplier(value: string) {
-    setError("supplier", null);
-    if (!value) return void persist({ supplier_id: null });
-    try {
-      const row = await ensureTermsRow(sb, venue.id, Number(value));
-      apply((d) => ({ ...d, suppliers: upsertById(d.suppliers, row) }));
-      await persist({ supplier_id: row.id });
-    } catch (e) {
-      setError("supplier", e instanceof Error ? e.message : String(e));
-    }
-  }
+  const back = (
+    <TouchBack path={`${base}/setup/products`} fallback={`${base}/setup/products`}>
+      Products
+    </TouchBack>
+  );
 
   if (!product) {
     return (
       <div className="max-w-2xl lg:pt-6">
-        <TouchBack path={`${base}/setup/products`} fallback={`${base}/setup/products`}>
-          Products
-        </TouchBack>
+        {back}
         {status === "loading" ? <p className="mt-6 text-[15px] text-label-2">Loading...</p> : <Empty title="Product Not Found" body="It may belong to another venue, or have been removed." action={<TouchLink href={`${base}/setup/products`} variant="primary">Back To Products</TouchLink>} />}
       </div>
     );
   }
 
-  const nullable = (t: string) => (t.trim() === "" ? null : t.trim());
-  const unitPick: UnitChoice = (otherUnit ?? unitChoice(product.unit_name) === "other") ? "other" : unitChoice(product.unit_name);
-  const priceEx = product.price_inc_gst != null ? exGst(Number(product.price_inc_gst)) : null;
-  // the other supplier is any active supplier in the list except this product's own
-  const otherSupplierNames = masters
-    .filter((m) => (isActiveMaster(m) && m.id !== ownSupplierId) || m.name === product.alt_supplier_name)
-    .map((m) => m.name)
-    .sort((x, y) => x.localeCompare(y));
-  const sentence = ingredient ? packsSentence(product.unit_name, product.price_inc_gst, product.costing_packs_per_unit) : null;
+  // wait for the ingredient list before deciding an ingredient is missing, so a slow load never shows the fallback card by mistake
+  if (product.ingredient_id && (ingredientFound || !store.ready)) {
+    return (
+      <div className="max-w-2xl lg:pt-6">
+        {back}
+        <p className="mt-6 text-[15px] text-label-2">Opening the ingredient...</p>
+        {ingredientFound ? (
+          <TouchLink href={ingredientOrderingHref(product.ingredient_id)} variant="primary" className="mt-3">
+            Open The Ingredient
+          </TouchLink>
+        ) : null}
+      </div>
+    );
+  }
 
+  const facts = factsOf(product);
   return (
     <div className="max-w-2xl lg:pt-6">
-      <TouchBack path={`${base}/setup/products`} fallback={`${base}/setup/products`}>
-        Products
-      </TouchBack>
+      {back}
       <PageHeader title={product.name} subtitle={`${name} · ${category?.name ?? "No category"}`} className="lg:!pt-2" />
       <SaveNote state={save.state} message={save.message} />
 
-      <Group title="Product">
-        <TextField
-          label="Name"
-          value={product.name}
-          error={errors.name}
-          onCommit={(t) => {
-            const n = t.trim();
-            if (!n) return setError("name", "A product needs a name.");
-            if (nameTaken(n, (data?.products ?? []).filter((p) => p.category_id === product.category_id), product.id)) return setError("name", "That category already has a product with that name.");
-            setError("name", null);
-            void persist({ name: n });
-          }}
-        />
-        <ChoiceBlock label="Category" hint="Moving a product changes where it sits in the count.">
-          <TouchChips
-            wrap
-            ariaLabel="Category"
-            value={product.category_id}
-            onChange={(cid) => {
-              if (cid === product.category_id) return;
-              if (nameTaken(product.name, (data?.products ?? []).filter((p) => p.category_id === cid), product.id)) return setError("category", "That category already has a product with this name. Rename it first.");
-              setError("category", null);
-              const sort = Math.max(0, ...(data?.products ?? []).filter((p) => p.category_id === cid).map((p) => p.sort)) + 1;
-              void persist({ category_id: cid, sort });
-            }}
-            options={categories.map((c) => ({ value: c.id, label: c.name }))}
-          />
-          {errors.category ? (
-            <p role="alert" className="mt-2 text-[13px] text-danger">
-              {errors.category}
-            </p>
-          ) : null}
-        </ChoiceBlock>
-        <ChoiceBlock label="Unit" hint="What is counted and ordered. It shows next to every quantity.">
-          <TouchChips
-            wrap
-            ariaLabel="Unit"
-            value={unitPick}
-            options={UNIT_CHOICE_OPTIONS}
-            onChange={(v) => {
-              setOtherUnit(v === "other");
-              if (v !== "other") void persist({ unit_name: v });
-            }}
-          />
-          {unitPick === "other" ? (
-            <div className="-mx-4 mt-1">
-              <TextField label="Unit Name" value={unitChoice(product.unit_name) === "other" ? product.unit_name : ""} placeholder="tray" onCommit={(t) => t.trim() && void persist({ unit_name: t.trim().toLowerCase() })} />
-            </div>
-          ) : null}
-        </ChoiceBlock>
-      </Group>
-
-      <Group title="Supplier">
-        {supplierView?.kind === "ingredient" ? (
-          <div className="px-4 py-3">
-            <p className="text-[13px] font-medium text-label-2">Supplier</p>
-            <p className="mt-0.5 text-[17px]">{supplierView.supplierName ?? "No supplier yet"}</p>
-            <p className="mt-0.5 text-[13px] text-label-2">{ingredientSupplierSentence(supplierView)}</p>
-            <TouchLink href={`/ingredients/${supplierView.ingredientId}`} className="mt-3 w-full sm:w-auto">
-              Change It On The Ingredient
-            </TouchLink>
-          </div>
-        ) : (
-          <ChoiceBlock label="Supplier" hint="Pick from the supplier list. A product linked to an ingredient takes its supplier from the ingredient instead.">
-            <TouchChips wrap ariaLabel="Supplier" value={ownSupplierId == null ? "" : String(ownSupplierId)} onChange={(v) => void chooseSupplier(v)} options={supplierChoices(masters, ownSupplierId)} />
-            {errors.supplier ? (
-              <p role="alert" className="mt-2 text-[13px] text-danger">
-                {errors.supplier}
-              </p>
-            ) : null}
-          </ChoiceBlock>
-        )}
-        <TextField label="Supplier Item Code" value={product.supplier_item_code ?? ""} placeholder="Star item number" onCommit={(t) => void persist({ supplier_item_code: nullable(t) })} />
-        <TextField
-          label="Pack Multiple"
-          inputMode="numeric"
-          value={String(product.pack_multiple)}
-          error={errors.pack}
-          hint={`Orders round up to a multiple of this. Star spirits come in 6s or 12s. Leave at 1 for ${unitTitle(product.unit_name).toLowerCase() || "unit"}s ordered one at a time.`}
-          onCommit={(t) => {
-            const v = parseWhole(t, 1);
-            if (v == null) return setError("pack", "Type a whole number, 1 or more.");
-            setError("pack", null);
-            void persist({ pack_multiple: v });
-          }}
-        />
-      </Group>
-
-      <Group title="Other Supplier (Optional)" footer="For an item we can also buy from another supplier. We order from the supplier above unless the other one is 10% cheaper: this only adds a note on the order, it never switches anything.">
-        <ChoiceBlock label="Other Supplier">
-          <TouchChips
-            wrap
-            ariaLabel="Other supplier"
-            value={product.alt_supplier_name ?? ""}
-            onChange={(v) => void persist({ alt_supplier_name: v || null, ...(v ? {} : { alt_item_code: null, alt_price_inc_gst: null, alt_price_on: null }) })}
-            options={[{ value: "", label: "None" }, ...otherSupplierNames.map((n) => ({ value: n, label: n }))]}
-          />
-        </ChoiceBlock>
-        {product.alt_supplier_name ? (
-          <>
-            <TextField label="Other Supplier Item Code" value={product.alt_item_code ?? ""} placeholder="Their item number" onCommit={(t) => void persist({ alt_item_code: nullable(t) })} />
-            <TextField
-              label="Other Supplier Price Inc GST"
-              prefix="$"
-              inputMode="decimal"
-              value={moneyInput(product.alt_price_inc_gst ?? null)}
-              suffix={product.alt_price_on ? `Checked ${dateShort(product.alt_price_on)}` : "Same unit and size as this product"}
-              error={errors.altPrice}
-              hint={compareSentence({ price: product.price_inc_gst, otherName: product.alt_supplier_name, otherPrice: product.alt_price_inc_gst, unit: product.unit_name }) ?? undefined}
-              onCommit={(t) => {
-                const v = t.trim() === "" ? null : parseMoney(t);
-                if (t.trim() !== "" && v == null) return setError("altPrice", "Type an amount like 62.00.");
-                setError("altPrice", null);
-                void persist({ alt_price_inc_gst: v, alt_price_on: v == null ? null : brisbaneToday() });
-              }}
-            />
-          </>
-        ) : null}
-      </Group>
-
-      <Group title="Price And Build To">
-        <TextField
-          label="Price Inc GST"
-          prefix="$"
-          inputMode="decimal"
-          value={moneyInput(product.price_inc_gst)}
-          suffix={priceEx != null ? `Ex GST $${priceEx.toFixed(2)}` : "Price of one unit"}
-          error={errors.price}
-          onCommit={(t) => {
-            const v = t.trim() === "" ? null : parseMoney(t);
-            if (t.trim() !== "" && v == null) return setError("price", "Type an amount like 62.00.");
-            setError("price", null);
-            void persist({ price_inc_gst: v });
-          }}
-        />
-        <div className="grid grid-cols-2 gap-x-3">
-          <TextField
-            label="Free Unit Deal: Buy"
-            inputMode="numeric"
-            value={product.deal_buy_qty == null ? "" : String(product.deal_buy_qty)}
-            error={errors.dealBuy}
-            onCommit={(t) => {
-              if (t.trim() === "") {
-                setError("dealBuy", null);
-                return void persist({ deal_buy_qty: null, deal_free_qty: null });
-              }
-              const v = parseWhole(t, 1);
-              if (v == null) return setError("dealBuy", "Type a whole number, 1 or more.");
-              setError("dealBuy", null);
-              void persist({ deal_buy_qty: v, deal_free_qty: product.deal_free_qty ?? 1 });
-            }}
-          />
-          <TextField
-            label="Free Unit Deal: Free"
-            inputMode="numeric"
-            value={product.deal_free_qty == null ? "" : String(product.deal_free_qty)}
-            error={errors.dealGet}
-            onCommit={(t) => {
-              if (t.trim() === "") {
-                setError("dealGet", null);
-                return void persist({ deal_buy_qty: null, deal_free_qty: null });
-              }
-              const v = parseWhole(t, 1);
-              if (v == null) return setError("dealGet", "Type a whole number, 1 or more.");
-              if (product.deal_buy_qty == null) return setError("dealGet", "Fill in Buy first.");
-              setError("dealGet", null);
-              void persist({ deal_free_qty: v });
-            }}
-          />
+      <Group
+        title={NEEDS_INGREDIENT}
+        footer={`Products are now ingredients. Add this one as an ingredient (or find it if it is already there), switch ${name} on under Ordering on that ingredient, then switch this old one off below. Its past counts and orders are kept.`}
+      >
+        <div className="px-4 py-3">
+          <p className="text-[15px] leading-snug text-label-2">
+            {product.ingredient_id ? "The ingredient this product pointed at could not be found." : "This product has no ingredient behind it yet."} Until it has one it keeps working with what was saved on it, shown below. Nothing here can be edited.
+          </p>
+          <TouchLink href={NEEDS_INGREDIENT_HREF} variant="primary" className="mt-3 w-full sm:w-auto">
+            Open Ingredients
+          </TouchLink>
         </div>
-        <p className="px-4 pb-3 text-[13px] leading-snug text-label-2">
-          {product.deal_buy_qty != null && product.deal_free_qty != null
-            ? `Buy ${product.deal_buy_qty}, get ${product.deal_free_qty} free: every ${product.deal_buy_qty + product.deal_free_qty} ordered, ${product.deal_free_qty} is not paid for. Set Pack Multiple to ${product.deal_buy_qty + product.deal_free_qty} so orders go in ${product.deal_buy_qty + product.deal_free_qty}s.`
-            : "Leave both blank when there is no deal. Star kegs: buy 8, get 1 free."}
-        </p>
-        <TextField
-          label={`Build To (${unitTitle(product.unit_name).toLowerCase() || "units"})`}
-          inputMode="numeric"
-          value={qtyText(product.par)}
-          error={errors.par}
-          hint="The stock level an order brings this product back up to. Every change is kept in the Change Log with who made it."
-          onCommit={(t) => {
-            const v = parseQuantity(t);
-            if (v == null) return setError("par", "Type a number, 0 or more.");
-            setError("par", null);
-            void persist({ par: v });
-          }}
-        />
       </Group>
 
-      <Group title="Linked Costing Ingredient" footer="Optional. A link lets counts show stock value later. It does not change any costing price.">
-        {ingredient ? (
-          <div className="px-4 py-3">
-            <p className="text-[17px]">{ingredient.name}</p>
-            <p className="mt-0.5 text-[13px] text-label-2">{ingredientPackText(ingredient)}</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <TouchButton onClick={() => setPicking(true)}>Change Ingredient</TouchButton>
-              <TouchButton onClick={() => void persist({ ingredient_id: null, costing_packs_per_unit: null })}>Remove Link</TouchButton>
-            </div>
-          </div>
-        ) : (
-          <div className="px-4 py-3">
-            <p className="text-[15px] text-label-2">{product.ingredient_id ? "The linked ingredient could not be found." : "Not linked to a costing ingredient."}</p>
-            <TouchButton className="mt-3" onClick={() => setPicking(true)}>
-              Link An Ingredient
-            </TouchButton>
-          </div>
-        )}
-        {ingredient ? (
-          <TextField
-            label="Packs Per Unit"
-            inputMode="decimal"
-            value={product.costing_packs_per_unit == null ? "" : qtyText(product.costing_packs_per_unit)}
-            error={errors.packs}
-            placeholder="24"
-            hint={sentence ?? `How many of the ingredient's packs are in one ${product.unit_name || "unit"}, for example 24 cans in a carton.`}
-            onCommit={(t) => {
-              if (t.trim() === "") {
-                setError("packs", null);
-                return void persist({ costing_packs_per_unit: null });
-              }
-              const v = parseQuantity(t);
-              if (v == null || v <= 0) return setError("packs", "Type a number above 0, like 24.");
-              setError("packs", null);
-              void persist({ costing_packs_per_unit: v });
-            }}
-          />
-        ) : null}
+      <Group title="Saved On This Product">
+        <Fact label="Name" value={product.name} />
+        <Fact label="Counted By" value={unitTitle(product.unit_name) || "None"} />
+        <Fact label="Build To" value={qtyText(product.par)} />
+        <Fact label="Supplier" value={supplier?.name ?? "No supplier"} />
+        <Fact label="Supplier Item Code" value={facts.code ?? "None"} />
+        <Fact label="Price" value={facts.unitInc == null ? "No price" : orderPriceSentence(facts).replace(/^Ordered by the [^:]+: /, "")} />
       </Group>
 
       <Group>
-        <TextField label="Notes" multiline value={product.notes ?? ""} onCommit={(t) => void persist({ notes: nullable(t) })} />
-      </Group>
-
-      <Group>
-        <ActiveSwitch checked={product.active} onChange={(v) => void persist({ active: v })} sub="Off takes it off the count and out of new orders. Past counts keep it. Nothing is deleted." />
+        <ActiveSwitch checked={product.active} onChange={(v) => void setActive(v)} sub="Off takes it off the count and out of new orders. Past counts keep it. Nothing is deleted." />
       </Group>
 
       <Group title="History">
@@ -340,16 +136,6 @@ export default function OrderingProductPage() {
           </TouchLink>
         </div>
       </Group>
-
-      <IngredientPickerSheet
-        open={picking}
-        onClose={() => setPicking(false)}
-        currentId={product.ingredient_id}
-        onPick={(i) => {
-          setPicking(false);
-          void persist({ ingredient_id: i.id });
-        }}
-      />
     </div>
   );
 }

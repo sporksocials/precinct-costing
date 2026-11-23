@@ -153,9 +153,14 @@ describe("which lines are a price waiting", () => {
     expect(isPriceLine(line({ decision: "none" }))).toBe(false);
     expect(isPriceLine(line({ decision: "skip" }))).toBe(false);
   });
-  it("needs a target: an ingredient or an ordering product with a changed price", () => {
+  it("needs an INGREDIENT with a changed pack price: an order item is never a price to approve", () => {
     expect(isPriceLine(line({ ingredient_id: null, product_id: null }))).toBe(false);
-    expect(isPriceLine(line({ ingredient_id: null, product_id: "p1", old_pack_price: null, new_pack_price: null, old_product_price: 62, new_product_price: 63 }))).toBe(true);
+    // a line read before 23 Nov 2026 that proposed only an order price: never listed, never counted
+    expect(isPriceLine(line({ ingredient_id: null, product_id: "p1", old_pack_price: null, new_pack_price: null, old_product_price: 62, new_product_price: 63 }))).toBe(false);
+    // the ingredient's price is unchanged and only an old order price pair differs: nothing to approve
+    expect(isPriceLine(line({ old_pack_price: 5, new_pack_price: 5, product_id: "p1", old_product_price: 62, new_product_price: 63 }))).toBe(false);
+    // a new analysis: the order item rides along, the ingredient's price is what waits
+    expect(isPriceLine(line({ product_id: "p1" }))).toBe(true);
   });
   it("never lists a line on a duplicate, failed or set aside invoice", () => {
     for (const status of ["duplicate", "failed", "ignored"] as const) expect(buildApproveRow(line(), doc({ status }), "S", 0.05)).toBeNull();
@@ -195,17 +200,25 @@ describe("rows and what needs a closer look", () => {
     expect(row(line({ old_pack_price: null, new_pack_price: 9 })).flag).toBe("no_price");
     expect(row(line({ old_pack_price: 10, new_pack_price: 10.2 }), doc({ reconciled: false })).flag).toBe("unbalanced");
   });
-  it("tests the limit against the larger of the ingredient and ordering moves", () => {
+  it("tests the limit against the ingredient's move only: an old order price pair on the line changes nothing", () => {
+    // 1% on the ingredient; an analysis before 23 Nov 2026 also stored a 12.9% order price move on the same line
     const l = line({ old_pack_price: 10, new_pack_price: 10.1, product_id: "p1", old_product_price: 62, new_product_price: 70 });
     const r = row(l);
-    expect(r.flag).toBe("big");
+    expect(r.flag).toBeNull();
     expect(r.target).toBe("ingredient");
-    expect(r.other?.newPrice).toBe(70);
+    expect(r).toMatchObject({ oldPrice: 10, newPrice: 10.1 });
+    expect(r.pct).toBeCloseTo(0.01);
+    expect(r.maxPct).toBe(r.pct);
+    expect("other" in r).toBe(false);
+    expect(JSON.stringify({ ...r, line: undefined })).not.toMatch(/70|Ordering price/);
   });
-  it("shows the ordering price when only it changes", () => {
-    const r = row(line({ old_pack_price: 5, new_pack_price: 5, product_id: "p1", old_product_price: 62, new_product_price: 63 }));
-    expect(r.target).toBe("product");
-    expect(r.newPrice).toBe(63);
+  it("builds no row at all when only an old order price pair differs, or the line has no ingredient", () => {
+    expect(buildApproveRow(line({ old_pack_price: 5, new_pack_price: 5, product_id: "p1", old_product_price: 62, new_product_price: 63 }), doc(), "S", 0.05)).toBeNull();
+    expect(buildApproveRow(line({ ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: "p1", old_product_price: 62, new_product_price: 63 }), doc(), "S", 0.05)).toBeNull();
+  });
+  it("a line as a new analysis stores it (order price columns null) lists exactly one price, the ingredient's", () => {
+    const r = row(line({ old_pack_price: 10, new_pack_price: 10.3, product_id: "p1", old_product_price: null, new_product_price: null }));
+    expect(r).toMatchObject({ target: "ingredient", oldPrice: 10, newPrice: 10.3, flag: null });
   });
   it("sorts the big ones first, biggest first, then the rest A to Z", () => {
     const a = row(line({ description: "Zucchini", old_pack_price: 10, new_pack_price: 10.1 }));

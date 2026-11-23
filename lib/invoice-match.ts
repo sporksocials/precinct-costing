@@ -281,21 +281,24 @@ export function buildMatcher(ctx: AnalyseContext, supplier: InvoiceSupplierRow |
       }
 
       if (code) {
-        // (iii) the venue's ordering product with this supplier item code, then its linked ingredient
+        // (iii) the venue's order item with this supplier item code, with its linked ingredient
         const byCode = productsOfSupplier.filter((p) => normCode(p.supplier_item_code) === code);
         const live = byCode.some((p) => p.active) ? byCode.filter((p) => p.active) : byCode;
         const prodHits = live.map(productTarget).filter((t) => !rejected(t)).map((t) => ({ target: t, map: null }));
-        const r3 = settle(prodHits, "code");
-        if (r3) return r3;
 
         // (iv) a costing ingredient with this supplier code, from this supplier
-        if (supplier?.cost_supplier_id != null) {
-          const ings = ctx.ingredients.filter((i) => i.supplier_id === supplier.cost_supplier_id && normCode(i.supplier_code) === code);
-          const liveIng = ings.some((i) => i.active) ? ings.filter((i) => i.active) : ings;
-          const ingHits = liveIng.map((i) => ({ ingredient: i, product: null }) as MatchTarget).filter((t) => !rejected(t)).map((t) => ({ target: t, map: null }));
-          const r4 = settle(ingHits, "code");
-          if (r4) return r4;
-        }
+        const ings = supplier?.cost_supplier_id != null ? ctx.ingredients.filter((i) => i.supplier_id === supplier.cost_supplier_id && normCode(i.supplier_code) === code) : [];
+        const liveIng = ings.some((i) => i.active) ? ings.filter((i) => i.active) : ings;
+        const ingHits = liveIng.map((i) => ({ ingredient: i, product: null }) as MatchTarget).filter((t) => !rejected(t)).map((t) => ({ target: t, map: null }));
+
+        // The code lives on the ingredient (one card per product, 23 Nov 2026); an order item's code is a copy of it that may lag.
+        // When an order item and an ingredient both carry this code they are ONE candidate if the order item is that ingredient's
+        // own (it is then kept on the match for the record), and when they point at different things the ingredient's code wins:
+        // the disagreeing order item is dropped, never offered as a second candidate.
+        const ingIds = new Set(ingHits.map((h) => h.target.ingredient!.id));
+        const agreeing = prodHits.filter((h) => h.target.ingredient != null && ingIds.has(h.target.ingredient.id));
+        const r3 = settle(ingHits.length > 0 && agreeing.length === 0 ? ingHits : agreeing.length > 0 ? agreeing : prodHits, "code");
+        if (r3) return r3;
       }
 
       return { state: "unmatched", method: null, mapId: null, mapPacks: null, ingredient: null, product: null, options: suggest(line, rejected) };

@@ -162,18 +162,40 @@ export async function loadInvoiceList(sb: SupabaseClient): Promise<ListData> {
 
 export interface ChangeLookups {
   lines: Map<string, { description: string; item_code: string | null }>;
+  /** `price` is the order item's old STORED price, read only so an older "ordering_product" ledger row can show what Undo would replace */
   products: Map<string, { name: string; price: number | null }>;
 }
-/** The line text and ordering-product names behind a page of price changes. Missing names just stay out of the maps. */
+
+/**
+ * Order item names, with the old stored price when the column is still there. HISTORY ONLY: the stored price is retired (an order
+ * price is worked out from the ingredient) and is read here solely for the Undo sheet of a ledger row written before that. If the
+ * column is ever dropped the names still load and the price reads as unknown.
+ */
+async function loadProductNames(sb: SupabaseClient, maybeIds: (string | null | undefined)[]): Promise<Map<string, { name: string; price: number | null }>> {
+  const out = new Map<string, { name: string; price: number | null }>();
+  const ids = maybeIds.filter((x): x is string => !!x);
+  type Row = { id: string; name: string; price_inc_gst?: unknown };
+  let rows: Row[];
+  try {
+    rows = await inChunks<Row>("ordering_products", ids, (c) => sb.from("ordering_products").select("id,name,price_inc_gst").in("id", c));
+  } catch {
+    rows = await inChunks<Row>("ordering_products", ids, (c) => sb.from("ordering_products").select("id,name").in("id", c));
+  }
+  for (const p of rows) out.set(p.id, { name: p.name, price: num(p.price_inc_gst) });
+  return out;
+}
+
+/** The line text and order item names behind a page of price changes. Missing names just stay out of the maps. */
 export async function loadChangeLookups(sb: SupabaseClient, changes: readonly InvoicePriceChangeRow[]): Promise<ChangeLookups> {
   const out: ChangeLookups = { lines: new Map(), products: new Map() };
   try {
     const [lines, products] = await Promise.all([
       inChunks<{ id: string; description: string; item_code: string | null }>("invoice_lines", changes.map((c) => c.line_id), (c) => sb.from("invoice_lines").select("id,description,item_code").in("id", c)),
-      inChunks<{ id: string; name: string; price_inc_gst: unknown }>("ordering_products", changes.filter((c) => c.target === "ordering_product").map((c) => c.target_id), (c) => sb.from("ordering_products").select("id,name,price_inc_gst").in("id", c)),
+      // only ledger rows written before 23 Nov 2026 have this target; nothing writes one now
+      loadProductNames(sb, changes.filter((c) => c.target === "ordering_product").map((c) => c.target_id)),
     ]);
     for (const l of lines) out.lines.set(l.id, { description: l.description, item_code: l.item_code });
-    for (const p of products) out.products.set(p.id, { name: p.name, price: num(p.price_inc_gst) });
+    out.products = products;
   } catch {
     /* names are a nicety: the rows still show the invoice line */
   }
@@ -220,10 +242,10 @@ export async function loadInvoiceDetail(sb: SupabaseClient, id: string): Promise
       doc.supplier_id ? (async () => (await sb.from("invoice_suppliers").select("id,name").eq("id", doc.supplier_id as string)) as unknown as Res)() : Promise.resolve({ data: [], error: null } as Res),
     ]);
     const lineRows = lines.map(readLine);
-    const products = new Map<string, { name: string; price: number | null }>();
+    let products = new Map<string, { name: string; price: number | null }>();
     try {
-      const prods = await inChunks<{ id: string; name: string; price_inc_gst: unknown }>("ordering_products", lineRows.map((l) => l.product_id).filter((x): x is string => !!x), (c) => sb.from("ordering_products").select("id,name,price_inc_gst").in("id", c));
-      for (const p of prods) products.set(p.id, { name: p.name, price: num(p.price_inc_gst) });
+      // the names of the order items the lines point at, and the ones older "ordering_product" ledger rows changed
+      products = await loadProductNames(sb, [...lineRows.map((l) => l.product_id), ...changes.map(readChange).filter((c) => c.target === "ordering_product").map((c) => c.target_id)]);
     } catch {
       /* product names are a nicety */
     }

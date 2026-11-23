@@ -34,7 +34,7 @@ export function ing(over: Partial<AnalyseIngredient> & { id: string; name: strin
 }
 export function prod(over: Partial<AnalyseProduct> & { id: string; name: string }): AnalyseProduct {
   return {
-    venue_id: DRIFT, supplier_item_code: null, supplier_name: null, unit_name: "carton", price_inc_gst: null, ingredient_id: null,
+    venue_id: DRIFT, supplier_item_code: null, supplier_name: null, unit_name: "carton", ingredient_id: null,
     costing_packs_per_unit: null, deal_buy_qty: null, deal_free_qty: null, active: true, ...over,
   };
 }
@@ -45,7 +45,7 @@ export const ING_GINGER = ing({ id: "ing-ginger", name: "Diablo Ginger Beer 50L 
 export const ING_LYCHEE = ing({ id: "ing-lychee", name: "Lychee Liqueur (700ml)", supplier_id: 9, pack_size: 700, pack_unit: "ml", pack_price: 38 });
 
 export const PROD_BARRA = prod({
-  id: "prod-barra", name: "Barramundi Fillets", supplier_item_code: "15056", supplier_name: "Daniel Street Fish Market", unit_name: "kg", price_inc_gst: 45, ingredient_id: "ing-barra",
+  id: "prod-barra", name: "Barramundi Fillets", supplier_item_code: "15056", supplier_name: "Daniel Street Fish Market", unit_name: "kg", ingredient_id: "ing-barra",
 });
 
 /** the seeded global charge rules from the migration */

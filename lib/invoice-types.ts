@@ -64,6 +64,10 @@ export type VenueCheck = "ok" | "mismatch" | "unknown";
 export type DocStatus = "needs_review" | "applied" | "partly_applied" | "nothing_to_apply" | "ignored" | "duplicate" | "failed";
 export type FileStatus = "received" | "sorting" | "reading" | "done" | "failed";
 export type QuestionKind = "unmatched_line" | "ambiguous_match" | "unit_unclear" | "big_change" | "totals_mismatch" | "venue_mismatch" | "credit_unclear" | "new_supplier" | "other";
+/**
+ * What a ledger row changed. An invoice writes ONE price, the ingredient's pack price (23 Nov 2026: the order price is worked out from
+ * the ingredient, never stored). "ordering_product" only exists on ledger rows written before that; they still show and still undo.
+ */
 export type ChangeTarget = "ingredient" | "ordering_product";
 
 // ---------------------------------------------------------------- reader output (what Claude returns after the checks pass)
@@ -229,7 +233,9 @@ export interface InvoiceLineRow {
   landed_base_ex: number | null;
   old_pack_price: number | null;
   new_pack_price: number | null;
+  /** @deprecated the stored order price is retired: analyses since engine version 4 leave both null. Old rows keep their numbers; nothing reads them. */
   old_product_price: number | null;
+  /** @deprecated see old_product_price */
   new_product_price: number | null;
   change_pct: number | null;
   decision: LineDecision;
@@ -362,6 +368,11 @@ export interface AnalyseIngredient {
   gst_free: boolean;
   last_price_update: string | null;
   active: boolean;
+  /**
+   * How many of the ingredient's packs one CARTON holds (cost_ingredients.carton_qty); null or absent when nobody recorded it (and
+   * on a database without the column). Only ever used for an invoice line sold by the carton, see resolvePacks.
+   */
+  carton_qty?: number | null;
   /** buy-X-get-Y deal rows are looked at by the caller; true means a deal changes the effective price, so never auto-apply */
   has_deal: boolean;
 }
@@ -375,7 +386,6 @@ export interface AnalyseProduct {
   /** the supplier (cost_suppliers id) the product is ordered from; matches `InvoiceSupplierRow.cost_supplier_id` (one supplier list, 29 Oct 2026) */
   supplier_cost_id?: number | null;
   unit_name: string;
-  price_inc_gst: number | null;
   ingredient_id: string | null;
   costing_packs_per_unit: number | null;
   deal_buy_qty: number | null;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { analyseInvoice } from "../lib/invoice-engine";
+import { analyseInvoice, ENGINE_VERSION, NO_INGREDIENT_REASON } from "../lib/invoice-engine";
 import { descKey } from "../lib/invoice-names";
-import type { AnalyseContext, AnalysedLine, ExtractedInvoice } from "../lib/invoice-types";
+import type { AnalyseContext, AnalysedLine, AnalyseIngredient, AnalyseProduct, ExtractedInvoice } from "../lib/invoice-types";
 import { DEFAULT_INVOICE_SETTINGS } from "../lib/invoice-types";
 import {
   CHIOBU, DRIFT, ING_BARRA, ING_KINGFISH, PROD_BARRA, SUP_DIABLO, SUP_DS, baseCtx, danielStreet51329, danielStreet51329Fixed, diabloCtx, diabloEnv23585, ing, line, mapRow, prod, supplierDS, supplierDiablo,
@@ -59,8 +59,10 @@ describe("Daniel Street #51329 (the barramundi line does not add up)", () => {
     const k = byNo(a.lines, 1);
     expect(k).toMatchObject({ old_pack_price: 66.5, new_pack_price: 68.9, old_product_price: null, new_product_price: null });
     expect(k.change_pct).toBeCloseTo((68.9 - 66.5) / 66.5, 6);
+    // the barramundi has an order item (PROD_BARRA): it stays on the line for the record, and is never a second price
     const b = byNo(a.lines, 2);
-    expect(b).toMatchObject({ old_pack_price: 40, new_pack_price: 41.54, old_product_price: 45, new_product_price: 41.54 });
+    expect(b).toMatchObject({ ingredient_id: "ing-barra", product_id: "prod-barra", old_pack_price: 40, new_pack_price: 41.54, old_product_price: null, new_product_price: null });
+    expect(b.change_pct).toBeCloseTo((41.54 - 40) / 40, 6);
   });
 
   it("applies nothing from an invoice that does not add up", () => {
@@ -86,11 +88,14 @@ describe("Daniel Street #51329 with the barramundi corrected (it adds up)", () =
     const k = byNo(a.lines, 1);
     expect(k.decision).toBe("apply");
     expect(k.decision_reason).toBeNull();
-    // the standing discount does not stop the barramundi price: its 7.7% drop against the ordering price is what waits for a person
+    // the standing discount does not stop the barramundi price, and neither does its order item: only the ingredient's pack price
+    // is compared (40 to 41.54, 3.85%), so it applies itself too. (Before 23 Nov 2026 the order item's own stored price, 45, was a
+    // second target, and its 7.7% drop made the line wait.)
     const b = byNo(a.lines, 2);
-    expect(b.decision).toBe("needs_approval");
-    expect(b.decision_reason).toBe("7.7% change is over the 5% limit.");
-    expect(a.summary).toMatchObject({ to_apply: 1, need_approval: 1 });
+    expect(b.decision).toBe("apply");
+    expect(b.decision_reason).toBeNull();
+    expect(a.questions.filter((q) => q.kind === "big_change")).toHaveLength(0);
+    expect(a.summary).toMatchObject({ to_apply: 2, need_approval: 0 });
     expect(a.status).toBe("needs_review");
     expect(a.mode).toBe("auto");
   });
@@ -315,7 +320,7 @@ describe("guards end to end (one invoice line, one broken thing at a time)", () 
     const base = diabloCtx().ingredients.find((i) => i.id === "ing-ginger")!;
     const a = run({ ctx: { ingredients: [{ ...base, has_deal: true }, ...diabloCtx().ingredients.filter((i) => i.id !== "ing-ginger")] } });
     expect(keg(a).decision_reason).toBe("This product has a deal, so its real price is not the list price.");
-    const p = prod({ id: "p", name: "Ginger Keg", supplier_item_code: "K1", supplier_name: "Diablo Co", unit_name: "keg", costing_packs_per_unit: 1, price_inc_gst: 390, ingredient_id: "ing-ginger", deal_buy_qty: 8, deal_free_qty: 1, venue_id: CHIOBU });
+    const p = prod({ id: "p", name: "Ginger Keg", supplier_item_code: "K1", supplier_name: "Diablo Co", unit_name: "keg", costing_packs_per_unit: 1, ingredient_id: "ing-ginger", deal_buy_qty: 8, deal_free_qty: 1, venue_id: CHIOBU });
     const b = run({ ctx: { products: [p], maps: [] }, edit: (d) => (d.lines[0].item_code = "K1") });
     expect(keg(b).decision_reason).toBe("This product has a deal, so its real price is not the list price.");
   });
@@ -438,7 +443,7 @@ describe("units", () => {
   });
 
   it("a saved match that disagrees with the ordering list is a question, not a guess", () => {
-    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 12, price_inc_gst: 400, ingredient_id: "ing-gin" });
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 12, ingredient_id: "ing-gin" });
     const map = mapRow({ supplier_id: SUP_DS, item_code: "GIN1", ingredient_id: "ing-gin", product_id: "p-gin", packs_per_unit: 6 });
     const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [p], maps: [map] }));
     expect(byNo(a.lines, 1).decision).toBe("needs_approval");
@@ -446,25 +451,189 @@ describe("units", () => {
     expect(a.questions.find((q) => q.kind === "unit_unclear")?.prompt).toContain("a saved match says 6 per CTN but the ordering list says 12");
   });
 
-  it("the ordering product's own packs apply when the invoice unit is its unit", () => {
-    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 6, price_inc_gst: 205, ingredient_id: "ing-gin" });
+  it("the order item's own packs apply when the invoice unit is its unit, and the ingredient is the ONLY price target", () => {
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 6, ingredient_id: "ing-gin" });
     const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [p] }));
     const g = byNo(a.lines, 1);
-    expect(g).toMatchObject({ packs_per_unit: 6, new_pack_price: 31, new_product_price: 204.6, old_product_price: 205, product_id: "p-gin" });
-    // the ordering price is per carton inc GST: 186 x 1.1
+    // 186 a carton of 6 is 31 a bottle; the order item rides along for the record and carries no price of its own
+    expect(g).toMatchObject({ packs_per_unit: 6, old_pack_price: 30, new_pack_price: 31, old_product_price: null, new_product_price: null, ingredient_id: "ing-gin", product_id: "p-gin" });
+    expect(g.change_pct).toBeCloseTo(1 / 30, 6);
+    expect(g.decision).toBe("apply");
+  });
+});
+
+/**
+ * The carton size recorded on the ingredient (cost_ingredients.carton_qty, 23 Nov 2026). The engine may use it as the packs in one
+ * invoice unit ONLY for a line sold by the carton that states no size of its own, when no saved match and no order item already
+ * state the number. It then goes through exactly the guards a certain derivation does; anywhere else the engine still asks.
+ */
+describe("a carton line and the ingredient's carton size", () => {
+  const gin = (over: Partial<AnalyseIngredient> = {}) => ing({ id: "ing-gin", name: "Gin (700ml)", supplier_id: 7, supplier_code: "GIN1", pack_size: 700, pack_unit: "ml", pack_price: 30, carton_qty: 6, ...over });
+  const invoice = (over: { description?: string; unit?: string | null; price?: number } = {}): ExtractedInvoice => {
+    const price = over.price ?? 186;
+    const total = Math.round(price * 2 * 100) / 100;
+    const d = danielStreet51329Fixed();
+    d.lines = [line({ line_no: 1, item_code: "GIN1", description: over.description ?? "Bombay Gin", qty: 2, unit: over.unit === undefined ? "CTN" : over.unit, unit_price: price, line_total: total, class_hint: "product" })];
+    d.subtotal_ex = total; d.gst_total = Math.round(total * 10) / 100; d.total_inc = Math.round(total * 110) / 100;
+    return d;
+  };
+  const run = (inv: ExtractedInvoice, ingredient: AnalyseIngredient, over: Partial<AnalyseContext> = {}) => analyseInvoice(inv, baseCtx({ ingredients: [ingredient], products: [], ...over }));
+
+  it("a CTN line with no stated size takes the ingredient's carton size: 186 a carton of 6 is 31 a bottle", () => {
+    const a = run(invoice(), gin());
+    const g = byNo(a.lines, 1);
+    expect(g).toMatchObject({ match_state: "matched", match_method: "code", packs_per_unit: 6, base_qty: 8.4, base_unit: "L", old_pack_price: 30, new_pack_price: 31, decision: "apply", decision_reason: null });
+    expect(a.questions).toHaveLength(0);
+    for (const unit of ["CARTON", "Case", "ctn"]) expect(byNo(run(invoice({ unit }), gin()).lines, 1).packs_per_unit, unit).toBe(6);
   });
 
-  it("a product with no ingredient and a different unit cannot be priced, and says so", () => {
-    const p = prod({ id: "p-only", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "bottle", price_inc_gst: 40 });
-    const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [], products: [p] }));
-    expect(byNo(a.lines, 1).decision).toBe("needs_approval");
-    expect(byNo(a.lines, 1).decision_reason).toBe("The invoice unit CTN is not the ordering unit (bottle).");
+  it("goes through the same guards as any price: learning mode, an untrusted supplier and an invoice that does not add up all still wait", () => {
+    const learning = run(invoice(), gin(), { settings: { ...DEFAULT_INVOICE_SETTINGS, learningMode: true } });
+    expect(byNo(learning.lines, 1)).toMatchObject({ packs_per_unit: 6, new_pack_price: 31, decision: "needs_approval", decision_reason: "Learning mode: every price waits for a tap." });
+    const untrusted = run(invoice(), gin(), { suppliers: [supplierDS({ auto_apply: false })] });
+    expect(byNo(untrusted.lines, 1).decision_reason).toBe("This supplier is not set to apply prices by itself yet.");
+    const broken = invoice();
+    broken.total_inc = 999;
+    expect(byNo(run(broken, gin()).lines, 1)).toMatchObject({ decision: "needs_approval", decision_reason: "Invoice does not add up." });
   });
 
-  it("an ordering product with no ingredient and no price date never applies itself", () => {
-    const p = prod({ id: "p-only", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", price_inc_gst: 205 });
-    const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [], products: [p] }));
-    expect(byNo(a.lines, 1)).toMatchObject({ new_product_price: 204.6, decision: "needs_approval", decision_reason: "There is no record of when this price last changed." });
+  it("a carton size that does not fit the invoice never applies itself: the price is far off, so a person is asked", () => {
+    // the ingredient says 12 a carton, this carton plainly holds 6: 186 / 12 is 15.50 against 30.00
+    const a = run(invoice(), gin({ carton_qty: 12 }));
+    expect(byNo(a.lines, 1)).toMatchObject({ packs_per_unit: 12, new_pack_price: 15.5, decision: "needs_approval", decision_reason: "48.3% change is over the 5% limit." });
+    expect(a.questions.map((q) => q.kind)).toEqual(["big_change"]);
+    expect(a.summary.to_apply).toBe(0);
+  });
+
+  it("does NOT fire when the line states a size or a count: the engine asks, exactly as before", () => {
+    for (const description of ["Gin 6 x 700ml", "Bombay Gin 700ml", "Gin 12pk", "Gin case of 6", "Gin 1L", "Gin x 6"]) {
+      const a = run(invoice({ description }), gin());
+      expect(byNo(a.lines, 1), description).toMatchObject({ packs_per_unit: null, new_pack_price: null, decision: "needs_approval", decision_reason: "The pack size for this unit is not known." });
+      expect(a.questions.map((q) => q.kind), description).toEqual(["unit_unclear"]);
+    }
+    // the size may also sit inside the unit's brackets
+    expect(byNo(run(invoice({ unit: "CTN (6 X 700ML)" }), gin()).lines, 1).packs_per_unit).toBeNull();
+  });
+
+  it("does NOT fire for a unit that is not plainly a carton, or when no carton size is recorded", () => {
+    for (const unit of ["BOX", "PKT", "EA", "BTL", null]) {
+      const a = run(invoice({ unit }), gin());
+      expect(byNo(a.lines, 1).packs_per_unit, String(unit)).toBeNull();
+      expect(a.questions.map((q) => q.kind), String(unit)).toEqual(["unit_unclear"]);
+    }
+    for (const carton_qty of [null, undefined, 0]) {
+      const a = run(invoice(), gin({ carton_qty }));
+      expect(byNo(a.lines, 1)).toMatchObject({ packs_per_unit: null, decision: "needs_approval", decision_reason: "The pack size for this unit is not known." });
+      expect(a.questions.map((q) => q.kind)).toEqual(["unit_unclear"]);
+    }
+  });
+
+  it("what a person already said still wins: a saved match's number, then the order item's own packs", () => {
+    const map = mapRow({ supplier_id: SUP_DS, item_code: "GIN1", ingredient_id: "ing-gin", packs_per_unit: 12 });
+    expect(byNo(run(invoice(), gin(), { maps: [map] }).lines, 1).packs_per_unit).toBe(12);
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 24, ingredient_id: "ing-gin" });
+    expect(byNo(run(invoice(), gin(), { products: [p] }).lines, 1)).toMatchObject({ packs_per_unit: 24, product_id: "p-gin" });
+    // a saved match that never stated its packs falls through to the carton size
+    const silent = mapRow({ supplier_id: SUP_DS, item_code: "GIN1", ingredient_id: "ing-gin", packs_per_unit: null });
+    expect(byNo(run(invoice(), gin(), { maps: [silent] }).lines, 1)).toMatchObject({ packs_per_unit: 6, new_pack_price: 31 });
+  });
+});
+
+/**
+ * One card per product (Troy, 23 Nov 2026): the order item's own stored price is retired and worked out from the ingredient, so an
+ * invoice proposes ONE price, the ingredient's pack price, and never anything for `ordering_products.price_inc_gst`.
+ */
+describe("one price target: the ingredient's pack price", () => {
+  const gin = ing({ id: "ing-gin", name: "Gin (700ml)", supplier_id: 7, supplier_code: "GIN1", pack_size: 700, pack_unit: "ml", pack_price: 30 });
+  const ginProd = (over: Partial<AnalyseProduct> = {}) =>
+    prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", unit_name: "carton", costing_packs_per_unit: 6, ingredient_id: "ing-gin", ...over });
+  const ginInvoice = (price = 186): ExtractedInvoice => {
+    const d = danielStreet51329Fixed();
+    const total = Math.round(price * 2 * 100) / 100;
+    d.lines = [line({ line_no: 1, item_code: "GIN1", description: "Gin 6 x 700ml", qty: 2, unit: "CTN", unit_price: price, line_total: total, class_hint: "product" })];
+    d.subtotal_ex = total; d.gst_total = Math.round(total * 10) / 100; d.total_inc = Math.round(total * 110) / 100;
+    return d;
+  };
+
+  it("ENGINE_VERSION moved on from 3, so stored invoices get the free re-check", () => {
+    expect(ENGINE_VERSION).toBe(4);
+  });
+
+  it("every analysed line leaves the two order price columns null, order item or not", () => {
+    for (const a of [
+      analyseInvoice(danielStreet51329(), baseCtx()),
+      analyseInvoice(danielStreet51329Fixed(), baseCtx()),
+      analyseInvoice(diabloEnv23585(), diabloCtx()),
+      analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [ginProd()] })),
+      analyseInvoice(ginInvoice(), baseCtx({ ingredients: [], products: [ginProd({ ingredient_id: null })] })),
+    ]) {
+      expect(a.lines.length).toBeGreaterThan(0);
+      for (const l of a.lines) expect([l.old_product_price, l.new_product_price], `line ${l.line_no}`).toEqual([null, null]);
+    }
+  });
+
+  it("the change tested against the limit is the ingredient's alone, whatever the order item's stored price used to be", () => {
+    // 2% up on the ingredient: under the limit, so it applies; nothing about the order item can make it wait
+    const a = analyseInvoice(ginInvoice(183.6), baseCtx({ ingredients: [gin], products: [ginProd()] }));
+    const g = byNo(a.lines, 1);
+    expect(g).toMatchObject({ new_pack_price: 30.6, decision: "apply", decision_reason: null });
+    expect(a.questions).toHaveLength(0);
+    // 10% up on the ingredient: over the limit, and the one question is about the ingredient's pack price
+    const b = analyseInvoice(ginInvoice(198), baseCtx({ ingredients: [gin], products: [ginProd()] }));
+    expect(byNo(b.lines, 1)).toMatchObject({ new_pack_price: 33, decision: "needs_approval", decision_reason: "10.0% change is over the 5% limit." });
+    const big = b.questions.filter((q) => q.kind === "big_change");
+    expect(big).toHaveLength(1);
+    expect(big[0].prompt).toBe("Gin (700ml) from Daniel Street Fish Market is $33.00 a pack, ex GST, up 10.0% from $30.00. That is over our 5% limit. Is the new price right?");
+    expect(big[0].prompt).not.toMatch(/carton, inc GST|order/i);
+  });
+
+  it("no question or reason anywhere speaks of an order price", () => {
+    for (const a of [
+      analyseInvoice(ginInvoice(198), baseCtx({ ingredients: [gin], products: [ginProd()] })),
+      analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [ginProd({ costing_packs_per_unit: null })] })),
+      analyseInvoice(ginInvoice(), baseCtx({ ingredients: [], products: [ginProd({ ingredient_id: null })] })),
+    ]) {
+      const words = [...a.questions.map((q) => q.prompt), ...a.lines.map((l) => l.decision_reason ?? "")].join(" | ");
+      expect(words).not.toMatch(/order(ing)? price/i);
+    }
+  });
+
+  it("an ingredient with an order item whose packs nobody stated still waits for the pack size (no order price sneaks in)", () => {
+    const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [ginProd({ costing_packs_per_unit: null })] }));
+    expect(byNo(a.lines, 1)).toMatchObject({ packs_per_unit: null, new_pack_price: null, new_product_price: null, decision: "needs_approval", decision_reason: "The pack size for this unit is not known." });
+    expect(a.questions.map((q) => q.kind)).toEqual(["unit_unclear"]);
+  });
+
+  describe("a line matched ONLY to an order item with no ingredient", () => {
+    const run = (unit_name: string, price = 186) => analyseInvoice(ginInvoice(price), baseCtx({ ingredients: [], products: [ginProd({ id: "p-only", ingredient_id: null, costing_packs_per_unit: null, unit_name })] }));
+
+    it("stays matched for the record, proposes nothing, asks nothing and is not an error", () => {
+      for (const unit of ["carton", "bottle"]) {
+        const a = run(unit);
+        const g = byNo(a.lines, 1);
+        expect(g).toMatchObject({
+          match_state: "matched", match_method: "code", ingredient_id: null, product_id: "p-only",
+          old_pack_price: null, new_pack_price: null, old_product_price: null, new_product_price: null, change_pct: null,
+          decision: "none", decision_reason: "No costing ingredient to update.", state: "open",
+        });
+        expect(g.decision_reason).toBe(NO_INGREDIENT_REASON);
+        expect(a.questions).toHaveLength(0);
+        expect(a.summary).toEqual({ products: 1, matched: 1, same: 0, to_apply: 0, need_approval: 0, unmatched: 0 });
+        expect(a.status).toBe("nothing_to_apply");
+        expect(a.reconciled).toBe(true);
+      }
+    });
+
+    it("a big move on the invoice price still proposes nothing and asks no big change question", () => {
+      const a = run("carton", 400);
+      expect(byNo(a.lines, 1)).toMatchObject({ decision: "none", new_product_price: null });
+      expect(a.questions.filter((q) => q.kind === "big_change")).toHaveLength(0);
+    });
+
+    it("the landed cost and the invoice numbers are still recorded on the line", () => {
+      const g = byNo(run("carton").lines, 1);
+      expect(g).toMatchObject({ qty: 2, unit: "CTN", unit_price_ex: 186, line_total_ex: 372, landed_total_ex: 372, landed_unit_ex: 186 });
+    });
   });
 });
 

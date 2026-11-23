@@ -3,9 +3,11 @@
  * need a closer look, how they are grouped and described), the loader, the counts hook the To Do page uses, and the sequential
  * approver. Nothing here writes a price itself: approving calls applyLine (lib/invoice-apply.ts) one line at a time.
  *
- * What counts as a price waiting: a PRODUCT line, still open, decided needs_approval or apply, matched to an ingredient and/or an
- * ordering product, whose new price really differs from the app's, on an invoice that is not a duplicate, failed or set aside.
- * A line whose price already matches ("same", a confirmation) is never listed or counted.
+ * What counts as a price waiting: a PRODUCT line, still open, decided needs_approval or apply, matched to an INGREDIENT whose new
+ * pack price really differs from the app's, on an invoice that is not a duplicate, failed or set aside. A line whose price already
+ * matches ("same", a confirmation) is never listed or counted. The ingredient's pack price is the only price an invoice sets (23 Nov
+ * 2026): a line read before then may still carry an order price pair (old_product_price / new_product_price), which is never
+ * listed, counted or approved here.
  *
  * "Look closely" (never pre-ticked, listed first): a change of the auto-apply limit (5% by default) or more, an invoice that does
  * not add up, or a line with no earlier price to compare with. Everything else is pre-ticked.
@@ -38,17 +40,15 @@ export interface ApproveRow {
   doc: ApproveDoc;
   supplierKey: string;
   supplierName: string;
-  /** the price shown: the ingredient's pack price when the line has one that changes, else the ordering price (inc GST) */
-  target: "ingredient" | "product";
+  /** the price shown: always the ingredient's pack price, the one price an invoice sets */
+  target: "ingredient";
   oldPrice: number | null;
   newPrice: number;
   /** signed fraction of the shown price, null when there is no earlier price */
   pct: number | null;
   /** signed dollars of the shown price */
   dollars: number | null;
-  /** the second price on the line (the ordering price when the ingredient is shown), for a quiet extra line */
-  other: { label: string; oldPrice: number | null; newPrice: number } | null;
-  /** the largest |change| across both prices, the one the limit is tested against */
+  /** the change the limit is tested against (the same number as `pct`) */
   maxPct: number | null;
   flag: RowFlag;
 }
@@ -74,41 +74,36 @@ export function overLimit(pct: number | null, limit: number): boolean {
   return pct !== null && Math.round(Math.abs(pct) * 1e6) / 1e6 >= limit;
 }
 
-/** The line waits on a person with a price that differs. The document test is separate (see `docCounts`). */
-export function isPriceLine(l: Pick<InvoiceLineRow, "line_class" | "state" | "decision" | "ingredient_id" | "product_id" | "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price">): boolean {
+/**
+ * The line waits on a person with an ingredient pack price that differs. An order price pair on an older line never counts: nothing
+ * writes an order price any more. The document test is separate (see `docCounts`).
+ */
+export function isPriceLine(l: Pick<InvoiceLineRow, "line_class" | "state" | "decision" | "ingredient_id" | "old_pack_price" | "new_pack_price">): boolean {
   if (l.line_class !== "product" || l.state !== "open") return false;
   if (l.decision !== "needs_approval" && l.decision !== "apply") return false;
-  return (!!l.ingredient_id && priceDiffers(l.old_pack_price, l.new_pack_price)) || (!!l.product_id && priceDiffers(l.old_product_price, l.new_product_price));
+  return !!l.ingredient_id && priceDiffers(l.old_pack_price, l.new_pack_price);
 }
 
 export const docIsLive = (status: DocStatus | undefined): boolean => status !== undefined && !NOT_COUNTED.includes(status);
 
 export function buildApproveRow(line: InvoiceLineRow, doc: ApproveDoc, supplierName: string, limit: number): ApproveRow | null {
   if (!docIsLive(doc.status) || !isPriceLine(line)) return null;
-  const ing = !!line.ingredient_id && priceDiffers(line.old_pack_price, line.new_pack_price);
-  const prod = !!line.product_id && priceDiffers(line.old_product_price, line.new_product_price);
-  const ingT = ing ? { oldPrice: num(line.old_pack_price), newPrice: num(line.new_pack_price)! } : null;
-  const prodT = prod ? { oldPrice: num(line.old_product_price), newPrice: num(line.new_product_price)! } : null;
-  const main = ingT ?? prodT!;
-  const second = ingT && prodT ? { label: "Ordering price (inc GST)", ...prodT } : null;
-  const pcts = [ingT, prodT].filter((t): t is NonNullable<typeof t> => !!t).map((t) => fractionChange(t.oldPrice, t.newPrice));
-  const known = pcts.filter((p): p is number => p !== null);
-  const maxPct = known.length ? known.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a)) : null;
-  const noPrice = pcts.some((p) => p === null);
-  const flag: RowFlag = overLimit(maxPct, limit) ? "big" : noPrice ? "no_price" : !doc.reconciled ? "unbalanced" : null;
+  const oldPrice = num(line.old_pack_price);
+  const newPrice = num(line.new_pack_price)!;
+  const pct = fractionChange(oldPrice, newPrice);
+  const flag: RowFlag = overLimit(pct, limit) ? "big" : pct === null ? "no_price" : !doc.reconciled ? "unbalanced" : null;
   const key = doc.supplier_id ?? `name:${tidySupplierName(doc.supplier_name_read).toLowerCase()}`;
   return {
     line,
     doc,
     supplierKey: key,
     supplierName,
-    target: ingT ? "ingredient" : "product",
-    oldPrice: main.oldPrice,
-    newPrice: main.newPrice,
-    pct: fractionChange(main.oldPrice, main.newPrice),
-    dollars: main.oldPrice === null ? null : Math.round((main.newPrice - main.oldPrice) * 10000) / 10000,
-    other: second,
-    maxPct,
+    target: "ingredient",
+    oldPrice,
+    newPrice,
+    pct,
+    dollars: oldPrice === null ? null : Math.round((newPrice - oldPrice) * 10000) / 10000,
+    maxPct: pct,
     flag,
   };
 }
@@ -326,7 +321,7 @@ export function outcomeText(o: ApproveOutcome, leftToCheck: number): string {
 
 /** True when the app's price for the ingredient has moved since the invoice was read, so approving would be refused. */
 export function isStaleIngredient(row: ApproveRow, currentPackPrice: number | null | undefined): boolean {
-  if (row.target !== "ingredient" || currentPackPrice == null) return false;
+  if (currentPackPrice == null) return false;
   return !sameMoney(currentPackPrice, row.line.old_pack_price);
 }
 

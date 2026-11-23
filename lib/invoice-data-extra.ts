@@ -125,12 +125,11 @@ export async function loadQuestionBundles(
   return { bundles, available: true };
 }
 
-/** The ordering products named by answer options (for their current prices). A failure gives none: the buttons then show no price. */
+/** The order items named by answer options (name and unit only: an order item has no price of its own). A failure gives none. */
 export async function loadProductsByIds(sb: SupabaseClient, ids: readonly string[]): Promise<ProductLite[]> {
   if (!ids.length) return [];
   try {
-    const rows = await selectIn<ProductLite>(sb, "ordering_products", "id,name,unit_name,price_inc_gst", "id", ids);
-    return rows.map((p) => ({ ...p, price_inc_gst: p.price_inc_gst == null ? null : Number(p.price_inc_gst) }));
+    return await selectIn<ProductLite>(sb, "ordering_products", "id,name,unit_name", "id", ids);
   } catch {
     return [];
   }

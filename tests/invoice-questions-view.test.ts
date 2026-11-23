@@ -49,7 +49,7 @@ const question = (over: Partial<InvoiceQuestionRow> = {}): InvoiceQuestionRow =>
 const bundle = (q: Partial<InvoiceQuestionRow>, d: QDoc | null = doc(), l: QLine | null = kingfish): QuestionBundle => ({ q: question(q), doc: d, line: l, supplierName: "Daniel Street Fish Market" });
 
 const king: IngredientLite = { id: "ing-king", name: "Kingfish Fillets", supplier_id: 7, supplier_code: "15026", active: true, pack_size: 1, pack_unit: "kg", pack_price: 68.9, price_inc_gst: false, gst_free: true };
-const prod: ProductLite = { id: "prod-king", name: "Kingfish Whole", unit_name: "kg", price_inc_gst: 62 };
+const prod: ProductLite = { id: "prod-king", name: "Kingfish Whole", unit_name: "kg" };
 const look: OptionLookups = { ingredients: new Map([[king.id, king]]), products: new Map([[prod.id, prod]]) };
 
 describe("dates and words", () => {
@@ -103,9 +103,11 @@ describe("answer buttons", () => {
     expect(describeOption(opts[0], { ...look, ingredients: new Map([[king.id, { ...king, gst_free: false, price_inc_gst: true }]]) }).sub).toBe("Now $68.90 per 1 kg pack, inc GST");
     expect(describeOption(opts[0], { ...look, ingredients: new Map([[king.id, { ...king, gst_free: false }]]) }).sub).toBe("Now $68.90 per 1 kg pack, ex GST");
   });
-  it("an ordering product shows its inc GST price; no price says so", () => {
-    expect(describeOption(opts[1], look).sub).toBe("Ordering price now $62.00 per kg, inc GST");
-    expect(describeOption(opts[1], { ...look, products: new Map([[prod.id, { ...prod, price_inc_gst: null }]]) }).sub).toBe("No ordering price set yet");
+  it("an order item with no ingredient shows no price (it has none of its own) and says plainly that nothing will be updated", () => {
+    const sub = describeOption(opts[1], look).sub!;
+    expect(sub).toBe("Order item, by the kg. No costing ingredient to update");
+    expect(sub).not.toMatch(/\$|inc GST|ordering price/i);
+    expect(describeOption(opts[1], { ...look, products: new Map([[prod.id, { ...prod, unit_name: "" }]]) }).sub).toBe("Order item, by the unit. No costing ingredient to update");
   });
   it("mentions a pack size other than one", () => {
     const v = describeOption({ id: "x", label: "Cans", ingredient_id: "ing-king", packs_per_unit: 24 }, look, "CTN");

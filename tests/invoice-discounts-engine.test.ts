@@ -71,7 +71,7 @@ describe("Daniel Street #51329: the -$16.45 line is a discount on the barramundi
   });
 
   it("still compares the supplier's printed unit price (the list price) with the app, not the net", () => {
-    expect(b).toMatchObject({ old_pack_price: 40, new_pack_price: 41.54, old_product_price: 45, new_product_price: 41.54 });
+    expect(b).toMatchObject({ old_pack_price: 40, new_pack_price: 41.54, old_product_price: null, new_product_price: null });
   });
 
   it("does not change the reconciliation: the lines still add up exactly as before", () => {
@@ -80,7 +80,9 @@ describe("Daniel Street #51329: the -$16.45 line is a discount on the barramundi
     expect(fixed.recon_notes.filter((n) => !n.ok)).toEqual([]);
     const fixedBarra = byNo(fixed.lines, 2);
     expect(fixedBarra.discount_pct).toBeCloseTo(16.45 / 99.28, 6);
-    expect(fixedBarra.decision_reason).not.toMatch(/credit/i);
+    // nothing about a credit stops it: with only the ingredient's price compared (3.85% up) it now applies itself, with no reason at all
+    expect(fixedBarra.decision_reason ?? "").not.toMatch(/credit/i);
+    expect(fixedBarra.decision).toBe("apply");
   });
 });
 

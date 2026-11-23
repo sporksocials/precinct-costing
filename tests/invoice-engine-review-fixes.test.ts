@@ -59,12 +59,11 @@ describe("S3: an invoice from one supplier does not move a price costed on anoth
     expect(l.decision).toBe("apply");
   });
 
-  it("an ordering product alone (no ingredient) is not stopped by this rule", () => {
-    const p = prod({ id: "p-v", name: "Vodka", supplier_item_code: "P-77", supplier_name: "Paramount", unit_name: "each", price_inc_gst: 50, venue_id: DRIFT });
+  it("an order item alone (no ingredient) has no price to set at all, so this rule never comes into it", () => {
+    const p = prod({ id: "p-v", name: "Vodka", supplier_item_code: "P-77", supplier_name: "Paramount", unit_name: "each", venue_id: DRIFT });
     const ctx = baseCtx({ suppliers: [star, para], ingredients: [], products: [p], maps: [] });
     const l = kingfish(analyseInvoice(paraInvoice(43.3), ctx));
-    // an ordering product has no last_price_update, so it still waits, but never for the costed supplier reason
-    expect(l.new_product_price).toBe(47.63);
+    expect(l).toMatchObject({ match_state: "matched", product_id: "p-v", ingredient_id: null, new_pack_price: null, new_product_price: null, decision: "none", decision_reason: "No costing ingredient to update." });
     expect(l.decision_reason).not.toBe(REASON);
   });
 });
@@ -92,11 +91,12 @@ describe("S5: a saved match that never stated its packs is not read as 1", () =>
   });
 
   it("a blank costing_packs_per_unit on the ordering product is unknown, not 1", () => {
-    const p = prod({ id: "p-gin", name: "Gin", unit_name: "carton", costing_packs_per_unit: null, price_inc_gst: 200, supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", ingredient_id: "ing-gin" });
+    const p = prod({ id: "p-gin", name: "Gin", unit_name: "carton", costing_packs_per_unit: null, supplier_item_code: "GIN1", supplier_name: "Daniel Street Fish Market", ingredient_id: "ing-gin" });
     expect(resolvePacks({ mapPacks: null, product: p, ingredient: gin, invoiceUnit: "CTN" })).toMatchObject({ packs: null, source: "none", conflict: null });
     const a = analyseInvoice(ginInvoice(), baseCtx({ ingredients: [gin], products: [p] }));
     const l = kingfish(a);
-    // the ordering price could be read, but the ingredient's pack is unknown, so the whole line waits for an answer
+    // the ingredient's pack is unknown, so the line waits for an answer (and no order price is ever proposed in its place)
+    expect(l.new_product_price).toBeNull();
     expect(l.packs_per_unit).toBeNull();
     expect(l.decision).toBe("needs_approval");
     expect(a.questions.some((q) => q.kind === "unit_unclear")).toBe(true);

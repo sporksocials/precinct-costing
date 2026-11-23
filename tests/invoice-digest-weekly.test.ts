@@ -389,7 +389,10 @@ function dataset(): Tables {
       line(3, D2, 1, { description: "Lychee Liqueur 700ml", unit: "EA", unit_price_ex: 38.62, change_pct: 0.01, old_pack_price: 38.24, new_pack_price: 38.62, decision: "apply", state: "open" }),
       line(4, D2, 1, { description: "Ginger beer", unit: "EA", unit_price_ex: 10.001, change_pct: 0.0001, old_pack_price: 10, new_pack_price: 10.001, decision: "apply", state: "open" }),
       line(5, D2, 1, { description: "Same price", unit_price_ex: 5, change_pct: 0, old_pack_price: 5, new_pack_price: 5, decision: "same", state: "confirmed" }),
+      // a line read before 23 Nov 2026 that proposed ONLY an order item's price (no ingredient price): never a move, never a price to approve
       line(6, D7, 3, { description: "Vodka 700ml", unit: "EA", unit_price_ex: 30, change_pct: -0.04, old_product_price: 31.25, new_product_price: 30, decision: "needs_approval", state: "open" }),
+      // an ingredient price waiting at Greedy
+      line(9, D7, 3, { description: "Tequila 700ml", unit: "EA", unit_price_ex: 48, change_pct: -0.04, old_pack_price: 50, new_pack_price: 48, decision: "needs_approval", state: "open" }),
       line(7, D3, 1, { description: "Duplicate copy", unit_price_ex: 9, change_pct: 0.5, old_pack_price: 6, new_pack_price: 9, decision: "needs_approval", state: "open" }),
       line(8, D1, 1, { description: "Reverted line", unit_price_ex: 9, change_pct: 0.5, old_pack_price: 6, new_pack_price: 9, decision: "apply", state: "reverted" }),
       // lines the open questions point at
@@ -488,7 +491,22 @@ describe("the weekly numbers (definitions shared with the To Do screens)", () =>
     const { data } = await weekly();
     // line 1 (68.90 to 74.20) and line 3 (38.24 to 38.62) count; line 4 differs by a tenth of a cent; line 7 is on a duplicate; line 8 is reverted
     expect(data.venues.find((v) => v.venueSlug === "drift")!.toApprove).toBe(2);
-    expect(data.venues.find((v) => v.venueSlug === "greedy")!.toApprove).toBe(1); // an ordering product price pair
+    // Greedy: the tequila's pack price (line 9) counts; the vodka's old order price pair (line 6) does not
+    expect(data.venues.find((v) => v.venueSlug === "greedy")!.toApprove).toBe(1);
+  });
+
+  it("an order price is never a price to approve or a price move: only an ingredient's pack price is", async () => {
+    const t = dataset();
+    // only the old order-price line is left at Greedy
+    t.invoice_lines = t.invoice_lines.filter((x) => x.description !== "Tequila 700ml");
+    const { data } = await weekly(t);
+    const greedy = data.venues.find((v) => v.venueSlug === "greedy")!;
+    expect(greedy.toApprove).toBe(0);
+    expect(greedy.moves).toEqual([]);
+    const text = buildWeeklyReview(data);
+    expect(text).not.toContain("Vodka");
+    expect(text).not.toMatch(/order(ing)? price/i);
+    expect(text).toContain("• Greedy: 1 item to match, 1 to check");
   });
 
   it("to check counts the other open questions, and a supplier question only when it is about an ABN", async () => {
@@ -508,7 +526,7 @@ describe("the weekly numbers (definitions shared with the To Do screens)", () =>
     ]);
     const greedy = data.venues.find((v) => v.venueSlug === "greedy")!;
     expect(greedy.moves).toHaveLength(1);
-    expect(greedy.moves[0]).toMatchObject({ item: "Vodka 700ml", supplier: "Star", oldPrice: 31.25, newPrice: 30 });
+    expect(greedy.moves[0]).toMatchObject({ item: "Tequila 700ml", supplier: "Star", oldPrice: 50, newPrice: 48 });
   });
 
   it("a supplier discount appears only when its latest invoice falls in the week", async () => {
@@ -530,7 +548,7 @@ describe("the weekly numbers (definitions shared with the To Do screens)", () =>
         "*Biggest price moves* (top 4 by percent, up or down):",
         "• Kingfish fillets (Daniel Street Fish Market): $68.90 to $74.20 per kg, up 7.7%",
         "• Humpty Doo Barramundi fillets (Daniel Street Fish Market): $41.54 to $44.10 per kg, up 6.2%",
-        "• Vodka 700ml (Star): $31.25 to $30.00 each, down 4.0%",
+        "• Tequila 700ml (Star): $50.00 to $48.00 each, down 4.0%",
         "• Lychee Liqueur 700ml (Diablo Co): $38.24 to $38.62 each, up 1.0%",
         "",
         "*Supplier discounts we spotted*:",
@@ -547,12 +565,13 @@ describe("the weekly numbers (definitions shared with the To Do screens)", () =>
   });
 
   it("priceDiffers: a pair counts when the new price is not the old one by half a cent or more", () => {
-    const none = { old_pack_price: null, new_pack_price: null, old_product_price: null, new_product_price: null };
+    const none = { old_pack_price: null, new_pack_price: null };
     expect(priceDiffers(none)).toBe(false);
     expect(priceDiffers({ ...none, old_pack_price: 10, new_pack_price: 10.004 })).toBe(false);
     expect(priceDiffers({ ...none, old_pack_price: 10, new_pack_price: 10.01 })).toBe(true);
     expect(priceDiffers({ ...none, old_pack_price: null, new_pack_price: 10 })).toBe(true);
-    expect(priceDiffers({ ...none, old_product_price: 3, new_product_price: 4 })).toBe(true);
+    // an order price pair on an older row is not a price: only the ingredient's pack price is tested
+    expect(priceDiffers({ ...none, old_product_price: 3, new_product_price: 4 } as typeof none)).toBe(false);
     expect(priceDiffers({ ...none, old_pack_price: 10, new_pack_price: null })).toBe(false);
   });
 

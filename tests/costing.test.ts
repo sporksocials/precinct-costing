@@ -156,6 +156,13 @@ describe("gstBasisLabel (the tag next to the big price on an ingredient page)", 
     expect(gstBasisLabel({ gst_free: true, price_inc_gst: false })).toBe("GST Free");
     expect(gstBasisLabel({ gst_free: true, price_inc_gst: true })).toBe("GST Free");
   });
+  it("the per-unit line says ex GST only when the pack price is entered inc GST (never beside a GST Free tag)", async () => {
+    const { unitCostGstNote } = await import("@/lib/costing");
+    expect(unitCostGstNote({ gst_free: false, price_inc_gst: true })).toBe(" ex GST");
+    expect(unitCostGstNote({ gst_free: false, price_inc_gst: false })).toBe("");
+    expect(unitCostGstNote({ gst_free: true, price_inc_gst: false })).toBe("");
+    expect(unitCostGstNote({ gst_free: true, price_inc_gst: true })).toBe(""); // GST free wins
+  });
   it("is drawn beside the pack price in DealPriceBlock", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync("components/deal-editor.tsx", "utf8");

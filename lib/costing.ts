@@ -47,6 +47,15 @@ export function gstBasisLabel(ing: Pick<Ingredient, "gst_free" | "price_inc_gst"
   return ing.gst_free ? "GST Free" : ing.price_inc_gst ? "Inc GST" : "Ex GST";
 }
 
+/**
+ * The words after the per-unit cost under the big price. That figure is always the ex GST cost recipes use, so it only needs saying when the
+ * pack price above it is entered inc GST (the two differ). Ex GST pack prices already say it in the tag, and a GST free item has no
+ * "ex GST" at all (it read "GST Free" beside "$3.68/ea ex GST" on 23 Nov 2026, which was confusing).
+ */
+export function unitCostGstNote(ing: Pick<Ingredient, "gst_free" | "price_inc_gst">): string {
+  return gstBasisLabel(ing) === "Inc GST" ? " ex GST" : "";
+}
+
 /** Ex-GST pack price of an ingredient. */
 export function ingredientExGstPackPrice(ing: Pick<Ingredient, "pack_price" | "gst_free" | "price_inc_gst">, gst: number): number {
   const price = Number(ing.pack_price) || 0;

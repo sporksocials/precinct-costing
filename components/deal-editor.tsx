@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, Sparkles } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { gstBasisLabel, ingredientCostPerBase } from "@/lib/costing";
+import { gstBasisLabel, ingredientCostPerBase, unitCostGstNote } from "@/lib/costing";
 import {
   daysBetween,
   DEAL_KINDS,
@@ -62,7 +62,7 @@ export function DealPriceBlock({ ing, updatedText }: { ing: Ingredient; updatedT
         {res.deal ? <span className="text-[28px] text-label-3 line-through decoration-2 tnum">{money(res.base)}</span> : null}
       </div>
       <p className="mt-2 text-[15px] text-label-2 tnum">
-        {money(unitCost)}/{unitShort(ing.pack_unit)} ex GST
+        {money(unitCost)}/{unitShort(ing.pack_unit)}{unitCostGstNote(ing)}
         {res.deal ? ` · ${Math.round(res.savingPct * 1000) / 10}% off` : ""}
         {updatedText ?? ""}
       </p>

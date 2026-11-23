@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { abnDigits, descKey, dollars, nameTokens, normCode, plain, supplierNameKeys, tidyLabel, tokenOverlap } from "../lib/invoice-names";
 import { buildMatcher, checkVenue, findDuplicate, matchSupplier, venueFromInvoice } from "../lib/invoice-match";
 import { classifyLine, findChargeRule } from "../lib/invoice-classify";
-import { baseQuantity, canonicalUnit, deriveSafePacks, inferPackCounts, plausibleFactors, resolvePacks, unitsMatch } from "../lib/invoice-units";
+import { baseQuantity, canonicalUnit, cartonPacks, deriveSafePacks, inferPackCounts, plausibleFactors, resolvePacks, unitsMatch } from "../lib/invoice-units";
 import {
   CHIOBU, DRIFT, ING_BARRA, ING_GINGER, ING_KINGFISH, ING_LYCHEE, PROD_BARRA, SUP_DIABLO, SUP_DS, baseCtx, diabloMaps, ing, mapRow, prod, seededRules, supplierDS, supplierDiablo,
 } from "./fixtures/invoice-fixtures";
@@ -336,5 +336,162 @@ describe("matching a line", () => {
 
   it("uses the fixtures consistently", () => {
     expect([ING_KINGFISH, ING_BARRA, ING_GINGER, ING_LYCHEE]).toHaveLength(4);
+  });
+});
+
+/**
+ * One card per product (Troy, 23 Nov 2026): the item code lives on the ingredient and the order item's code becomes a copy of it
+ * (a database trigger; until it lands the two may still differ). Both lookups keep working; when both find something they are one
+ * candidate if they agree, and the ingredient's code wins if they do not. Never two candidates, never fuzzy.
+ */
+describe("an item code on the order item and on the ingredient", () => {
+  const ds = supplierDS();
+  const DSFM = "Daniel Street Fish Market";
+  const gin = ing({ id: "ing-gin", name: "Gin (700ml)", supplier_id: 7, supplier_code: "GIN1", pack_size: 700, pack_unit: "ml" });
+  const vodka = ing({ id: "ing-vodka", name: "Vodka (700ml)", supplier_id: 7, supplier_code: "VOD1", pack_size: 700, pack_unit: "ml" });
+  const match = (over: Parameters<typeof baseCtx>[0], code: string) => buildMatcher(baseCtx({ maps: [], ...over }), ds, DSFM).match({ item_code: code, description: "Spirit" });
+
+  it("both carry the code and agree (the order item is the ingredient's own): ONE match, with the order item kept for the record", () => {
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-gin" });
+    const m = match({ ingredients: [gin, vodka], products: [p] }, "GIN1");
+    expect(m).toMatchObject({ state: "matched", method: "code" });
+    expect(m.ingredient?.id).toBe("ing-gin");
+    expect(m.product?.id).toBe("p-gin");
+    expect(m.options).toEqual([]);
+  });
+
+  it("both carry the code and DISAGREE: the ingredient's code wins, and it is not two candidates", () => {
+    // the order item still says GIN1 but is linked to the vodka; the gin ingredient itself carries GIN1
+    const p = prod({ id: "p-stale", name: "Stale Code", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-vodka" });
+    const m = match({ ingredients: [gin, vodka], products: [p] }, "GIN1");
+    expect(m.state).toBe("matched");
+    expect(m.method).toBe("code");
+    expect(m.ingredient?.id).toBe("ing-gin");
+    expect(m.product).toBeNull(); // the disagreeing order item is dropped, not attached and not offered
+    expect(m.options).toEqual([]);
+  });
+
+  it("an order item with the code but NO ingredient loses to the ingredient that carries the code", () => {
+    const p = prod({ id: "p-loose", name: "Loose", supplier_item_code: "GIN1", supplier_name: DSFM });
+    const m = match({ ingredients: [gin], products: [p] }, "GIN1");
+    expect(m.state).toBe("matched");
+    expect(m.ingredient?.id).toBe("ing-gin");
+    expect(m.product).toBeNull();
+  });
+
+  it("only the order item carries the code (its ingredient's code differs or is blank): the order item lookup still works", () => {
+    for (const supplier_code of ["OLD-CODE", null]) {
+      const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "NEW1", supplier_name: DSFM, ingredient_id: "ing-gin" });
+      const m = match({ ingredients: [{ ...gin, supplier_code }, vodka], products: [p] }, "NEW1");
+      expect(m).toMatchObject({ state: "matched", method: "code" });
+      expect(m.ingredient?.id).toBe("ing-gin");
+      expect(m.product?.id).toBe("p-gin");
+    }
+  });
+
+  it("only the ingredient carries the code: the ingredient lookup still works, with no order item", () => {
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "SOMETHING-ELSE", supplier_name: DSFM, ingredient_id: "ing-gin" });
+    const m = match({ ingredients: [gin], products: [p] }, "GIN1");
+    expect(m).toMatchObject({ state: "matched", method: "code" });
+    expect(m.ingredient?.id).toBe("ing-gin");
+    expect(m.product).toBeNull();
+  });
+
+  it("an order item with the code and no ingredient anywhere still matches, for the record", () => {
+    const p = prod({ id: "p-only", name: "Straws", supplier_item_code: "STRAW", supplier_name: DSFM });
+    const m = match({ ingredients: [gin], products: [p] }, "STRAW");
+    expect(m).toMatchObject({ state: "matched", method: "code" });
+    expect(m.product?.id).toBe("p-only");
+    expect(m.ingredient).toBeNull();
+  });
+
+  it("two ingredients share the code and one order item settles which: as before, the order item's ingredient", () => {
+    const twin = ing({ id: "ing-gin-1l", name: "Gin (1L)", supplier_id: 7, supplier_code: "GIN1", pack_size: 1, pack_unit: "L" });
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-gin" });
+    const m = match({ ingredients: [gin, twin], products: [p] }, "GIN1");
+    expect(m.state).toBe("matched");
+    expect(m.ingredient?.id).toBe("ing-gin");
+    expect(m.product?.id).toBe("p-gin");
+    // with no order item to settle it, two ingredients with one code are still a question
+    expect(match({ ingredients: [gin, twin], products: [] }, "GIN1").state).toBe("ambiguous");
+  });
+
+  it("a saved match a person confirmed still beats both codes", () => {
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-gin" });
+    const map = mapRow({ id: "m-human", supplier_id: SUP_DS, item_code: "GIN1", ingredient_id: "ing-vodka", packs_per_unit: 6 });
+    const m = match({ ingredients: [gin, vodka], products: [p], maps: [map] }, "GIN1");
+    expect(m).toMatchObject({ state: "matched", mapId: "m-human", mapPacks: 6 });
+    expect(m.ingredient?.id).toBe("ing-vodka");
+  });
+
+  it("a person's 'not that one' on the ingredient leaves the order item's lookup as it was", () => {
+    const p = prod({ id: "p-stale", name: "Stale Code", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-vodka" });
+    const rej = mapRow({ id: "rej", supplier_id: SUP_DS, item_code: "GIN1", ingredient_id: "ing-gin", rejected: true });
+    const m = match({ ingredients: [gin, vodka], products: [p], maps: [rej] }, "GIN1");
+    expect(m.state).toBe("matched");
+    expect(m.ingredient?.id).toBe("ing-vodka");
+    expect(m.product?.id).toBe("p-stale");
+  });
+
+  it("still never matches on a name: no code, no saved match, no match", () => {
+    const p = prod({ id: "p-gin", name: "Gin", supplier_item_code: "GIN1", supplier_name: DSFM, ingredient_id: "ing-gin" });
+    const m = buildMatcher(baseCtx({ maps: [], ingredients: [gin], products: [p] }), ds, DSFM).match({ item_code: null, description: "Gin 700ml" });
+    expect(m.state).toBe("unmatched");
+    expect(m.ingredient).toBeNull();
+  });
+});
+
+/**
+ * The carton size recorded on the ingredient (cost_ingredients.carton_qty, 23 Nov 2026) as a LAST source of packs per invoice unit:
+ * only for a line sold by the carton that states no size of its own, and only when nothing a person said earlier (a saved match, the
+ * order item's own packs) or a certain derivation already answers.
+ */
+describe("the ingredient's carton size", () => {
+  const gin = (carton_qty: number | null | undefined) => ing({ id: "ing-gin", name: "Gin (700ml)", pack_size: 700, pack_unit: "ml", carton_qty });
+  const packs = (over: Partial<Parameters<typeof resolvePacks>[0]> = {}) => resolvePacks({ mapPacks: null, product: null, ingredient: gin(6), invoiceUnit: "CTN", sizeDescribed: false, ...over });
+
+  it("fires for a carton line with no stated size: 6 packs per carton, source 'carton'", () => {
+    expect(packs()).toEqual({ packs: 6, source: "carton", productUnitMatches: false, conflict: null });
+    for (const unit of ["CTN", "ctn", "Carton", "CARTONS", "CASE", "cases", "CS", "CSE", "ctn."]) expect(packs({ invoiceUnit: unit }).packs, unit).toBe(6);
+    expect(cartonPacks("CTN", gin(12), false)).toBe(12);
+  });
+
+  it("never fires for any other unit: a BOX is its own unit, and so are packs, bottles, eaches, kegs and blanks", () => {
+    for (const unit of ["BOX", "BX", "PKT", "PACK", "BTL", "EA", "KEG", "BAG", "KG", "TRAY", "DOZEN", "", null, "CTN (2 X 6KG", "CTN 6"]) {
+      expect(packs({ invoiceUnit: unit }), String(unit)).toMatchObject({ packs: null, source: "none" });
+      expect(cartonPacks(unit, gin(6), false), String(unit)).toBeNull();
+    }
+    // a litre against a pack in millilitres is the existing certain derivation, not the carton size
+    expect(packs({ invoiceUnit: "L" }).source).toBe("derived");
+    expect(cartonPacks("L", gin(6), false)).toBeNull();
+  });
+
+  it("never fires when the line states a size, or when nobody checked whether it does", () => {
+    expect(packs({ sizeDescribed: true })).toMatchObject({ packs: null, source: "none" });
+    expect(packs({ sizeDescribed: undefined })).toMatchObject({ packs: null, source: "none" });
+    expect(cartonPacks("CTN", gin(6), true)).toBeNull();
+    expect(cartonPacks("CTN", gin(6), undefined)).toBeNull();
+  });
+
+  it("a blank, zero, negative or unreadable carton size is 'nobody said', never 1", () => {
+    for (const q of [null, undefined, 0, -6, Number.NaN, Number.POSITIVE_INFINITY]) expect(packs({ ingredient: gin(q as number | null) }), String(q)).toMatchObject({ packs: null, source: "none" });
+    expect(cartonPacks("CTN", null, false)).toBeNull();
+  });
+
+  it("a saved match with a stated number still wins, and so does the order item's own stated packs", () => {
+    expect(packs({ mapPacks: 12 })).toMatchObject({ packs: 12, source: "map" });
+    const p = prod({ id: "p", name: "Gin", unit_name: "carton", costing_packs_per_unit: 24 });
+    expect(packs({ product: p })).toMatchObject({ packs: 24, source: "product" });
+    // the order item states nothing: the carton size answers
+    expect(packs({ product: { ...p, costing_packs_per_unit: null } })).toMatchObject({ packs: 6, source: "carton", productUnitMatches: true });
+  });
+
+  it("a certain derivation is untouched: a kilo against a kilo pack is still 1, whatever the carton size says", () => {
+    const fish = ing({ id: "k", name: "Kingfish", pack_size: 1, pack_unit: "kg", carton_qty: 10 });
+    expect(resolvePacks({ mapPacks: null, product: null, ingredient: fish, invoiceUnit: "KG", sizeDescribed: false })).toMatchObject({ packs: 1, source: "derived" });
+  });
+
+  it("needs an ingredient: an order item alone has no carton size", () => {
+    expect(packs({ ingredient: null })).toMatchObject({ packs: null, source: "none" });
   });
 });

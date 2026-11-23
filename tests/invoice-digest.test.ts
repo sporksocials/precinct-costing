@@ -218,9 +218,9 @@ describe("assembling Slack data from rows", () => {
       { id: "d5", venue_id: 3, supplier_id: null, supplier_name_read: "Star", doc_type: "invoice", status: "failed" },
     ],
     lines: [
-      { document_id: "d1", line_no: 1, line_class: "product", description: "Kingfish fillets", unit: "KG", unit_price_ex: 74.2, change_pct: 0.0769, old_pack_price: null, new_pack_price: null, old_product_price: null, new_product_price: null, decision: "needs_approval", state: "open" },
-      { document_id: "d1", line_no: 2, line_class: "delivery", description: "Delivery", unit: null, unit_price_ex: 5.91, change_pct: null, old_pack_price: null, new_pack_price: null, old_product_price: null, new_product_price: null, decision: "needs_approval", state: "open" },
-      { document_id: "d2", line_no: 1, line_class: "product", description: "Lychee Liqueur 700ml", unit: "EA", unit_price_ex: 38.62, change_pct: 0.03, old_pack_price: null, new_pack_price: null, old_product_price: null, new_product_price: null, decision: "needs_approval", state: "open" },
+      { document_id: "d1", line_no: 1, line_class: "product", description: "Kingfish fillets", unit: "KG", unit_price_ex: 74.2, change_pct: 0.0769, old_pack_price: null, new_pack_price: null, decision: "needs_approval", state: "open" },
+      { document_id: "d1", line_no: 2, line_class: "delivery", description: "Delivery", unit: null, unit_price_ex: 5.91, change_pct: null, old_pack_price: null, new_pack_price: null, decision: "needs_approval", state: "open" },
+      { document_id: "d2", line_no: 1, line_class: "product", description: "Lychee Liqueur 700ml", unit: "EA", unit_price_ex: 38.62, change_pct: 0.03, old_pack_price: null, new_pack_price: null, decision: "needs_approval", state: "open" },
     ],
     changes: [{ document_id: "d2" }, { document_id: "d2" }, { document_id: "d4" }],
     questions: [
@@ -261,6 +261,9 @@ describe("assembling Slack data from rows", () => {
     expect(item.oldPrice).toBe(68.9);
     const fallback = toAttentionItem({ ...raw().lines[0], unit_price_ex: null, new_pack_price: 120, old_pack_price: 100 }, "X");
     expect([fallback.oldPrice, fallback.newPrice]).toEqual([100, 120]);
+    // the only fallback is the ingredient's pack price: an order price pair left on an older row is never shown
+    const orderOnly = toAttentionItem({ ...raw().lines[0], unit_price_ex: null, change_pct: null, old_product_price: 31.25, new_product_price: 30 } as SlackRaw["lines"][number], "X");
+    expect([orderOnly.oldPrice, orderOnly.newPrice]).toEqual([null, null]);
   });
 });
 

@@ -468,9 +468,17 @@ export type LineKind = "matches" | "changed" | "waiting" | "skipped" | "put_back
 export interface LineStatus extends OutcomeView {
   kind: LineKind;
 }
-/** ONE plain status per product line: Matches, Changed +2.8%, Changed +2.8% (waiting), Not in the app, Needs matching. */
-export function lineStatus(l: Pick<InvoiceLineRow, "state" | "decision" | "match_state" | "change_pct" | "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price">): LineStatus {
-  const pct = l.change_pct ?? pctChange(l.old_pack_price, l.new_pack_price) ?? pctChange(l.old_product_price, l.new_product_price);
+/** What a line matched only to an order item (no costing ingredient) says: there is no price an invoice can set for it. */
+export const NO_INGREDIENT_WORD = "No costing ingredient to update";
+
+/**
+ * ONE plain status per product line: Matches, Changed +2.8%, Changed +2.8% (waiting), Not in the app, Needs matching. The price is
+ * always the ingredient's pack price; a line matched only to an order item with no ingredient says so and never waits for approval.
+ */
+export function lineStatus(
+  l: Pick<InvoiceLineRow, "state" | "decision" | "match_state" | "change_pct" | "old_pack_price" | "new_pack_price"> & Partial<Pick<InvoiceLineRow, "ingredient_id" | "product_id">>,
+): LineStatus {
+  const pct = l.change_pct ?? pctChange(l.old_pack_price, l.new_pack_price);
   const moved = signedPct(pct);
   const changed = moved && moved !== "0%" ? `Changed ${moved}` : "Changed";
   switch (l.state) {
@@ -489,6 +497,8 @@ export function lineStatus(l: Pick<InvoiceLineRow, "state" | "decision" | "match
   }
   if (l.match_state === "ignored") return { kind: "not_in_app", word: "Not in the app", tone: "neutral", icon: "dash" };
   if (l.match_state === "unmatched" || l.match_state === "ambiguous") return { kind: "needs_matching", word: "Needs matching", tone: "warn", icon: "target" };
+  // matched to an order item that has no ingredient (also a line read before 23 Nov 2026 that proposed only an order price)
+  if (l.match_state === "matched" && !l.ingredient_id && !!l.product_id) return { kind: "nothing", word: NO_INGREDIENT_WORD, tone: "neutral", icon: "dash" };
   if (l.decision === "needs_approval" || l.decision === "apply") return { kind: "waiting", word: `${changed} (waiting)`, tone: "warn", icon: "target" };
   if (l.decision === "same") return { kind: "matches", word: "Matches", tone: "neutral", icon: "check" };
   return { kind: "nothing", word: "Nothing to update", tone: "neutral", icon: "dash" };
@@ -532,9 +542,9 @@ export function decisionText(l: Pick<InvoiceLineRow, "decision" | "decision_reas
   }
 }
 
-/** A line a person can approve: still open, with a price to write or confirm. */
-export function canApprove(l: Pick<InvoiceLineRow, "state" | "decision" | "line_class" | "ingredient_id" | "product_id">): boolean {
-  return l.state === "open" && l.line_class === "product" && (l.decision === "needs_approval" || l.decision === "apply" || l.decision === "same") && !!(l.ingredient_id || l.product_id);
+/** A line a person can approve: still open, with an ingredient price to write or confirm (an order item alone has no price to set). */
+export function canApprove(l: Pick<InvoiceLineRow, "state" | "decision" | "line_class" | "ingredient_id">): boolean {
+  return l.state === "open" && l.line_class === "product" && (l.decision === "needs_approval" || l.decision === "apply" || l.decision === "same") && !!l.ingredient_id;
 }
 export function approveLabel(l: Pick<InvoiceLineRow, "decision">): string {
   return l.decision === "same" ? "Confirm Price" : "Approve";
@@ -545,20 +555,20 @@ export function canSkip(l: Pick<InvoiceLineRow, "state" | "decision" | "line_cla
 }
 
 export interface PriceCompare {
-  /** which price the numbers are for */
-  what: "ingredient" | "product";
+  /** which price the numbers are for: always the ingredient's pack price, the one price an invoice sets */
+  what: "ingredient";
   now: number | null;
   invoice: number | null;
   move: PriceMove;
 }
-/** The app's price now against the invoice price, for the ingredient and (when linked) the ordering product. */
-export function priceCompares(l: Pick<InvoiceLineRow, "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price" | "change_pct" | "ingredient_id" | "product_id">): PriceCompare[] {
+/**
+ * The app's price now against the invoice price, for the ingredient. At most one entry: an order item's price is worked out from its
+ * ingredient, so an order price pair on a line read before 23 Nov 2026 is never compared or shown.
+ */
+export function priceCompares(l: Pick<InvoiceLineRow, "old_pack_price" | "new_pack_price" | "change_pct" | "ingredient_id">): PriceCompare[] {
   const out: PriceCompare[] = [];
   if (l.ingredient_id && (l.old_pack_price != null || l.new_pack_price != null)) {
     out.push({ what: "ingredient", now: l.old_pack_price, invoice: l.new_pack_price, move: priceMove(l.change_pct ?? pctChange(l.old_pack_price, l.new_pack_price)) });
-  }
-  if (l.product_id && (l.old_product_price != null || l.new_product_price != null)) {
-    out.push({ what: "product", now: l.old_product_price, invoice: l.new_product_price, move: priceMove(pctChange(l.old_product_price, l.new_product_price)) });
   }
   return out;
 }

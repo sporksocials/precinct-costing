@@ -333,8 +333,8 @@ function ApproveSheet({ line, reconciled, itemName, onClose, onDone }: { line: I
   if (!line) return null;
   const confirmOnly = line.decision === "same";
   const rows: { label: string; now: number | null; next: number | null }[] = [];
+  // the ingredient's pack price is the only price an invoice sets (an order item's price is worked out from its ingredient)
   if (line.ingredient_id) rows.push({ label: "Ingredient price", now: line.old_pack_price, next: line.new_pack_price });
-  if (line.product_id) rows.push({ label: "Ordering price (inc GST)", now: line.old_product_price, next: line.new_product_price });
 
   const go = async () => {
     setBusy(true);

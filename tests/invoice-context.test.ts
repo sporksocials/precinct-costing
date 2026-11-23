@@ -62,18 +62,65 @@ describe("loadAnalyseContext", () => {
     expect(ctx.ingredients).toHaveLength(2);
     expect(ctx.ingredients.find((i) => i.id === IDS.kingfish)).toEqual({
       id: IDS.kingfish, name: "Kingfish Fillets", supplier_id: 7, supplier_code: "15026", pack_size: 1, pack_unit: "kg", pack_price: 65, price_inc_gst: false, gst_free: true,
-      last_price_update: "2026-10-01", active: true, has_deal: false,
+      last_price_update: "2026-10-01", active: true, carton_qty: null, has_deal: false,
     });
     expect(ctx.ingredients.find((i) => i.id === IDS.barra)!.active).toBe(false);
   });
 
-  it("loads this venue's ordering products with the supplier name", async () => {
+  it("loads the ingredient's carton size; blank, zero or garbage is 'nobody said', never 1", async () => {
+    const rows = [
+      ingredient({ carton_qty: 6 }),
+      ingredient({ id: "i-text", carton_qty: "12" }),
+      ingredient({ id: "i-null", carton_qty: null }),
+      ingredient({ id: "i-zero", carton_qty: 0 }),
+      ingredient({ id: "i-neg", carton_qty: -3 }),
+      ingredient({ id: "i-junk", carton_qty: "abc" }),
+    ];
+    const ctx = await loadAnalyseContext(seeded({ cost_ingredients: rows }).sb, args);
+    const of = (id: string) => ctx.ingredients.find((i) => i.id === id)!.carton_qty;
+    expect(of(IDS.kingfish)).toBe(6);
+    expect(of("i-text")).toBe(12);
+    for (const id of ["i-null", "i-zero", "i-neg", "i-junk"]) expect(of(id), id).toBeNull();
+    // the column is asked for
+    const f = seeded();
+    await loadAnalyseContext(f.sb, args);
+    expect(f.log.filter((l) => l.table === "cost_ingredients")).toHaveLength(1);
+  });
+
+  it("works on a database without the carton_qty column: every carton size reads as not recorded", async () => {
+    for (const message of ["column cost_ingredients.carton_qty does not exist", "Could not find the 'carton_qty' column of 'cost_ingredients' in the schema cache"]) {
+      const f = seeded();
+      f.failNext("cost_ingredients", "select", message);
+      const ctx = await loadAnalyseContext(f.sb, args);
+      expect(ctx.ingredients).toHaveLength(2);
+      expect(ctx.ingredients.every((i) => i.carton_qty === null)).toBe(true);
+      expect(ctx.ingredients.find((i) => i.id === IDS.kingfish)).toMatchObject({ name: "Kingfish Fillets", pack_price: 65 });
+      expect(f.log.filter((l) => l.table === "cost_ingredients")).toHaveLength(2); // asked with the column, then without
+    }
+  });
+
+  it("any other failure reading the ingredients is still a failure (never an empty list)", async () => {
+    const f = seeded();
+    f.failNext("cost_ingredients", "select", "permission denied for table cost_ingredients");
+    await expect(loadAnalyseContext(f.sb, args)).rejects.toThrow(/permission denied/);
+  });
+
+  it("loads this venue's order items with the supplier name, and no price (an order price is worked out from the ingredient)", async () => {
     const ctx = await loadAnalyseContext(seeded().sb, args);
     expect(ctx.products).toHaveLength(1);
     expect(ctx.products[0]).toEqual({
-      id: IDS.kingfishProduct, venue_id: 1, name: "Kingfish Fillets", supplier_item_code: "15026", supplier_name: "Daniel Street", supplier_cost_id: null, unit_name: "kg", price_inc_gst: 65,
+      id: IDS.kingfishProduct, venue_id: 1, name: "Kingfish Fillets", supplier_item_code: "15026", supplier_name: "Daniel Street", supplier_cost_id: null, unit_name: "kg",
       ingredient_id: IDS.kingfish, costing_packs_per_unit: 1, deal_buy_qty: 8, deal_free_qty: 1, active: true,
     });
+    expect("price_inc_gst" in ctx.products[0]).toBe(false);
+  });
+
+  it("never asks the database for the order item's stored price", async () => {
+    const src = (await import("node:fs")).readFileSync(new URL("../lib/invoice-context.ts", import.meta.url), "utf8");
+    const select = /"ordering_products",\s*(?:\/\/[^\n]*\n\s*)*"([^"]+)"/.exec(src);
+    expect(select).not.toBeNull();
+    expect(select![1].split(",")).not.toContain("price_inc_gst");
+    expect(select![1].split(",")).toEqual(expect.arrayContaining(["supplier_item_code", "ingredient_id", "costing_packs_per_unit"]));
   });
 
   describe("has_deal", () => {

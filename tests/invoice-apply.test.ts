@@ -217,46 +217,124 @@ describe("applyLine: price confirmed", () => {
   });
 });
 
-describe("applyLine: both an ingredient and an ordering product", () => {
-  it("updates both, logs the ordering price against the invoice, and keeps a ledger row for each", async () => {
-    const f = setup({
-      lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })],
-      products: [product()],
-    });
+/**
+ * One card per product (Troy, 23 Nov 2026): the order item's own stored price is retired, so an invoice writes ONE price, the
+ * ingredient's pack price. These lines carry the order item for the record, and some carry the order price pair an analysis before
+ * that date stored (old_product_price / new_product_price): nothing may ever be written to ordering_products from them.
+ */
+describe("applyLine writes one price: the ingredient's pack price", () => {
+  /** every write (anything but a read) made to the order item table or its price log */
+  const orderWrites = (f: FakeSupabase) => f.log.filter((l) => l.op !== "select" && (l.table === "ordering_products" || l.table === "ordering_price_log"));
+
+  it("a line linked to an ingredient with an order item writes cost_ingredients only, with ONE ledger row", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct })], products: [product()] });
     const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
     expect(r.ok).toBe(true);
-    expect(r.changeIds).toHaveLength(2);
+    expect(r.message).toBe("Kingfish Fillets is now $68.90 (was $65.00).");
+    expect(r.changeIds).toHaveLength(1);
     expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
-    expect(f.db.ordering_products[0].price_inc_gst).toBe(75.79);
-    expect(f.db.ordering_price_log[0]).toMatchObject({ venue_id: 1, product_id: IDS.kingfishProduct, old_price: 65, new_price: 75.79, changed_by: "mon", invoice_document_id: IDS.doc });
-    const prodLedger = f.db.invoice_price_changes.find((c) => c.target === "ordering_product")!;
-    expect(prodLedger).toMatchObject({ target_id: IDS.kingfishProduct, old_price: 65, new_price: 75.79, ordering_log_id: f.db.ordering_price_log[0].id, status: "applied" });
+    expect(f.db.invoice_price_changes).toHaveLength(1);
+    expect(f.db.invoice_price_changes[0]).toMatchObject({ target: "ingredient", target_id: IDS.kingfish, old_price: 65, new_price: 68.9 });
+    // the order item is untouched: no update, no price log row, not even a read in approved mode
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+    expect(f.db.ordering_price_log).toHaveLength(0);
+    expect(f.log.filter((l) => l.table === "ordering_products")).toHaveLength(0);
     expect(f.db.invoice_lines[0].state).toBe("applied");
   });
 
-  it("writes nothing when either target is stale", async () => {
-    const f = setup({
-      lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })],
-      products: [product({ price_inc_gst: 70 })],
-    });
+  it("an older line that still carries an order price pair writes the ingredient only and says nothing about an order price", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })], products: [product()] });
     const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(true);
+    expect(r.changeIds).toHaveLength(1);
+    expect(r.message).not.toMatch(/order price/i);
+    expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+    expect(orderWrites(f)).toHaveLength(0);
+    expect(f.db.invoice_price_changes.some((c) => c.target === "ordering_product")).toBe(false);
+  });
+
+  it("the order item's stored price moving is no longer a stale check: the ingredient still applies", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })], products: [product({ price_inc_gst: 70 })] });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(true);
+    expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(70);
+    expect(orderWrites(f)).toHaveLength(0);
+  });
+
+  it("the ingredient's own stale check still refuses, and writes nothing at all", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct })], products: [product()], ing: { pack_price: 66.5 } });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(false);
     expect(r.stale).toBe(true);
+    expect(f.log.filter((l) => l.op !== "select")).toHaveLength(0);
+  });
+
+  it("a line matched only to an order item (no ingredient) is refused in plain words, never an error, and writes nothing", async () => {
+    for (const mode of ["approved", "auto"] as const) {
+      for (const over of [
+        // as a new analysis stores it: nothing proposed
+        { ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: IDS.kingfishProduct, decision: "none", decision_reason: "No costing ingredient to update." },
+        // as an analysis before 23 Nov 2026 stored it: an order price waiting for approval
+        { ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 70, decision: mode === "auto" ? "apply" : "needs_approval" },
+      ]) {
+        const f = setup({ lines: [line(over)], products: [product()], doc: { mode: "auto" } });
+        const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode });
+        expect(r.ok).toBe(false);
+        expect(r.message).not.toMatch(/^Nothing was changed\./); // not the caught-exception wording
+        expect(r.message).not.toMatch(/[—–]/);
+        expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+        expect(f.log.filter((l) => l.op !== "select")).toHaveLength(0);
+        expect(f.db.invoice_lines[0].state).toBe("open");
+      }
+    }
+  });
+
+  it("says there is no costing ingredient when an older order-price line is approved", async () => {
+    const f = setup({ lines: [line({ ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: null, new_product_price: 70 })], products: [product({ price_inc_gst: null })] });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("No costing ingredient to update.");
+    expect(f.db.ordering_products[0].price_inc_gst).toBeNull();
+  });
+
+  it("an order item that belongs to another venue is not a reason to refuse: only the shared ingredient price is written", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct })], products: [product({ venue_id: 2 })] });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
+    expect(r.ok).toBe(true);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+  });
+
+  it("automatic mode applies the ingredient only, and only READS the order item (its free-unit deal)", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct, unit_price_ex: 66.3, new_pack_price: 66.3, change_pct: 0.02, decision: "apply", decision_reason: null })], products: [product()], doc: { mode: "auto" } });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" });
+    expect(r.ok).toBe(true);
+    expect(f.db.cost_ingredients[0].pack_price).toBe(66.3);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+    expect(orderWrites(f)).toHaveLength(0);
+    expect(f.log.filter((l) => l.table === "ordering_products").every((l) => l.op === "select")).toBe(true);
+  });
+
+  it("automatic mode still refuses when the linked order item now has a free-unit deal", async () => {
+    const f = setup({ lines: [line({ product_id: IDS.kingfishProduct, unit_price_ex: 66.3, new_pack_price: 66.3, change_pct: 0.02, decision: "apply", decision_reason: null })], products: [product({ deal_buy_qty: 8, deal_free_qty: 1 })], doc: { mode: "auto" } });
+    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "system", mode: "auto" });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("free-unit deal");
     expect(f.db.cost_ingredients[0].pack_price).toBe(65);
     expect(f.log.filter((l) => l.op !== "select")).toHaveLength(0);
   });
 
-  it("refuses an ordering product that belongs to another venue", async () => {
-    const f = setup({ lines: [line({ ingredient_id: null, new_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 70 })], products: [product({ venue_id: 2 })] });
-    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
-    expect(r.ok).toBe(false);
-    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
-  });
-
-  it("an ordering product with no price yet can be set", async () => {
-    const f = setup({ lines: [line({ ingredient_id: null, new_pack_price: null, old_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: null, new_product_price: 70 })], products: [product({ price_inc_gst: null })] });
-    const r = await applyLine(f.sb, { lineId: IDS.lineKingfish, actor: "mon", mode: "approved" });
-    expect(r.ok).toBe(true);
-    expect(f.db.ordering_products[0].price_inc_gst).toBe(70);
+  it("the module has exactly ONE update of ordering_products left, inside the undo of an older ledger row", () => {
+    const src = readFileSync(new URL("../lib/invoice-apply.ts", import.meta.url), "utf8");
+    const updates = src.match(/from\("ordering_products"\)\.update\(/g) ?? [];
+    expect(updates).toHaveLength(1);
+    const undoStart = src.indexOf("async function undoInner");
+    expect(undoStart).toBeGreaterThan(0);
+    expect(src.indexOf('from("ordering_products").update(')).toBeGreaterThan(undoStart);
+    // and no ledger row is ever written for an order item
+    expect(src).not.toMatch(/target: "ordering_product"/);
+    expect(src.slice(0, undoStart)).not.toContain("ordering_price_log");
   });
 });
 
@@ -408,26 +486,72 @@ describe("undoChange", () => {
     expect(f.db.invoice_lines[0].state).toBe("reverted");
   });
 
-  it("undoes an ordering product price and logs it", async () => {
-    const { f } = await applied({ lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })], products: [product()] });
-    const prodChange = f.db.invoice_price_changes.find((c) => c.target === "ordering_product")!;
-    const r = await undoChange(f.sb, { changeId: prodChange.id, actor: "troy" });
+  // ---- HISTORY: ledger rows written before 23 Nov 2026, when an invoice also set the order item's stored price. Nothing writes one
+  // now, so the tests seed the row as the old apply left it (the order item at the invoice price, its own ledger row and log row).
+  const OLD_PRODUCT_CHANGE = {
+    id: "chg-old-product", line_id: IDS.lineKingfish, document_id: IDS.doc, venue_id: 1, target: "ordering_product", target_id: IDS.kingfishProduct, kind: "price_change", mode: "approved",
+    old_price: 65, new_price: 75.79, old_last_price_update: null, old_previous_price: null, old_source: null, ordering_log_id: "olog-1", status: "applied", applied_by: "mon", applied_at: "2026-10-24T02:00:00Z",
+  };
+  function oldProductChange(over: { ingredientToo?: boolean; lineOver?: Record<string, any> } = {}) {
+    const f = setup({
+      lines: [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79, state: "applied", ...over.lineOver })],
+      products: [product({ price_inc_gst: 75.79 })],
+      ing: over.ingredientToo ? { pack_price: 68.9, previous_price: 65, source: LABEL, last_price_update: "2026-10-14" } : {},
+    });
+    f.db.ordering_price_log.push({ id: "olog-1", venue_id: 1, product_id: IDS.kingfishProduct, old_price: 65, new_price: 75.79, changed_by: "mon", invoice_document_id: IDS.doc });
+    f.db.invoice_price_changes = [{ ...OLD_PRODUCT_CHANGE }];
+    if (over.ingredientToo) {
+      f.db.invoice_price_changes.push({
+        id: "chg-old-ingredient", line_id: IDS.lineKingfish, document_id: IDS.doc, venue_id: 1, target: "ingredient", target_id: IDS.kingfish, kind: "price_change", mode: "approved",
+        old_price: 65, new_price: 68.9, old_last_price_update: "2026-10-01", old_previous_price: 62, old_source: "Daniel Street price list", status: "applied", applied_by: "mon", applied_at: "2026-10-24T02:00:00Z",
+      });
+    }
+    return f;
+  }
+
+  it("an OLD ledger row for an order item still undoes: the stored price goes back and the undo is logged", async () => {
+    const f = oldProductChange({ ingredientToo: true });
+    const r = await undoChange(f.sb, { changeId: "chg-old-product", actor: "troy" });
     expect(r.ok).toBe(true);
+    expect(r.message).toBe("Kingfish Fillets order price is back to $65.00 (was $75.79).");
     expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
     expect(f.db.ordering_price_log).toHaveLength(2);
     expect(f.db.ordering_price_log[1]).toMatchObject({ old_price: 75.79, new_price: 65, changed_by: "troy", invoice_document_id: IDS.doc });
-    // the ingredient change is still applied, so the line stays applied
+    expect(f.db.invoice_price_changes[0]).toMatchObject({ status: "reverted", reverted_by: "troy" });
+    // the ingredient change is still applied, so the line stays applied and the ingredient is untouched
     expect(f.db.invoice_lines[0].state).toBe("applied");
-    const ingChange = f.db.invoice_price_changes.find((c) => c.target === "ingredient")!;
-    await undoChange(f.sb, { changeId: ingChange.id, actor: "troy" });
+    expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
+    await undoChange(f.sb, { changeId: "chg-old-ingredient", actor: "troy" });
+    expect(f.db.cost_ingredients[0].pack_price).toBe(65);
     expect(f.db.invoice_lines[0].state).toBe("reverted");
   });
 
-  it("an ordering product moved by someone else needs force", async () => {
-    const { f } = await applied({ lines: [line({ ingredient_id: null, new_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })], products: [product()] });
+  it("an OLD order item row on a line with no ingredient undoes and puts the line back", async () => {
+    const f = oldProductChange({ lineOver: { ingredient_id: null, old_pack_price: null, new_pack_price: null } });
+    const r = await undoChange(f.sb, { changeId: "chg-old-product", actor: "troy" });
+    expect(r.ok).toBe(true);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+    expect(f.db.invoice_lines[0].state).toBe("reverted");
+  });
+
+  it("an OLD order item price moved by someone else needs force", async () => {
+    const f = oldProductChange();
     f.db.ordering_products[0].price_inc_gst = 80;
-    const r = await undoChange(f.sb, { changeId: f.db.invoice_price_changes[0].id, actor: "troy" });
+    const r = await undoChange(f.sb, { changeId: "chg-old-product", actor: "troy" });
     expect(r).toMatchObject({ ok: false, needsForce: true, currentPrice: 80 });
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(80);
+    const forced = await undoChange(f.sb, { changeId: "chg-old-product", actor: "troy", force: true });
+    expect(forced.ok).toBe(true);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+  });
+
+  it("undoDocument still undoes an invoice whose old rows include an order item", async () => {
+    const f = oldProductChange({ ingredientToo: true });
+    const results = await undoDocument(f.sb, { documentId: IDS.doc, actor: "troy" });
+    expect(results.map((r) => r.ok)).toEqual([true, true]);
+    expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+    expect(f.db.cost_ingredients[0].pack_price).toBe(65);
+    expect(f.db.invoice_price_changes.every((c) => c.status === "reverted")).toBe(true);
   });
 });
 

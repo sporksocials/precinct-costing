@@ -246,27 +246,27 @@ describe("S2: the numbers are worked out again from the line and the ingredient 
     expect((await approve(g)).message).toBe(STALE);
   });
 
-  it("refuses when the ordering product's costing packs changed", async () => {
-    const lines = [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })];
-    const f = setup({ lines, products: [product({ costing_packs_per_unit: 6 })] });
+  // One card per product (23 Nov 2026): the order item is no longer a price target, so it has no stale check of its own. The
+  // ingredient's own re-checks above (price read, pack, GST) are what guard the one write.
+  it("the order item is not re-checked: its costing packs or link changing does not stop the ingredient price, and it is never written", async () => {
+    for (const over of [{ costing_packs_per_unit: 6 }, { ingredient_id: IDS.lychee }]) {
+      const lines = [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })];
+      const f = setup({ lines, products: [product(over)] });
+      const r = await approve(f);
+      expect(r.ok).toBe(true);
+      expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
+      expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
+      expect(writes(f).filter((w) => w.table === "ordering_products" || w.table === "ordering_price_log")).toHaveLength(0);
+    }
+  });
+
+  it("an order-item-only line (no ingredient) writes nothing, whatever an older analysis proposed", async () => {
+    const f = setup({ lines: [line({ ingredient_id: null, new_pack_price: null, old_pack_price: null, packs_per_unit: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 70 })], products: [product()] });
     const r = await approve(f);
     expect(r.ok).toBe(false);
-    expect(r.message).toContain("pack size or ingredient link changed");
+    expect(r.message).toContain("No costing ingredient to update.");
     expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
     expect(writes(f)).toHaveLength(0);
-  });
-
-  it("refuses when the ordering product now points at another ingredient", async () => {
-    const lines = [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })];
-    const f = setup({ lines, products: [product({ ingredient_id: IDS.lychee })] });
-    expect((await approve(f)).ok).toBe(false);
-    expect(writes(f)).toHaveLength(0);
-  });
-
-  it("an ordering-only line (no ingredient) needs no pack size", async () => {
-    const f = setup({ lines: [line({ ingredient_id: null, new_pack_price: null, old_pack_price: null, packs_per_unit: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 70 })], products: [product()] });
-    expect((await approve(f)).ok).toBe(true);
-    expect(f.db.ordering_products[0].price_inc_gst).toBe(70);
   });
 });
 
@@ -283,14 +283,17 @@ describe("S9: a same price is a confirmation and never writes a price", () => {
     }
   });
 
-  it("an ordering product within half a cent is confirmed without a write or a ledger row", async () => {
-    const lines = [line({ ingredient_id: null, new_pack_price: null, old_pack_price: null, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 65.004, decision: "needs_approval" })];
+  it("an order price pair on an older line is never confirmed or written: only the ingredient's price is confirmed", async () => {
+    // the ingredient price is the same; an older analysis also proposed an order price change on the line
+    const lines = [line({ unit_price_ex: 65, new_pack_price: 65, change_pct: 0, product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 71.5, decision: "needs_approval" })];
     const f = setup({ lines, products: [product()] });
     const r = await approve(f);
     expect(r.ok).toBe(true);
+    expect(r.message).toBe("Kingfish Fillets: price confirmed at $65.00.");
     expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
     expect(f.db.ordering_price_log).toHaveLength(0);
-    expect(f.db.invoice_price_changes ?? []).toHaveLength(0);
+    expect(f.db.invoice_price_changes).toHaveLength(1);
+    expect(f.db.invoice_price_changes[0]).toMatchObject({ target: "ingredient", kind: "price_confirmed" });
     expect(f.db.invoice_lines[0].state).toBe("confirmed");
   });
 });
@@ -321,21 +324,18 @@ describe("M1: one live change per line and target", () => {
     expect(f.db.cost_price_log).toHaveLength(1);
   });
 
-  it("a ledger conflict on the ordering product leaves the ingredient price in place and says so", async () => {
+  it("a line with an order item makes ONE ledger row (the ingredient's): there is no second target to half-apply", async () => {
     const lines = [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })];
     const f = setup({ lines, products: [product()] });
     oneLive(f);
-    // somebody else applies the ordering-product side while this one is writing the ingredient
-    f.onUpdate("cost_ingredients", () => {
-      if (f.db.invoice_price_changes.some((c) => c.id === "other")) return;
-      f.db.invoice_price_changes.push({ id: "other", line_id: IDS.lineKingfish, document_id: IDS.doc, venue_id: 1, target: "ordering_product", target_id: IDS.kingfishProduct, kind: "price_change", status: "applied" });
-    });
     const r = await approve(f);
     expect(r.ok).toBe(true);
-    expect(r.message).toContain("applied by someone else");
+    expect(r.message).toBe("Kingfish Fillets is now $68.90 (was $65.00).");
+    expect(r.message).not.toMatch(/left alone|order price/i);
     expect(f.db.cost_ingredients[0].pack_price).toBe(68.9);
     expect(f.db.ordering_products[0].price_inc_gst).toBe(65);
-    expect(f.db.invoice_price_changes.filter((c) => c.status === "applied")).toHaveLength(2);
+    expect(f.db.invoice_price_changes).toHaveLength(1);
+    expect(f.db.invoice_price_changes[0].target).toBe("ingredient");
   });
 
   it("a failed guarded write takes its ledger row back, for a price change and for a confirmation", async () => {
@@ -352,13 +352,13 @@ describe("M1: one live change per line and target", () => {
     expect(confirm.db.cost_price_log).toHaveLength(0);
   });
 
-  it("a failed ordering-product write takes its own ledger row back and keeps the ingredient change, saying so", async () => {
+  it("no update is ever sent to ordering_products, so a database that refused one could not matter", async () => {
     const lines = [line({ product_id: IDS.kingfishProduct, old_product_price: 65, new_product_price: 75.79 })];
     const f = setup({ lines, products: [product()] });
-    f.failNext("ordering_products", "update", "boom");
+    f.failNext("ordering_products", "update", "boom"); // would fail the first update of the order item, if one were made
     const r = await approve(f);
     expect(r.ok).toBe(true);
-    expect(r.message).toContain("left alone");
+    expect(f.log.filter((l) => l.table === "ordering_products" && l.op !== "select")).toHaveLength(0);
     expect(f.db.invoice_price_changes.filter((c) => c.target === "ordering_product")).toHaveLength(0);
     expect(f.db.invoice_price_changes.filter((c) => c.target === "ingredient")).toHaveLength(1);
     expect(f.db.ordering_products[0].price_inc_gst).toBe(65);

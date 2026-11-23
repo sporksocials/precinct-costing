@@ -28,6 +28,7 @@ import {
   landedText,
   last30Range,
   lineStatus,
+  NO_INGREDIENT_WORD,
   numberLabel,
   outcomeFor,
   outcomeStats,
@@ -412,12 +413,33 @@ describe("lines", () => {
     expect(pctChange(0, 5)).toBeNull();
     expect(pctChange(null, 5)).toBeNull();
   });
-  it("compares the ingredient and the ordering product separately", () => {
+  it("compares ONE price, the ingredient's: an order price pair on an older line is never compared or shown", () => {
     const both = priceCompares(line({ product_id: "p1", old_product_price: 70, new_product_price: 75.79 }));
-    expect(both.map((c) => c.what)).toEqual(["ingredient", "product"]);
+    expect(both.map((c) => c.what)).toEqual(["ingredient"]);
     expect(both[0].move.text).toBe("Up 2.8%");
-    expect(both[1].move.text).toBe("Up 8.3%");
     expect(priceCompares(line({ ingredient_id: null, old_pack_price: null, new_pack_price: null }))).toEqual([]);
+    // an order item with no ingredient has no price to compare, whatever an older analysis stored
+    expect(priceCompares(line({ ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: "p1", old_product_price: 70, new_product_price: 75.79 }))).toEqual([]);
+  });
+  it("a line matched only to an order item reads plainly and can never be approved", () => {
+    const only = line({ ingredient_id: null, old_pack_price: null, new_pack_price: null, change_pct: null, product_id: "p1", decision: "none", decision_reason: "No costing ingredient to update." });
+    expect(lineStatus(only)).toEqual({ kind: "nothing", word: "No costing ingredient to update", tone: "neutral", icon: "dash" });
+    expect(NO_INGREDIENT_WORD).not.toMatch(/[—–]/);
+    expect(canApprove(only)).toBe(false);
+    expect(canSkip(only)).toBe(false);
+    expect(decisionText(only)).toBe("No costing ingredient to update.");
+    // the same line as an analysis before 23 Nov 2026 left it: an order price waiting. It no longer says "waiting" or offers Approve;
+    // Skip stays so a person can clear it.
+    const old = line({ ingredient_id: null, old_pack_price: null, new_pack_price: null, product_id: "p1", old_product_price: 70, new_product_price: 75.79, change_pct: 0.0827, decision: "needs_approval" });
+    expect(lineStatus(old).word).toBe("No costing ingredient to update");
+    expect(lineStatus(old).kind).toBe("nothing");
+    expect(canApprove(old)).toBe(false);
+    expect(canSkip(old)).toBe(true);
+    // history is untouched: an old line whose order price was applied still reads as changed
+    expect(lineStatus({ ...old, state: "applied" }).kind).toBe("changed");
+    // and a line with an ingredient is unaffected by carrying an order item
+    expect(lineStatus(line({ product_id: "p1", decision: "needs_approval", change_pct: 0.028 })).word).toBe("Changed +2.8% (waiting)");
+    expect(canApprove(line({ product_id: "p1", decision: "needs_approval" }))).toBe(true);
   });
   it("splits products from charges and credits", () => {
     const ls = [

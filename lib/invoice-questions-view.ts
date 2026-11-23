@@ -60,7 +60,6 @@ export interface ProductLite {
   id: string;
   name: string;
   unit_name: string;
-  price_inc_gst: number | null;
 }
 export interface OptionLookups {
   ingredients: ReadonlyMap<string, IngredientLite>;
@@ -173,9 +172,12 @@ export function ingredientPriceSentence(i: Pick<IngredientLite, "pack_size" | "p
   return `Now ${money(Number(i.pack_price))} per ${packLabel(Number(i.pack_size), i.pack_unit)} pack, ${basis}`;
 }
 
-export function productPriceSentence(p: Pick<ProductLite, "unit_name" | "price_inc_gst">): string {
-  if (p.price_inc_gst == null) return "No ordering price set yet";
-  return `Ordering price now ${money(Number(p.price_inc_gst))} per ${p.unit_name || "unit"}, inc GST`;
+/**
+ * The quiet line under an answer that names an order item with no ingredient. An order item has no price of its own (it is worked
+ * out from its ingredient), so choosing one keeps the match for the record and changes no price.
+ */
+export function productPriceSentence(p: Pick<ProductLite, "unit_name">): string {
+  return `Order item, by the ${(p.unit_name || "unit").toLowerCase()}. No costing ingredient to update`;
 }
 
 function variantFor(o: QuestionOption): OptionVariant {

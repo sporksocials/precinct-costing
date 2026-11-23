@@ -140,11 +140,18 @@ export interface SlackRawLine {
   change_pct: number | null;
   old_pack_price: number | null;
   new_pack_price: number | null;
-  old_product_price: number | null;
-  new_product_price: number | null;
   decision: string;
   state: string;
 }
+
+const finiteNum = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
+
+/**
+ * A line with an INGREDIENT price the invoice would set. The ingredient's pack price is the only price an invoice sets (23 Nov
+ * 2026); a line read before then that proposed only an order item's price has no new pack price and is never a price move, an
+ * attention item or a price to approve.
+ */
+export const hasIngredientPrice = (l: Pick<SlackRawLine, "new_pack_price">): boolean => finiteNum(l.new_pack_price) != null;
 export interface SlackRaw {
   docs: SlackRawDoc[];
   lines: SlackRawLine[];
@@ -162,15 +169,10 @@ export function toAttentionItem(line: SlackRawLine, supplier: string): Attention
   let newPrice: number | null = line.unit_price_ex == null ? null : Number(line.unit_price_ex);
   let oldPrice: number | null = null;
   if (newPrice != null && pct != null && pct > -1) oldPrice = Math.round((newPrice / (1 + pct)) * 100) / 100;
-  if (newPrice == null) {
-    // no invoice unit price on the line: fall back to what the app compared (pack, then ordering product)
-    if (line.new_pack_price != null) {
-      newPrice = Number(line.new_pack_price);
-      oldPrice = line.old_pack_price == null ? null : Number(line.old_pack_price);
-    } else if (line.new_product_price != null) {
-      newPrice = Number(line.new_product_price);
-      oldPrice = line.old_product_price == null ? null : Number(line.old_product_price);
-    }
+  if (newPrice == null && line.new_pack_price != null) {
+    // no invoice unit price on the line: fall back to what the app compared, the ingredient's pack price
+    newPrice = Number(line.new_pack_price);
+    oldPrice = line.old_pack_price == null ? null : Number(line.old_pack_price);
   }
   return { supplier, item: line.description, oldPrice, newPrice, unit: line.unit, pct };
 }
@@ -243,7 +245,7 @@ async function loadSlackRaw(sb: SupabaseClient, ids: string[]): Promise<SlackRaw
       ...(await all<SlackRawLine>(
         sb
           .from("invoice_lines")
-          .select("document_id, line_no, line_class, description, unit, unit_price_ex, change_pct, old_pack_price, new_pack_price, old_product_price, new_product_price, decision, state")
+          .select("document_id, line_no, line_class, description, unit, unit_price_ex, change_pct, old_pack_price, new_pack_price, decision, state")
           .in("document_id", part)
           .eq("decision", "needs_approval")
           .eq("state", "open"),
@@ -510,17 +512,12 @@ export interface WeeklyRaw {
   discounts: Map<number, DiscountGroup[]>;
 }
 
-const finiteNum = (v: unknown): number | null => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
-
-/** The "prices to approve" test: a pack or ordering product price pair where the new price is not the old one. */
-export function priceDiffers(l: Pick<SlackRawLine, "old_pack_price" | "new_pack_price" | "old_product_price" | "new_product_price">): boolean {
-  const pair = (oldP: unknown, newP: unknown): boolean => {
-    const n = finiteNum(newP);
-    if (n == null) return false;
-    const o = finiteNum(oldP);
-    return o == null || Math.abs(n - o) >= SAME_PRICE_EPS;
-  };
-  return pair(l.old_pack_price, l.new_pack_price) || pair(l.old_product_price, l.new_product_price);
+/** The "prices to approve" test, the same as Approve Prices: an ingredient pack price pair where the new price is not the old one. */
+export function priceDiffers(l: Pick<SlackRawLine, "old_pack_price" | "new_pack_price">): boolean {
+  const n = finiteNum(l.new_pack_price);
+  if (n == null) return false;
+  const o = finiteNum(l.old_pack_price);
+  return o == null || Math.abs(n - o) >= SAME_PRICE_EPS;
 }
 
 /** yyyy-mm-dd in Brisbane. */
@@ -596,6 +593,8 @@ export function assembleWeeklyData(raw: WeeklyRaw, origin: string): WeeklyReview
     if (!doc || l.line_class !== "product") continue;
     if (l.decision !== "apply" && l.decision !== "needs_approval") continue;
     if (l.state !== "open" && l.state !== "applied") continue;
+    // only an ingredient price is a move: an order item's price is worked out from its ingredient and is never listed
+    if (!hasIngredientPrice(l)) continue;
     const pct = finiteNum(l.change_pct);
     if (pct == null || pct <= -1 || Math.round(Math.abs(pct) * 1000) === 0) continue;
     const item = toAttentionItem(l, supplierOf(doc));
@@ -659,7 +658,7 @@ async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ dat
 
 const DOC_COLUMNS = "id, venue_id, supplier_id, supplier_name_read, doc_type, status, read_model, created_at";
 const LINE_COLUMNS =
-  "id, document_id, venue_id, line_no, line_class, item_code, description, unit, unit_price_ex, change_pct, old_pack_price, new_pack_price, old_product_price, new_product_price, decision, state";
+  "id, document_id, venue_id, line_no, line_class, item_code, description, unit, unit_price_ex, change_pct, old_pack_price, new_pack_price, decision, state";
 
 /** Everything the weekly review needs, read once. Any failure throws a plain message (nothing is posted on a failed read). */
 export async function loadWeeklyRaw(sb: SupabaseClient, now: Date): Promise<WeeklyRaw> {

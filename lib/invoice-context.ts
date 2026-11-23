@@ -93,6 +93,27 @@ export function settingsFromRows(rows: { key: string; value: unknown }[]): { set
   };
 }
 
+const INGREDIENT_COLUMNS = "id,name,supplier_id,supplier_code,pack_size,pack_unit,pack_price,price_inc_gst,gst_free,last_price_update,active";
+
+/** True when a database error only says cost_ingredients has no carton_qty column yet (an older database). */
+function cartonColumnMissing(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+  return text.includes("carton_qty") && /column|schema cache|does not exist/i.test(text);
+}
+
+/**
+ * The ingredients with their carton size (how many packs a carton holds). On a database without the column the same rows are read
+ * without it, so every carton size is simply "not recorded" and the engine asks, as it did before the column existed.
+ */
+async function fetchIngredients(sb: SupabaseClient): Promise<Record<string, any>[]> {
+  try {
+    return await fetchAll<Record<string, any>>(sb, "cost_ingredients", `${INGREDIENT_COLUMNS},carton_qty`);
+  } catch (e) {
+    if (!cartonColumnMissing(e)) throw e;
+    return fetchAll<Record<string, any>>(sb, "cost_ingredients", INGREDIENT_COLUMNS);
+  }
+}
+
 export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, folderVenueId, today }): Promise<AnalyseContext> => {
   const now = today || brisbaneToday();
 
@@ -108,11 +129,7 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
     fetchAll<InvoiceSupplierRow>(sb, "invoice_suppliers", "id,name,abn,aliases,cost_supplier_id,allocation_basis,auto_apply,notes,active"),
     fetchAll<InvoiceItemMapRow>(sb, "invoice_item_map", "id,supplier_id,venue_id,item_code,desc_key,ingredient_id,product_id,packs_per_unit,rejected"),
     fetchAll<InvoiceChargeRuleRow>(sb, "invoice_charge_rules", "id,supplier_id,match_text,line_class,spread,note,active", (q) => q.eq("active", true)),
-    fetchAll<Record<string, any>>(
-      sb,
-      "cost_ingredients",
-      "id,name,supplier_id,supplier_code,pack_size,pack_unit,pack_price,price_inc_gst,gst_free,last_price_update,active",
-    ),
+    fetchIngredients(sb),
     fetchAll<{ id: string; ingredient_id: string; active: boolean; starts_on: string | null; ends_on: string | null }>(
       sb,
       "cost_ingredient_deals",
@@ -122,7 +139,8 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
     fetchAll<Record<string, any>>(
       sb,
       "ordering_products",
-      "id,venue_id,name,supplier_id,supplier_item_code,unit_name,price_inc_gst,ingredient_id,costing_packs_per_unit,deal_buy_qty,deal_free_qty,active",
+      // no price: an order item's price is worked out from its ingredient now, and an invoice never compares with or writes one
+      "id,venue_id,name,supplier_id,supplier_item_code,unit_name,ingredient_id,costing_packs_per_unit,deal_buy_qty,deal_free_qty,active",
       (q) => q.eq("venue_id", venueId),
     ),
     fetchAll<{ id: string; name: string; cost_supplier_id: number | null }>(sb, "ordering_suppliers", "id,name,cost_supplier_id", (q) => q.eq("venue_id", venueId)),
@@ -145,6 +163,7 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
     gst_free: !!r.gst_free,
     last_price_update: r.last_price_update ?? null,
     active: r.active !== false,
+    carton_qty: positiveOrNull(r.carton_qty),
     has_deal: withDeal.has(r.id),
   }));
 
@@ -158,7 +177,6 @@ export const loadAnalyseContext: LoadAnalyseContext = async (sb, { venueId, fold
     supplier_name: r.supplier_id ? supplierName.get(r.supplier_id) ?? null : null,
     supplier_cost_id: r.supplier_id ? supplierCostId.get(r.supplier_id) ?? null : null,
     unit_name: r.unit_name,
-    price_inc_gst: r.price_inc_gst === null || r.price_inc_gst === undefined ? null : num(r.price_inc_gst, 0),
     ingredient_id: r.ingredient_id ?? null,
     costing_packs_per_unit: r.costing_packs_per_unit === null || r.costing_packs_per_unit === undefined ? null : num(r.costing_packs_per_unit, 1),
     deal_buy_qty: r.deal_buy_qty === null || r.deal_buy_qty === undefined ? null : num(r.deal_buy_qty, 0),

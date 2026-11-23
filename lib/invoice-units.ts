@@ -110,12 +110,19 @@ export interface PackInput {
   product: AnalyseProduct | null;
   ingredient: AnalyseIngredient | null;
   invoiceUnit: string | null;
+  /**
+   * The line itself states a size or a count ("6 x 700ml", "2.5kg", "case of 12", "CTN (2 X 6KG"). The caller works it out (the
+   * engine uses the same parser as the Match Items screen). Absent means "not checked", which is treated as described: the
+   * ingredient's carton size is then never used.
+   */
+  sizeDescribed?: boolean;
 }
 
 export interface PackResolution {
   /** costing packs in one invoice unit, null when it cannot be known safely */
   packs: number | null;
-  source: "map" | "product" | "derived" | "none";
+  /** "carton": the ingredient's own recorded carton size (cost_ingredients.carton_qty), for a line sold by the carton */
+  source: "map" | "product" | "derived" | "carton" | "none";
   /** the invoice unit is the ordering product's unit, so its price can be compared per order unit */
   productUnitMatches: boolean;
   /** the saved match and the ordering list disagree on the pack count: a person must say which is right */
@@ -123,9 +130,23 @@ export interface PackResolution {
 }
 
 /**
+ * The ingredient's recorded carton size as packs per invoice unit, or null. ONLY when every one of these holds: the invoice unit is
+ * plainly a carton (CTN, CARTON, CASE: the words `canonicalUnit` reads as "carton"; a BOX is its own unit and never counts), the
+ * line states no size or count of its own (a line that says "6 x 700ml" describes its own carton, which may not be ours), and a
+ * person recorded a carton size above zero on the ingredient. A blank carton size is "nobody said", never 1.
+ */
+export function cartonPacks(invoiceUnit: string | null | undefined, ingredient: Pick<AnalyseIngredient, "carton_qty"> | null, sizeDescribed: boolean | undefined): number | null {
+  if (!ingredient || sizeDescribed !== false) return null;
+  if (canonicalUnit(invoiceUnit) !== "carton") return null;
+  const n = ingredient.carton_qty;
+  return n != null && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
  * Decide packs_per_unit. A saved match with a stated number wins (a null there means nobody said, never 1); then the ordering
- * product's own costing packs if the invoice unit is the product's unit and it states them (blank is unknown, never 1); then only
- * the safe derivations. Never guesses: still unknown gives null and the engine asks.
+ * product's own costing packs if the invoice unit is the product's unit and it states them (blank is unknown, never 1); then the
+ * safe derivations; then, last and only for a line sold by the carton that states no size, the carton size recorded on the
+ * ingredient (see `cartonPacks`). Never guesses: still unknown gives null and the engine asks.
  */
 export function resolvePacks(input: PackInput): PackResolution {
   const { mapPacks, product, ingredient, invoiceUnit } = input;
@@ -146,6 +167,8 @@ export function resolvePacks(input: PackInput): PackResolution {
   if (ingredient) {
     const d = deriveSafePacks(invoiceUnit, ingredient);
     if (d != null && d > 0) return { packs: d, source: "derived", productUnitMatches, conflict: null };
+    const c = cartonPacks(invoiceUnit, ingredient, input.sizeDescribed);
+    if (c != null) return { packs: c, source: "carton", productUnitMatches, conflict: null };
   }
   return { packs: null, source: "none", productUnitMatches, conflict: null };
 }

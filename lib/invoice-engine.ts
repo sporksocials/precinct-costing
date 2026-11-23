@@ -24,7 +24,8 @@ import type {
   InvoiceAnalysis,
   ReconNote,
 } from "./invoice-types";
-import { baseUnitFor, baseQuantity, resolvePacks, type PackResolution } from "./invoice-units";
+import { baseUnitFor, baseQuantity, inferPackCounts, resolvePacks, type PackResolution } from "./invoice-units";
+import { parseSizes, readUnit } from "./invoice-conversion";
 import { documentPriceBasis, isNotSupplied, lineAmounts, reconcile, settleGst, type LineAmounts, type ReconLine } from "./invoice-recon";
 import { classifyLine, isChargeClass, type Classified } from "./invoice-classify";
 import { buildMatcher, checkVenue, findDuplicate, matchSupplier, type LineMatch } from "./invoice-match";
@@ -53,8 +54,16 @@ import {
  * invoice (`invoice_documents.analysis_version`), and a quiet step re-checks stored invoices that carry an older one from their
  * stored reading, at no AI cost. BUMP IT WHENEVER the engine, reconciliation or reading rules change in a way that should re-check
  * stored invoices. Version 2: a printed Discount column the price already includes, and an unlabelled discount judged in dollars.
+ * Version 3: the one supplier list (29 Oct 2026) links invoice suppliers to costing suppliers, so code matches and the
+ * costed-supplier check start working. Version 4 (23 Nov 2026, one card per product): an invoice sets ONE price, the ingredient's
+ * pack price. The order item's own price is no longer a target (it is worked out from the ingredient), a line matched only to an
+ * order item with no ingredient proposes nothing, an item code prefers the ingredient that carries it, and a carton line with no
+ * stated size can take its pack count from the ingredient's carton size.
  */
-export const ENGINE_VERSION = 3; // 3: the one supplier list (29 Oct 2026) links invoice suppliers to costing suppliers, so code matches and the costed-supplier check start working
+export const ENGINE_VERSION = 4;
+
+/** The plain reason on a line matched to an order item that has no costing ingredient: it is kept for the record and sets no price. */
+export const NO_INGREDIENT_REASON = "No costing ingredient to update.";
 
 interface Work {
   i: number;
@@ -75,9 +84,8 @@ interface Work {
   printedDiscEx: number;
 }
 
-/** One price the invoice would set: the ingredient's pack price, or the ordering product's price. */
+/** The one price an invoice sets: the ingredient's pack price. (An order item's price is worked out from its ingredient, never set here.) */
 interface TargetPrice {
-  kind: "ingredient" | "ordering_product";
   old: number | null;
   /** unrounded, used to compare */
   raw: number;
@@ -87,48 +95,40 @@ interface TargetPrice {
   same: boolean;
 }
 
-const mkTarget = (kind: TargetPrice["kind"], old: number | null, raw: number): TargetPrice => {
+const mkTarget = (old: number | null, raw: number): TargetPrice => {
   const o = old != null && Number.isFinite(old) && old > 0 ? old : null;
-  return { kind, old: o, raw, stored: round4(raw), pct: o != null ? (raw - o) / o : null, same: o != null && isSamePrice(raw, o) };
+  return { old: o, raw, stored: round4(raw), pct: o != null ? (raw - o) / o : null, same: o != null && isSamePrice(raw, o) };
 };
 
-interface Targets {
+interface Target {
   ing: TargetPrice | null;
-  prod: TargetPrice | null;
-  list: TargetPrice[];
   problem: string | null;
 }
 
-/** What the invoice price means for the ingredient's pack price and the ordering product's price. Null targets when it cannot be said. */
-function priceTargets(w: Work, gstRate: number): Targets {
-  const none = (problem: string): Targets => ({ ing: null, prod: null, list: [], problem });
+/** What the invoice price means for the ingredient's pack price. A null target (with the reason) when it cannot be said. */
+function priceTarget(w: Work, gstRate: number): Target {
+  const none = (problem: string): Target => ({ ing: null, problem });
   const m = w.match;
   const pack = w.pack;
   if (!m || m.state !== "matched" || !pack) return none("No product is matched to this line yet.");
+  if (!m.ingredient) return none(NO_INGREDIENT_REASON);
   const up = w.amounts.unit_price_ex;
   if (up == null) return none(!w.amounts.convertible ? "GST is unclear on this line, so its price cannot be read." : "No unit price was read for this line.");
   if (!(up > 0)) return none("The unit price on this line is zero.");
+  if (pack.packs == null || !(pack.packs > 0)) return none("No price could be worked out for this line.");
 
   const gst = w.line.gst;
-  const withGst = (v: number): number | null => (gst === "taxable" ? v * (1 + gstRate) : gst === "free" ? v : null);
-  let problem: string | null = null;
-  let ing: TargetPrice | null = null;
-  let prod: TargetPrice | null = null;
+  const perPack = up / pack.packs;
+  // ingredient prices are stored ex GST; the inc GST branch only serves a row that still says otherwise
+  const needsInc = m.ingredient.price_inc_gst && !m.ingredient.gst_free;
+  const v = needsInc ? (gst === "taxable" ? perPack * (1 + gstRate) : gst === "free" ? perPack : null) : perPack;
+  if (v == null) return none("GST is unclear on this line, so the price including GST cannot be worked out.");
+  return { ing: mkTarget(m.ingredient.pack_price, v), problem: null };
+}
 
-  if (m.ingredient && pack.packs != null && pack.packs > 0) {
-    const perPack = up / pack.packs;
-    const needsInc = m.ingredient.price_inc_gst && !m.ingredient.gst_free;
-    const v = needsInc ? withGst(perPack) : perPack;
-    if (v == null) problem = "GST is unclear on this line, so the price including GST cannot be worked out.";
-    else ing = mkTarget("ingredient", m.ingredient.pack_price, v);
-  }
-  if (m.product && pack.productUnitMatches) {
-    const v = withGst(up);
-    if (v == null) problem = "GST is unclear on this line, so the price including GST cannot be worked out.";
-    else prod = mkTarget("ordering_product", m.product.price_inc_gst, v);
-  }
-  const list = [ing, prod].filter((t): t is TargetPrice => t != null);
-  return { ing, prod, list, problem: list.length === 0 ? problem ?? "No price could be worked out for this line." : null };
+/** The line itself states a size or a count, in its description or inside the unit's brackets (the Match Items parser, plus the engine's own pack counts). */
+function statesSize(line: Pick<ExtractedLine, "description" | "unit">): boolean {
+  return parseSizes(line.description).length > 0 || readUnit(line.unit).sizes.length > 0 || inferPackCounts(line.description).length > 0;
 }
 
 const hasProductDeal = (p: { deal_buy_qty: number | null; deal_free_qty: number | null } | null) =>
@@ -217,7 +217,7 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     if (w.cls.line_class !== "product" || w.skip) continue;
     w.match = matcher.match({ item_code: w.line.item_code, description: w.line.description });
     if (w.match.state === "matched") {
-      w.pack = resolvePacks({ mapPacks: w.match.mapPacks, product: w.match.product, ingredient: w.match.ingredient, invoiceUnit: w.line.unit });
+      w.pack = resolvePacks({ mapPacks: w.match.mapPacks, product: w.match.product, ingredient: w.match.ingredient, invoiceUnit: w.line.unit, sizeDescribed: statesSize(w.line) });
       if (w.match.ingredient) {
         w.baseUnit = baseUnitFor(w.match.ingredient.pack_unit);
         w.baseQty = baseQuantity(w.line.qty, w.pack.packs, w.match.ingredient);
@@ -389,23 +389,32 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
     }
 
     const pack = w.pack as PackResolution;
-    const targets = priceTargets(w, ctx.gstRate);
     const ingredient = m.ingredient;
     const product = m.product;
+
+    if (!ingredient) {
+      // matched only to an order item that has no costing ingredient: kept for the record (the match and the order item stay on the
+      // line), but there is no price an invoice can set, so it decides nothing and asks nothing
+      outLines.push({
+        ...base, ...blank, ...landedFields, ...discountFields,
+        match_state: "matched", match_method: m.method, map_id: m.mapId, product_id: product?.id ?? null, packs_per_unit: pack.packs,
+        decision: "none", decision_reason: NO_INGREDIENT_REASON,
+      });
+      continue;
+    }
+
+    const target = priceTarget(w, ctx.gstRate);
+    const ing = target.ing;
 
     // unit problems that need a human
     let unitsProblem: string | null = null;
     if (pack.conflict) {
       unitsProblem = `A saved match says ${pack.conflict.mapPacks} per ${plain(l.unit) || "unit"} but the ordering list says ${pack.conflict.productPacks}.`;
       lineQuestions.push(packConflictQuestion({ supplier: supplierLabel, lineNo: l.line_no, description: l.description, unit: l.unit, mapPacks: pack.conflict.mapPacks, productPacks: pack.conflict.productPacks }));
-    } else if (ingredient && pack.packs == null) {
+    } else if (pack.packs == null) {
       lineQuestions.push(unitQuestion({ supplier: supplierLabel, lineNo: l.line_no, description: l.description, unit: l.unit, ingredient }));
-    } else if (!ingredient && product && !pack.productUnitMatches) {
-      unitsProblem = `The invoice unit ${plain(l.unit) || "(none)"} is not the ordering unit (${plain(product.unit_name)}).`;
     }
 
-    const pcts = targets.list.map((t) => t.pct);
-    const changePct = targets.list.length === 0 || pcts.some((p) => p == null) ? null : Math.max(...pcts.map((p) => Math.abs(p as number)));
     const input: DecideInput = {
       duplicate: isDuplicate,
       supplierKnown: supplierSure,
@@ -414,48 +423,43 @@ export const analyseInvoice: AnalyseInvoice = (extracted: ExtractedInvoice, ctx0
       mathOk: w.mathOk,
       matchState: m.state,
       matchMethod: m.method,
-      costedSupplierOk: !ingredient || (ingredient.supplier_id != null && supplier?.cost_supplier_id != null && ingredient.supplier_id === supplier.cost_supplier_id),
-      // an ingredient with no stated pack count waits for an answer even when an ordering price could be read
-      unitsKnown: ingredient ? pack.packs != null && targets.list.length > 0 : targets.list.length > 0,
+      costedSupplierOk: ingredient.supplier_id != null && supplier?.cost_supplier_id != null && ingredient.supplier_id === supplier.cost_supplier_id,
+      // an ingredient with no stated pack count waits for an answer
+      unitsKnown: pack.packs != null && ing != null,
       unitsProblem,
-      hasPrice: targets.list.length > 0,
-      priceProblem: targets.problem,
+      hasPrice: ing != null,
+      priceProblem: target.problem,
       qty: l.qty,
       isCredit: (l.qty ?? 0) < 0 || (w.amounts.unit_price_ex ?? 0) < 0,
       creditAttachedEx: lr ? lr.creditEx : 0,
-      hasDeal: !!ingredient?.has_deal || hasProductDeal(product),
+      // a free-unit deal on the linked order item still means the list price is not the real price
+      hasDeal: ingredient.has_deal || hasProductDeal(product),
       invoiceDate: extracted.invoice_date,
-      lastPriceUpdate: ingredient?.last_price_update ?? null,
+      lastPriceUpdate: ingredient.last_price_update ?? null,
       today: ctx.today,
-      changePct,
+      changePct: ing && ing.pct != null ? Math.abs(ing.pct) : null,
       autoApplyPct: ctx.settings.autoApplyPct,
       learningMode: ctx.settings.learningMode,
       supplierAutoApply: !!supplier?.auto_apply,
-      allSame: targets.list.length > 0 && targets.list.every((t) => t.same),
+      allSame: ing != null && ing.same,
     };
     const verdict: LineVerdict = decideLine(input);
 
-    if (verdict.failed?.id === "change" && !isDuplicate) {
-      const worst = targets.list.find((t) => t.pct == null) ?? [...targets.list].sort((a, b) => Math.abs(b.pct as number) - Math.abs(a.pct as number))[0];
-      if (worst) {
-        const ingTarget = worst.kind === "ingredient" ? ingredient : null;
-        const name = ingTarget ? ingTarget.name : product?.name ?? ingredient?.name ?? l.description;
-        const per = ingTarget
-          ? `a pack, ${ingTarget.price_inc_gst && !ingTarget.gst_free ? "inc" : "ex"} GST`
-          : `a ${plain(product?.unit_name).toLowerCase() || "unit"}, inc GST`;
-        lineQuestions.push(bigChangeQuestion({ lineNo: l.line_no, name, supplier: supplierLabel, oldPrice: worst.old, newPrice: worst.stored, per, changePct: worst.pct, autoApplyPct: ctx.settings.autoApplyPct }));
-      }
+    if (verdict.failed?.id === "change" && !isDuplicate && ing) {
+      const per = `a pack, ${ingredient.price_inc_gst && !ingredient.gst_free ? "inc" : "ex"} GST`;
+      lineQuestions.push(bigChangeQuestion({ lineNo: l.line_no, name: ingredient.name, supplier: supplierLabel, oldPrice: ing.old, newPrice: ing.stored, per, changePct: ing.pct, autoApplyPct: ctx.settings.autoApplyPct }));
     }
 
-    const primary = targets.ing ?? targets.prod;
     outLines.push({
       ...base, ...landedFields, ...discountFields,
       match_state: "matched", match_method: m.method, map_id: m.mapId,
-      ingredient_id: ingredient?.id ?? null, product_id: product?.id ?? null,
+      // the order item is kept on the line for the record; it is never a price target
+      ingredient_id: ingredient.id, product_id: product?.id ?? null,
       packs_per_unit: pack.packs, base_qty: w.baseQty, base_unit: w.baseUnit,
-      old_pack_price: ingredient ? ingredient.pack_price : null, new_pack_price: targets.ing ? targets.ing.stored : null,
-      old_product_price: product ? product.price_inc_gst : null, new_product_price: targets.prod ? targets.prod.stored : null,
-      change_pct: primary && primary.pct != null ? round6(primary.pct) : null,
+      old_pack_price: ingredient.pack_price, new_pack_price: ing ? ing.stored : null,
+      // the stored order price is retired: these two columns stay in the table and are always null on a new analysis
+      old_product_price: null, new_product_price: null,
+      change_pct: ing && ing.pct != null ? round6(ing.pct) : null,
       decision: verdict.decision, decision_reason: verdict.reason, state: "open",
     });
   }

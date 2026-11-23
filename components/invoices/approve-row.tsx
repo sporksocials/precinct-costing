@@ -20,9 +20,8 @@ export function signedMoney(n: number | null): string {
   return `${n >= 0 ? "+" : "-"}${money(Math.abs(n))}`;
 }
 
-/** What the number is: "per 1 kg, ex GST" for an ingredient pack, "inc GST, as ordered" for an ordering price. */
-export function priceBasis(row: Pick<ApproveRow, "target">, ing: Pick<Ingredient, "pack_size" | "pack_unit" | "price_inc_gst" | "gst_free"> | null): string {
-  if (row.target === "product") return "Ordering price, inc GST";
+/** What the number is: "Per 1 kg, ex GST" for the ingredient's pack (the only price an invoice sets). */
+export function priceBasis(ing: Pick<Ingredient, "pack_size" | "pack_unit" | "price_inc_gst" | "gst_free"> | null): string {
   if (!ing) return "Pack price";
   const gst = ing.gst_free ? "GST free" : ing.price_inc_gst ? "inc GST" : "ex GST";
   return `Per ${packLabel(ing.pack_size, ing.pack_unit)}, ${gst}`;
@@ -73,7 +72,7 @@ export function ApprovePriceRow({ row, ingredient, selected, stale, disabled, on
   const name = ingredient?.name ?? tidyLabel(l.description);
   const landed = landedText(l);
   const discount = lineDiscountText(l);
-  const basis = priceBasis(row, ingredient);
+  const basis = priceBasis(ingredient);
   const quiet = [tidyLabel(l.description) !== name ? tidyLabel(l.description) : null, l.item_code ? `Code ${l.item_code}` : null].filter(Boolean).join(" · ");
   const inv = `Invoice ${row.doc.invoice_number?.trim() || "(no number)"}`;
   const date = dayLabel(row.doc.invoice_date);
@@ -112,11 +111,6 @@ export function ApprovePriceRow({ row, ingredient, selected, stale, disabled, on
           <p className="text-[13px] text-label-2 lg:hidden">Now</p>
           <p className="text-[17px] font-semibold tnum sm:text-[15px]">{money(row.newPrice)}</p>
           <p className="text-[13px] leading-snug text-label-2">{basis}</p>
-          {row.other ? (
-            <p className="text-[13px] leading-snug text-label-2 tnum">
-              {row.other.label}: {row.other.oldPrice === null ? "None" : money(row.other.oldPrice)} to {money(row.other.newPrice)}
-            </p>
-          ) : null}
         </div>
         <div className="col-span-2 lg:col-span-1">
           <ChangeCell row={row} />

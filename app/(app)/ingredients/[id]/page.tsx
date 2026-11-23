@@ -13,7 +13,7 @@ import { ChevronLeft } from "lucide-react";
 import { BackLink } from "@/components/back-link";
 import { useStore } from "@/lib/store";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { ingredientCostPerBase, priceMovePct } from "@/lib/costing";
+import { exGstEntry, ingredientCostPerBase, priceMovePct } from "@/lib/costing";
 import { withEffectivePrice } from "@/lib/deals";
 import { dateShort, gp, money, movePct, num, packLabel, parseDecimal, unitShort } from "@/lib/format";
 import { ingredientChangeImpact, isStalePrice, type ImpactRow } from "@/lib/insights";
@@ -332,7 +332,6 @@ function Detail({ ing }: { ing: Ingredient }) {
               <FieldRow label="Yield" sub="Usable share after trim, e.g. 85. A bare 1 means 100%.">
                 <InlineInput value={String(Math.round((Number(ing.yield_pct) || 1) * 1000) / 10)} suffix="%" onCommit={(t) => { const n = parseYieldInput(t); if (n != null) patch({ yield_pct: n }); }} />
               </FieldRow>
-              <Toggle label="Price Includes GST" checked={ing.price_inc_gst} onChange={(v) => patch({ price_inc_gst: v })} />
               <Toggle label="GST-free" checked={ing.gst_free} onChange={(v) => patch({ gst_free: v })} />
               <div className="px-4 py-2.5">
                 <textarea
@@ -489,7 +488,8 @@ function PriceLine({ values }: { values: number[] }) {
 function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => void }) {
   const store = useStore();
   const [text, setText] = useState("");
-  const [incGst, setIncGst] = useState(ing.price_inc_gst);
+  // the typed price may come off an inc GST list; it is converted and always SAVED ex GST (lib/costing.ts exGstEntry)
+  const [incGst, setIncGst] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -497,7 +497,8 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   const [changes, setChanges] = useState<ReviewChange[]>([]);
   const [reviewing, setReviewing] = useState(false);
   const parsed = parseDecimal(text);
-  const price = parsed ?? 0;
+  const typedIncGst = incGst && !ing.gst_free;
+  const price = exGstEntry(parsed ?? 0, typedIncGst, ing.gst_free, store.settings.gst_rate);
   // $0 is never a real invoice price (it would zero every dish that uses this ingredient), and unreadable text is not a price
   const typed = text.trim() !== "";
   const problem = !typed ? null : parsed == null ? "That doesn’t look like a price. Try 18.50." : parsed <= 0 ? "A price of $0 isn’t allowed here. It would make every dish using this cost nothing." : null;
@@ -508,16 +509,16 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
   const preview = useMemo(() => {
     if (deferredPrice == null || Math.abs(deferredPrice - Number(ing.pack_price)) < 1e-9) return null;
     const p: Partial<Ingredient> = { pack_price: deferredPrice };
-    if (incGst !== ing.price_inc_gst) p.price_inc_gst = incGst;
+    if (ing.price_inc_gst) p.price_inc_gst = false;
     return ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
-  }, [deferredPrice, incGst, ing, store]);
+  }, [deferredPrice, ing, store]);
 
   async function save() {
     if (!valid || busy) return;
     setBusy(true);
     setError(null);
     const p: Partial<Ingredient> = { pack_price: price, source: note.trim() || "Invoice" };
-    if (incGst !== ing.price_inc_gst) p.price_inc_gst = incGst;
+    if (ing.price_inc_gst) p.price_inc_gst = false;
     const rows = ingredientChangeImpact(ing.id, p, { ...store, lines: store.allLines });
     try {
       await store.updateIngredient(ing.id, p);
@@ -625,9 +626,14 @@ function UpdatePriceSheet({ ing, onClose }: { ing: Ingredient; onClose: () => vo
             `Currently ${money(ing.pack_price)}`
           )}
         </p>
+        {valid && typedIncGst ? (
+          <p className="text-center text-[13px] text-label-2 tnum" data-gst-converted>
+            Saves as {money(price)} ex GST
+          </p>
+        ) : null}
         {preview && preview.length ? <ImpactPreview rows={preview} /> : null}
         <div className="group-list mt-4">
-          <Toggle checked={incGst} onChange={setIncGst} label="Price Includes GST" />
+          {ing.gst_free ? null : <Toggle checked={incGst} onChange={setIncGst} label="This Price Includes GST" />}
           <div className="px-4">
             <input className="h-11 w-full bg-transparent text-[17px] outline-none placeholder:text-label-3 sm:text-[15px]" placeholder="Invoice / note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>

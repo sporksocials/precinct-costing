@@ -56,6 +56,18 @@ export function unitCostGstNote(ing: Pick<Ingredient, "gst_free" | "price_inc_gs
   return gstBasisLabel(ing) === "Inc GST" ? " ex GST" : "";
 }
 
+/**
+ * ONE GST RULE (Troy, 23 Nov 2026): an ingredient's pack price is always STORED ex GST (or GST free). The 208 ingredients that were held
+ * inc GST were converted that day (backup.ingredients_20261123_gst_ex), and no screen writes `price_inc_gst: true` any more. A person may
+ * still TYPE a price off an inc GST list: the entry sheets have a "This Price Includes GST" switch that only converts what was typed.
+ * This is that conversion: rounded to 4 places like the converted data, and a GST free item is never divided.
+ */
+export function exGstEntry(typed: number, typedIncGst: boolean, gstFree: boolean, gst: number): number {
+  const n = Number(typed) || 0;
+  if (!typedIncGst || gstFree) return n;
+  return Math.round((n / (1 + gst)) * 10000) / 10000;
+}
+
 /** Ex-GST pack price of an ingredient. */
 export function ingredientExGstPackPrice(ing: Pick<Ingredient, "pack_price" | "gst_free" | "price_inc_gst">, gst: number): number {
   const price = Number(ing.pack_price) || 0;

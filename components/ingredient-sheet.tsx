@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
-import { ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
+import { exGstEntry, ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
 import { money, parseDecimal, unitShort } from "@/lib/format";
 import { suggestCategory } from "@/lib/ingredient-categories";
 import { applyKegHint, looksLikeKeg } from "@/lib/keg";
@@ -120,7 +120,9 @@ export function IngredientSheet({
   // a blank price is allowed (new items are often priced later); text that is not a price is not
   const parsedPrice = priceText.trim() === "" ? 0 : parseDecimal(priceText);
   const price = parsedPrice ?? 0;
-  const unitCost = ingredientCostPerBase({ ...f, pack_size: size, pack_price: price }, store.settings.gst_rate);
+  // the typed price may include GST; it is converted and the ingredient is always SAVED ex GST (lib/costing.ts exGstEntry)
+  const exPrice = exGstEntry(price, f.price_inc_gst, f.gst_free, store.settings.gst_rate);
+  const unitCost = ingredientCostPerBase({ ...f, price_inc_gst: false, pack_size: size, pack_price: exPrice }, store.settings.gst_rate);
   const valid = f.name.trim() && !!f.category?.trim() && size > 0 && parsedPrice != null && !busy;
 
   async function save() {
@@ -128,7 +130,7 @@ export function IngredientSheet({
     setBusy(true);
     setError(null);
     try {
-      const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: price, last_price_update: new Date().toISOString().slice(0, 10) };
+      const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: exPrice, price_inc_gst: false, last_price_update: new Date().toISOString().slice(0, 10) };
       const id = await store.insertIngredient(payload);
       // nothing is put on an order list unless a venue was ticked; a problem there never undoes the ingredient
       if (Object.keys(orderAt).length && orderingData) {
@@ -200,7 +202,7 @@ export function IngredientSheet({
             <input className="field pl-7 tnum" inputMode="decimal" placeholder="0.00" value={priceText} onChange={(e) => setPriceText(e.target.value)} aria-label="Pack Price" />
           </div>
           <div className="group-list mt-2">
-            <Toggle checked={f.price_inc_gst} onChange={(v) => set("price_inc_gst", v)} label="Price Includes GST" />
+            <Toggle checked={f.price_inc_gst} onChange={(v) => set("price_inc_gst", v)} label="This Price Includes GST" />
           </div>
           {size > 0 && price > 0 ? (
             <p className="px-1 pt-2 text-[13px] text-label-2 tnum">

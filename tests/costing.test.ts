@@ -169,3 +169,26 @@ describe("gstBasisLabel (the tag next to the big price on an ingredient page)", 
     expect(src).toMatch(/data-gst-basis[\s\S]{0,200}\{gstBasisLabel\(ing\)\}/);
   });
 });
+
+describe("one GST rule: ingredient prices are stored ex GST (Troy, 23 Nov 2026)", () => {
+  it("exGstEntry converts a typed inc GST price, leaves an ex GST price alone and never divides a GST free one", async () => {
+    const { exGstEntry } = await import("@/lib/costing");
+    expect(exGstEntry(26.75, true, false, 0.1)).toBe(24.3182);
+    expect(exGstEntry(110, true, false, 0.1)).toBe(100);
+    expect(exGstEntry(24.32, false, false, 0.1)).toBe(24.32);
+    expect(exGstEntry(17.5, true, true, 0.1)).toBe(17.5);
+    expect(exGstEntry(Number.NaN, true, false, 0.1)).toBe(0);
+  });
+  it("no screen stores an inc GST price: the switches only convert what was typed", async () => {
+    const { readFileSync } = await import("node:fs");
+    const page = readFileSync("app/(app)/ingredients/[id]/page.tsx", "utf8");
+    const sheet = readFileSync("components/ingredient-sheet.tsx", "utf8");
+    // the stored switch is gone from the ingredient page, and nothing patches the flag to a typed value
+    expect(page).not.toMatch(/patch\(\{ price_inc_gst: v \}\)/);
+    expect(page).not.toMatch(/p\.price_inc_gst = incGst/);
+    expect(page).toMatch(/exGstEntry\(/);
+    expect(page).toMatch(/This Price Includes GST/);
+    expect(sheet).toMatch(/pack_price: exPrice, price_inc_gst: false/);
+    expect(sheet).toMatch(/This Price Includes GST/);
+  });
+});

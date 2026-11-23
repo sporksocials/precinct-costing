@@ -59,6 +59,7 @@ import { buildBeer, type BeerModel } from "./beer";
 import { brisbaneToday, groupDeals } from "./deals";
 import { cleanOptionName, findOption, nextSort } from "./glass-rim";
 import { cleanSupplierName, findSupplier } from "./suppliers";
+import { carrySignOff, mergeErrorMessage, mergedName, parseMergeResult, type MergeResult } from "./merge-ingredient";
 import { dealPriceChanges, rolloverDelayMs, rolloverMessage, ROLLOVER_TICK_MS } from "./rollover";
 import { DEMO } from "./supabase/client";
 import { prepareNotes, type ResearchedNote } from "./research-drink";
@@ -321,6 +322,12 @@ export interface StoreValue extends StoreData {
   confirmIngredientPrice: (id: string) => Promise<ConfirmReceipt>;
   undoConfirmIngredientPrice: (id: string, receipt: ConfirmReceipt) => Promise<void>;
   insertIngredient: (ing: Omit<Ingredient, "id" | "updated_at">) => Promise<string>;
+  /**
+   * Merge Into Another Ingredient: ONE database call (`cost_merge_ingredient`, atomic) moves everything that points at the source onto
+   * the target, then the store is read again. There is no undo. When the database function is not there yet it throws
+   * "Merging is not switched on yet." and nothing is written. Plan it first with `planMerge` (lib/merge-ingredient.ts).
+   */
+  mergeIngredient: (sourceId: string, targetId: string) => Promise<MergeResult>;
   /**
    * Adds a supplier to the costing list (cost_suppliers) from "Add New Supplier" on an ingredient. A name the list already has
    * (ignoring capitals, spaces and "Pty Ltd") is returned as it is, with nothing written: `created` says which happened.
@@ -1596,6 +1603,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [sb, setData],
   );
 
+  const mergeIngredient = useCallback(
+    async (sourceId: string, targetId: string): Promise<MergeResult> => {
+      const { data: reply, error } = await sb.rpc("cost_merge_ingredient", { p_source: sourceId, p_target: targetId });
+      if (error) throw new Error(mergeErrorMessage(error));
+      const result = parseMergeResult(reply);
+      // show the merge at once from what the function says it did (the same rules as the SQL), then read everything again for the truth
+      setData((d) => ({
+        ...d,
+        ingredients: d.ingredients.map((i) => (i.id === sourceId ? { ...i, active: false, name: result.mergedName ?? mergedName(i.name) } : i)),
+        lines: d.lines.map((l) => (l.component_type === "ingredient" && l.component_id === sourceId ? { ...l, component_id: targetId } : l)),
+        gelatoServeLines: d.gelatoServeLines.map((l) => (l.ingredient_id === sourceId ? { ...l, ingredient_id: targetId } : l)),
+        beers: d.beers.map((b) => (b.ingredient_id === sourceId ? { ...b, ingredient_id: targetId } : b)),
+        deals: result.deals > 0 ? d.deals.map((x) => (x.ingredient_id === sourceId ? { ...x, ingredient_id: targetId } : x)) : d.deals,
+        items: result.sameAllergens ? d.items.map((it) => (it.dish_allergens ? { ...it, dish_allergens: carrySignOff(it.dish_allergens, sourceId, targetId) as MenuItem["dish_allergens"] } : it)) : d.items,
+      }));
+      // a reload already under way may have read the database before the merge: let it finish, then read again
+      for (let i = 0; reloading.current && i < 50; i++) await new Promise((r) => setTimeout(r, 100));
+      await reload();
+      return result;
+    },
+    [sb, setData, reload],
+  );
+
   const updateSetting = useCallback(
     async (key: keyof CostingSettings, value: number) => {
       await upsertAll(sb, "cost_settings", [{ key, value }], "key", "key");
@@ -2067,6 +2097,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     confirmIngredientPrice,
     undoConfirmIngredientPrice,
     insertIngredient,
+    mergeIngredient,
     insertSupplier,
     updateSupplier,
     moveIngredientsSupplier,

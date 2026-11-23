@@ -192,12 +192,17 @@ type DishOverrides = Pick<MenuItem, "id" | "allergen_add" | "allergen_remove">;
 
 const overrides = (add: readonly string[] | null | undefined, rem: readonly string[] | null | undefined): TickEntry => ({ add: snapOrder(add ?? []), rem: snapOrder(rem ?? []) });
 
+/**
+ * One ingredient's entry in the snapshot: its ticks limited to the snapshot ids in the fixed order, and whether it is reviewed. Two
+ * ingredients with the same entry are interchangeable to every stored sign-off (lib/merge-ingredient.ts relies on that).
+ */
+export function ingredientTick(ing: { allergens?: readonly string[] | null; allergens_reviewed?: boolean | null } | null | undefined): { a: string[]; r: boolean } {
+  return { a: snapOrder(ing?.allergens ?? []), r: ing?.allergens_reviewed === true };
+}
+
 /** One component's entry, or the dish's own: an ingredient's ticks and reviewed flag, or a prep's / the dish's overrides. */
 function tickFor(key: string, index: LiveIndex): TickEntry {
-  if (key.startsWith("ingredient:")) {
-    const ing = index.ingredients.get(key.slice("ingredient:".length));
-    return { a: snapOrder(ing?.allergens ?? []), r: ing?.allergens_reviewed === true };
-  }
+  if (key.startsWith("ingredient:")) return ingredientTick(index.ingredients.get(key.slice("ingredient:".length)));
   const prep = index.preps.get(key.slice("prep:".length));
   return overrides(prep?.allergen_add, prep?.allergen_remove);
 }

@@ -2,7 +2,7 @@
 
 import { RecordHistory } from "@/components/editor/record-history";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { ReviewSheet } from "@/components/price-review";
 import { DealPriceBlock, DealsSection } from "@/components/deal-editor";
@@ -32,6 +32,8 @@ import { IngredientOrdering } from "@/components/ingredient-ordering";
 import { SUPPLIER_EVERYWHERE_LINE } from "@/lib/ordering-link";
 import { isSupplierActive, supplierChoices } from "@/lib/suppliers";
 import { clashMessage, findClash } from "@/lib/rename";
+import { MergeIngredientSheet } from "@/components/merge-ingredient-sheet";
+import { MERGE_ROW_SUB, MERGE_ROW_TITLE, mergedToast } from "@/lib/merge-ingredient";
 import { Banner, cx, Disclosure, Dot, Empty, FieldRow, Group, InlineInput, Row, Segmented, Sheet, Toggle, useToast } from "@/components/ui";
 
 /** entered_by marker for alternate prices carried over from the source sheets. */
@@ -65,6 +67,8 @@ function Detail({ ing }: { ing: Ingredient }) {
   const [review, setReview] = useState<ReviewChange[] | null>(null);
   const [addingDeal, setAddingDeal] = useState(false);
   const [pickingCategory, setPickingCategory] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const router = useRouter();
   // a stored value outside the pick-list is shown as it is (never rewritten) until the person picks a proper one
   const category = ing.category?.trim() || DEFAULT_INGREDIENT_CATEGORY;
   const categoryListed = isListedCategory(category);
@@ -346,6 +350,11 @@ function Detail({ ing }: { ing: Ingredient }) {
           </Disclosure>
 
           <RecordHistory table="cost_ingredients" rowKey={ing.id} label="ingredient" refreshKey={`${ing.updated_at ?? ""}|${ing.pack_price}`} />
+
+          {/* the last thing on the page: a rare, deliberate job (the same product entered twice). It opens a sheet that shows the impact first. */}
+          <div className="group-list mt-7">
+            <Row title={MERGE_ROW_TITLE} sub={MERGE_ROW_SUB} wrapSub chevron onClick={() => setMerging(true)} />
+          </div>
         </div>
       </div>
 
@@ -359,6 +368,17 @@ function Detail({ ing }: { ing: Ingredient }) {
         />
       ) : null}
       {updating ? <UpdatePriceSheet ing={ing} onClose={() => setUpdating(false)} /> : null}
+      {merging ? (
+        <MergeIngredientSheet
+          ing={ing}
+          onClose={() => setMerging(false)}
+          onMerged={(target, result) => {
+            setMerging(false);
+            toast.show({ message: mergedToast(target.name, result) }, 8000);
+            router.push(`/ingredients/${target.id}`);
+          }}
+        />
+      ) : null}
       {pending ? <CostImpactSheet ing={ing} pending={pending} onCancel={() => setPending(null)} onConfirm={() => void confirmPending()} /> : null}
       {review ? <ReviewSheet changes={review} onClose={() => setReview(null)} intro="This edit pushed these dishes below target. Nothing has changed on the menu yet." /> : null}
     </div>

@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { exGstEntry, ingredientCostPerBase, parsePackFromUom } from "@/lib/costing";
-import { money, parseDecimal, unitShort } from "@/lib/format";
+import { money, packLabel, parseDecimal, unitShort } from "@/lib/format";
+import { alreadyExistsText, findSimilarIngredients } from "@/lib/ingredient-duplicates";
+import { clashMessage, findClash } from "@/lib/rename";
 import { suggestCategory } from "@/lib/ingredient-categories";
 import { applyKegHint, looksLikeKeg } from "@/lib/keg";
 import { titleCase } from "@/lib/parse-qty";
 import { PACK_UNITS, type Ingredient, type PackUnit, type PortalPrice } from "@/lib/types";
-import { Banner, Segmented, Sheet, Toggle, useToast } from "./ui";
+import { Banner, cx, Segmented, Sheet, Toggle, useToast } from "./ui";
 import { createOrderingForNewIngredient, OrderAtPicker, resolveOrderAt, useOrderingDefaultsData, type OrderAtState } from "./ingredient-ordering";
 import { addedToast } from "@/lib/ordering-link";
 import { supplierChoices } from "@/lib/suppliers";
@@ -65,7 +67,18 @@ export function draftFromPortal(r: PortalPrice, suppliers: { id: number; name: s
   });
 }
 
-/** Compact create-ingredient sheet: name, supplier, pack size + unit, pack price, GST toggle. */
+/** 44px at every width (the shared .btn shrinks at sm:, so it is not used for these two controls; same as the name suggestion row). */
+const TAP = "inline-flex min-h-[44px] min-w-[44px] select-none items-center justify-center rounded-xl px-4 text-[15px] font-semibold transition active:scale-[0.98] active:opacity-80";
+
+/**
+ * Compact create-ingredient sheet: name, supplier, pack size + unit, pack price, GST toggle.
+ *
+ * DUPLICATE GUARD (Troy, 23 Nov 2026; lib/ingredient-duplicates.ts): while the typed name looks like an ingredient that already exists
+ * (the same name ignoring the size in brackets, spacing and punctuation), a quiet block under the name lists up to three of them with
+ * "Use It" (closes the sheet and hands that ingredient to the caller through `onSaved`, exactly as if it had just been added, with
+ * `existing: true`) and one "Add Anyway" (hides the block until the sheet is closed). It never blocks the form. While it shows, the
+ * "Did you mean" spelling row is not shown (one block at a time). An identical name is still refused in plain words (`findClash`).
+ */
 export function IngredientSheet({
   open,
   initial,
@@ -78,7 +91,8 @@ export function IngredientSheet({
   initial: IngredientDraft;
   title?: string;
   onClose: () => void;
-  onSaved: (ing: { id: string; pack_unit: PackUnit; name: string }) => void;
+  /** `existing` is true when the person chose an ingredient that was already there (nothing was created) */
+  onSaved: (ing: { id: string; pack_unit: PackUnit; name: string; existing?: boolean }) => void;
   note?: string;
 }) {
   const store = useStore();
@@ -92,6 +106,17 @@ export function IngredientSheet({
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof IngredientDraft>(k: K, v: IngredientDraft[K]) => setF((p) => ({ ...p, [k]: v }));
   const nt = useNameTidy({ kind: "ingredient", value: f.name, setValue: (v) => set("name", v), enabled: open });
+  // look-alikes of the typed name, most used first; "Add Anyway" hides them for as long as this sheet is open
+  const [addAnyway, setAddAnyway] = useState(false);
+  const { ingredients: allIngredients, usedIn } = store;
+  const similar = useMemo(() => {
+    if (addAnyway || !open || busy) return [];
+    const usage = (id: string) => {
+      const u = usedIn("ingredient", id);
+      return u.items.length + u.preps.length;
+    };
+    return findSimilarIngredients(f.name, allIngredients, { usage });
+  }, [addAnyway, open, busy, f.name, allIngredients, usedIn]);
   // The category is pre-selected from the name as the person types, until they tap a category themselves. With no suggestion it
   // goes back to where the form started. A keg name is left to the keg hint below (it also sets the pack and yield).
   const [categoryTouched, setCategoryTouched] = useState(false);
@@ -127,10 +152,17 @@ export function IngredientSheet({
 
   async function save() {
     if (!valid) return;
+    const name = nt.settle(f.name);
+    // an identical name (ignoring capitals and extra spaces) is refused before anything is sent, in plain words
+    const clash = findClash(name, store.ingredients, "");
+    if (clash) {
+      setError(clashMessage("ingredient", clash));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const payload = { ...f, name: nt.settle(f.name), pack_size: size, pack_price: exPrice, price_inc_gst: false, last_price_update: new Date().toISOString().slice(0, 10) };
+      const payload = { ...f, name, pack_size: size, pack_price: exPrice, price_inc_gst: false, last_price_update: new Date().toISOString().slice(0, 10) };
       const id = await store.insertIngredient(payload);
       // nothing is put on an order list unless a venue was ticked; a problem there never undoes the ingredient
       if (Object.keys(orderAt).length && orderingData) {
@@ -162,7 +194,31 @@ export function IngredientSheet({
         {error ? <Banner>{error}</Banner> : null}
         {note ? <p className="px-1 text-[13px] text-label-2">{note}</p> : null}
         <input autoFocus={!initial.name} className="field !text-[20px] font-semibold" placeholder="Name" value={f.name} onChange={(e) => set("name", e.target.value)} onFocus={nt.onFocus} onBlur={nt.onBlur} aria-label="Name" />
-        <NameSuggestRow nt={nt} className="!mt-2" />
+        {similar.length ? (
+          <div role="status" data-duplicate-guard className="!mt-2 rounded-xl bg-warn-soft py-1.5 pl-3.5 pr-1.5">
+            {similar.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
+                <p className="min-w-0 flex-1 basis-[13rem] text-[15px] leading-snug text-label sm:text-[13px]">
+                  <span className="break-words font-semibold">{alreadyExistsText(s.name)}</span>
+                  <span className="block text-label-2 tnum">
+                    {[store.supplierById.get(s.supplier_id ?? -1)?.name ?? "No supplier", `${money(s.pack_price)} per ${packLabel(Number(s.pack_size), s.pack_unit)} pack`].join(" · ")}
+                  </span>
+                </p>
+                <button type="button" className={cx(TAP, "shrink-0 bg-accent-soft text-accent")} onClick={() => onSaved({ id: s.id, pack_unit: s.pack_unit, name: s.name, existing: true })}>
+                  Use It
+                </button>
+              </div>
+            ))}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
+              <p className="min-w-0 flex-1 basis-[13rem] text-[15px] leading-snug text-label-2 sm:text-[13px]">Only add a new one if it is a different product.</p>
+              <button type="button" className={cx(TAP, "shrink-0 bg-surface-2 text-label")} onClick={() => setAddAnyway(true)}>
+                Add Anyway
+              </button>
+            </div>
+          </div>
+        ) : (
+          <NameSuggestRow nt={nt} className="!mt-2" />
+        )}
         <div>
           <p className="section-label !px-1">Category</p>
           <CategoryChips

@@ -1,23 +1,20 @@
 /**
  * Match Items: the save flow with renames. Save Matches saves the matches first (through answerItemGroups, with the pack
- * conversion in each note), THEN renames the ingredients the person chose to rename, and the names that follow them (dishes that
- * use the ingredient, ordering products linked to it: lib/rename-linked.ts, the same plan the single-ingredient rename uses).
- * A rename that fails is reported by name and never undoes a match. Undo puts every name back.
+ * conversion in each note), THEN renames the ingredients the person chose to rename, and the dishes named after them
+ * (lib/rename-linked.ts, the same plan the single-ingredient rename uses). Order list items are not renamed here: since 23 Nov 2026
+ * the database gives every order item its ingredient's name, so they follow by themselves. A rename that would collide with a
+ * name already on a venue's order list is left out BEFORE saving and listed under Left As They Are (`orderItemRenameClash`), instead
+ * of failing in the database. A rename that fails is reported by name and never undoes a match. Undo puts every name back.
  *
- * The writing goes through functions handed in (`SaveDeps`): the screen passes the store's own updateIngredient and updateItem and
- * the ordering data layer's updateProduct, so history, edit stamps and offline behaviour are as ever; the tests pass fakes.
+ * The writing goes through functions handed in (`SaveDeps`): the screen passes the store's own updateIngredient and updateItem, so
+ * history, edit stamps and offline behaviour are as ever; the tests pass fakes.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ItemGroupAnswer, ItemGroupsResult } from "./invoice-answer";
-import {
-  planLinkedRenames,
-  type LinkedDishRename,
-  type LinkedItem,
-  type LinkedLine,
-  type LinkedProduct,
-  type LinkedProductRename,
-  type LinkedSkip,
-} from "./rename-linked";
+import { orderItemRenameClash, planLinkedRenames, type LinkedDishRename, type LinkedItem, type LinkedLine, type LinkedProduct, type LinkedSkip } from "./rename-linked";
+
+/** Why a rename is left out when a venue's order list already has that name (the sheet prints "<old name> (<venue>): <this>"). */
+export const ORDER_LIST_CLASH_REASON = "that venue's order list already has a product with the new name in the same category, so this name stays as it is.";
 
 export interface PlannedRename {
   /** the item row this rename belongs to */
@@ -30,18 +27,19 @@ export interface PlannedRename {
 export interface BatchRenamePlan {
   ingredients: PlannedRename[];
   dishes: (LinkedDishRename & { key: string })[];
-  products: (LinkedProductRename & { key: string; ingredientId: string })[];
   skipped: LinkedSkip[];
 }
 
-export const EMPTY_BATCH: BatchRenamePlan = { ingredients: [], dishes: [], products: [], skipped: [] };
+export const EMPTY_BATCH: BatchRenamePlan = { ingredients: [], dishes: [], skipped: [] };
 
 /** How many names the batch changes besides the ingredients themselves. */
-export const linkedCount = (p: BatchRenamePlan): number => p.dishes.length + p.products.length;
+export const linkedCount = (p: BatchRenamePlan): number => p.dishes.length;
 
 /**
  * The renames and everything named after them, worked out against the app as it is now. Each ingredient is planned on its own
- * with the same rules as a single rename; a dish or product two plans would both rename is renamed by the first only.
+ * with the same rules as a single rename; a dish two plans would both rename is renamed by the first only. `products` are the
+ * order list items (every venue): they are only CHECKED, never renamed here. An ingredient whose new name another active order
+ * item already holds in the same venue category is left out of the plan and listed in `skipped`.
  */
 export function planBatchRenames(input: {
   renames: readonly PlannedRename[];
@@ -50,13 +48,17 @@ export function planBatchRenames(input: {
   lines: readonly LinkedLine[];
   products: readonly LinkedProduct[];
 }): BatchRenamePlan {
-  const plan: BatchRenamePlan = { ingredients: [...input.renames], dishes: [], products: [], skipped: [] };
+  const plan: BatchRenamePlan = { ingredients: [], dishes: [], skipped: [] };
   const dishSeen = new Set<string>();
-  const productSeen = new Set<string>();
   for (const r of input.renames) {
-    const p = planLinkedRenames({ ingredientId: r.ingredientId, oldName: r.from, newName: r.to, ingredients: input.ingredients, items: input.items, lines: input.lines, products: input.products });
+    const clash = orderItemRenameClash({ ingredientId: r.ingredientId, newName: r.to, products: input.products });
+    if (clash) {
+      plan.skipped.push({ kind: "product", from: r.from, to: r.to, venue_id: clash.venue_id, reason: ORDER_LIST_CLASH_REASON });
+      continue;
+    }
+    plan.ingredients.push(r);
+    const p = planLinkedRenames({ ingredientId: r.ingredientId, oldName: r.from, newName: r.to, ingredients: input.ingredients, items: input.items, lines: input.lines });
     for (const d of p.dishes) if (!dishSeen.has(d.id)) (dishSeen.add(d.id), plan.dishes.push({ ...d, key: r.key }));
-    for (const pr of p.products) if (!productSeen.has(pr.id)) (productSeen.add(pr.id), plan.products.push({ ...pr, key: r.key, ingredientId: r.ingredientId }));
     plan.skipped.push(...p.skipped);
   }
   return plan;
@@ -67,7 +69,6 @@ export function onlyKeys(plan: BatchRenamePlan, keys: ReadonlySet<string>): Batc
   return {
     ingredients: plan.ingredients.filter((r) => keys.has(r.key)),
     dishes: plan.dishes.filter((d) => keys.has(d.key)),
-    products: plan.products.filter((p) => keys.has(p.key)),
     skipped: plan.skipped,
   };
 }
@@ -78,14 +79,12 @@ export interface SaveDeps {
   answer: (groups: ItemGroupAnswer[]) => Promise<ItemGroupsResult>;
   renameIngredient: (id: string, name: string) => Promise<void>;
   renameDish: (id: string, name: string) => Promise<void>;
-  renameProduct: (id: string, patch: { name: string; ingredient_id?: string | null }) => Promise<void>;
 }
 
 /** What was changed, with the old values, so Undo Renames can put every name back. */
 export interface RenameApplied {
   ingredients: { id: string; from: string }[];
   dishes: { id: string; from: string }[];
-  products: { id: string; from: string; link: boolean }[];
 }
 
 export interface RenameFailure {
@@ -118,7 +117,7 @@ export async function runMatchSave(deps: SaveDeps, input: { answers: { key: stri
     else failedKeys.set(key, g.status === "partial" ? `Some lines on this item did not save. ${g.message}` : g.message || "That item did not save.");
   });
 
-  const applied: RenameApplied = { ingredients: [], dishes: [], products: [] };
+  const applied: RenameApplied = { ingredients: [], dishes: [] };
   const renameFailures: RenameFailure[] = [];
   if (input.plan) {
     const plan = onlyKeys(input.plan, savedKeys);
@@ -143,21 +142,12 @@ export async function runMatchSave(deps: SaveDeps, input: { answers: { key: stri
         renameFailures.push({ what: d.from, message: reason(e) });
       }
     }
-    for (const p of plan.products) {
-      if (failedIng.has(p.ingredientId)) continue;
-      try {
-        await deps.renameProduct(p.id, p.link ? { name: p.to, ingredient_id: p.ingredientId } : { name: p.to });
-        applied.products.push({ id: p.id, from: p.from, link: p.link });
-      } catch (e) {
-        renameFailures.push({ what: p.from, message: reason(e) });
-      }
-    }
   }
-  return { result, savedKeys, failedKeys, renamedIngredients: applied.ingredients.length, renamedLinked: applied.dishes.length + applied.products.length, renameFailures, applied };
+  return { result, savedKeys, failedKeys, renamedIngredients: applied.ingredients.length, renamedLinked: applied.dishes.length, renameFailures, applied };
 }
 
 /** Puts every name from one save back, newest first is not needed: each record is independent. Reports what could not be restored. */
-export async function undoRenames(deps: Pick<SaveDeps, "renameIngredient" | "renameDish" | "renameProduct">, applied: RenameApplied): Promise<{ restored: number; failed: RenameFailure[] }> {
+export async function undoRenames(deps: Pick<SaveDeps, "renameIngredient" | "renameDish">, applied: RenameApplied): Promise<{ restored: number; failed: RenameFailure[] }> {
   let restored = 0;
   const failed: RenameFailure[] = [];
   const attempt = async (what: string, run: () => Promise<void>) => {
@@ -168,7 +158,6 @@ export async function undoRenames(deps: Pick<SaveDeps, "renameIngredient" | "ren
       failed.push({ what, message: reason(e) });
     }
   };
-  for (const p of applied.products) await attempt(p.from, () => deps.renameProduct(p.id, p.link ? { name: p.from, ingredient_id: null } : { name: p.from }));
   for (const d of applied.dishes) await attempt(d.from, () => deps.renameDish(d.id, d.from));
   for (const i of applied.ingredients) await attempt(i.from, () => deps.renameIngredient(i.id, i.from));
   return { restored, failed };
@@ -184,10 +173,10 @@ export function renameSummary(o: Pick<MatchSaveOutcome, "renamedIngredients" | "
 
 /* ---------------------------------------------------------------- loading */
 
-/** The ordering products, for the linked plan. A missing table or any failure gives none: the rename still works for dishes. */
+/** Every venue's order list items, for the name clash check. A missing table or any failure gives none: the rename still works. */
 export async function loadLinkedProducts(sb: SupabaseClient): Promise<LinkedProduct[]> {
   try {
-    const { data, error } = await sb.from("ordering_products").select("id,venue_id,category_id,name,ingredient_id");
+    const { data, error } = await sb.from("ordering_products").select("id,venue_id,category_id,name,ingredient_id,active");
     if (error || !data) return [];
     return data as LinkedProduct[];
   } catch {

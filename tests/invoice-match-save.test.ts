@@ -14,6 +14,7 @@ import {
   type ItemGroup,
 } from "../lib/invoice-todo-match";
 import {
+  ORDER_LIST_CLASH_REASON,
   linkedCount,
   loadOtherSupplierCounts,
   onlyKeys,
@@ -203,10 +204,6 @@ function fakeDeps(opts: { failMatch?: (g: ItemGroupAnswer, i: number) => boolean
       log.push(`dish:${id}:${name}`);
       names.set(`dish:${id}`, name);
     },
-    async renameProduct(id, patch) {
-      log.push(`prod:${id}:${patch.name}:${patch.ingredient_id === undefined ? "-" : patch.ingredient_id}`);
-      names.set(`prod:${id}`, patch.name);
-    },
   };
   return { deps, log, names };
 }
@@ -234,13 +231,48 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
   const answers = (keys: string[]) => keys.map((key, i) => ({ key, answer: { questionIds: [`q${i}`], optionId: "custom:x" } }));
 
   // Order items are not part of a rename plan since 23 Nov 2026 (one card per product): an order item carries its ingredient's full
-  // name and the DATABASE keeps it so, so the plan's product list is always empty and nothing here writes an order item's name.
+  // name and the DATABASE keeps it so, so the plan has no product list at all and nothing here writes an order item's name.
   it("plans the names that follow, like a single rename: dishes that use it, never the martini, and no order items (they follow in the database)", () => {
     const plan = planBatchRenames({ renames, ...world });
     expect(plan.ingredients).toHaveLength(2);
     expect(plan.dishes.map((d) => d.to)).toEqual(["Bombay Sapphire Gin - 30ml Nip"]);
-    expect(plan.products).toEqual([]);
+    expect("products" in plan).toBe(false);
     expect(linkedCount(plan)).toBe(1);
+  });
+
+  it("a new name another active order item already holds in the same venue category is left out BEFORE saving, in plain words", () => {
+    const products = [
+      { id: "p1", venue_id: 1, category_id: "c1", name: "Bombay Sapphire London Dry Gin (700ml)", ingredient_id: "gin", active: true },
+      // typed by hand with no ingredient, already called what the gin would become
+      { id: "p9", venue_id: 1, category_id: "c1", name: "Bombay Sapphire Gin (700ml)", ingredient_id: null, active: true },
+    ];
+    const plan = planBatchRenames({ renames, ...world, products });
+    expect(plan.ingredients.map((r) => r.key)).toEqual(["k-bacon"]);
+    expect(plan.dishes).toEqual([]);
+    expect(plan.skipped).toEqual([{ kind: "product", from: "Bombay Sapphire London Dry Gin (700ml)", to: "Bombay Sapphire Gin (700ml)", venue_id: 1, reason: ORDER_LIST_CLASH_REASON }]);
+    expect(ORDER_LIST_CLASH_REASON).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("an INACTIVE order item with that name, or one in another category, never blocks the rename (the database moves it aside)", () => {
+    const base = { id: "p1", venue_id: 1, category_id: "c1", name: "Bombay Sapphire London Dry Gin (700ml)", ingredient_id: "gin", active: true };
+    const inactive = planBatchRenames({ renames, ...world, products: [base, { id: "p9", venue_id: 1, category_id: "c1", name: "Bombay Sapphire Gin (700ml)", ingredient_id: null, active: false }] });
+    expect(inactive.ingredients).toHaveLength(2);
+    const elsewhere = planBatchRenames({ renames, ...world, products: [base, { id: "p9", venue_id: 1, category_id: "c2", name: "Bombay Sapphire Gin (700ml)", ingredient_id: null, active: true }] });
+    expect(elsewhere.ingredients).toHaveLength(2);
+  });
+
+  it("a plan whose every rename was left out renames nothing and still saves the matches", async () => {
+    const { deps, log } = fakeDeps();
+    const products = [
+      { id: "p1", venue_id: 1, category_id: "c1", name: "Bombay Sapphire London Dry Gin (700ml)", ingredient_id: "gin", active: true },
+      { id: "p9", venue_id: 1, category_id: "c1", name: "Bombay Sapphire Gin (700ml)", ingredient_id: null, active: true },
+    ];
+    const plan = planBatchRenames({ renames: [renames[0]], ...world, products });
+    expect(plan.ingredients).toEqual([]);
+    const out = await runMatchSave(deps, { answers: answers(["k-gin"]), plan });
+    expect(log).toEqual(["answer:1"]);
+    expect(out.savedKeys.size).toBe(1);
+    expect(out.renamedIngredients).toBe(0);
   });
 
   it("saves the matches first, then the ingredient, then the dishes; no order item is written", async () => {
@@ -262,7 +294,7 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
     const { deps, log } = fakeDeps();
     const out = await runMatchSave(deps, { answers: answers(["k-gin"]), plan: null });
     expect(log).toEqual(["answer:1"]);
-    expect(out.applied).toEqual({ ingredients: [], dishes: [], products: [] });
+    expect(out.applied).toEqual({ ingredients: [], dishes: [] });
     expect(renameSummary(out)).toBeNull();
   });
 
@@ -313,7 +345,6 @@ describe("runMatchSave: matches first, renames after, per-item failures", () => 
     const cut = onlyKeys(plan, new Set(["k-bacon"]));
     expect(cut.ingredients.map((r) => r.key)).toEqual(["k-bacon"]);
     expect(cut.dishes).toEqual([]);
-    expect(cut.products).toEqual([]);
   });
 
   it("chosenRenames lists only settled rows that will really rename", () => {
@@ -404,7 +435,8 @@ describe("source rules for the new files", () => {
     const screen = strip(read("components/invoices/match-screen.tsx"));
     expect(screen).toContain("store.updateIngredient(");
     expect(screen).toContain("store.updateItem(");
-    expect(screen).toContain("updateProduct(");
+    // an order item follows its ingredient in the database: the match screen never writes one
+    expect(screen).not.toContain("updateProduct(");
     expect(screen).toContain("answerItemGroups(");
     expect(strip(read("lib/invoice-match-save.ts"))).not.toMatch(/\.update\(/);
   });

@@ -7,26 +7,28 @@ import { TouchButton, TouchSheet } from "@/components/ordering/touch";
 
 /**
  * "Rename 14 Items?": shown once, before anything is saved, when any item will take its invoice name. It lists each ingredient's
- * old and new name, then the dishes and ordering products named after them that follow (the same rules as renaming one ingredient).
- * Rename All saves the matches then the names; Only Save The Matches saves the matches and leaves every name alone.
+ * old and new name, then the dishes named after them that follow (the same rules as renaming one ingredient). Order lists are not
+ * listed: an order item always carries its ingredient's name, so it follows by itself. A name that cannot change (a dish or an
+ * order list already has it) is listed under Left As They Are. Rename All saves the matches then the names; Only Save The
+ * Matches saves the matches and leaves every name alone. When every rename was left out there is nothing to rename, so the sheet
+ * says so and offers only Save The Matches.
  */
 export function RenameSheet({ plan, venues, onChoose, onClose }: { plan: BatchRenamePlan; venues: Venue[]; onChoose: (plan: BatchRenamePlan | null) => void; onClose: () => void }) {
   const venueName = (id: number | null) => venues.find((v) => v.id === id)?.name ?? "";
   const n = plan.ingredients.length;
   const linked = linkedCount(plan);
   return (
-    <TouchSheet open onClose={onClose} title={`Rename ${n} ${n === 1 ? "Item" : "Items"}?`} size="lg">
+    <TouchSheet open onClose={onClose} title={n === 0 ? "No Names Will Change" : `Rename ${n} ${n === 1 ? "Item" : "Items"}?`} size="lg">
       <div className="space-y-5 pb-2">
         <p className="text-[15px] leading-snug text-label-2">
-          {linked > 0
+          {n === 0
+            ? "The names you chose cannot be used, so every name stays as it is. Your matches are still saved."
+            : linked > 0
             ? `These items take the name on the invoice. ${linked} ${linked === 1 ? "name" : "names"} that follow them change too, so the dishes, the ordering lists and the ingredients all agree. Undo Renames puts every name back.`
             : "These items take the name on the invoice. Undo Renames puts every name back."}
         </p>
-        <Section title="Ingredients" rows={plan.ingredients.map((r) => ({ key: r.key, where: "", from: r.from, to: r.to }))} />
+        {n > 0 ? <Section title="Ingredients" rows={plan.ingredients.map((r) => ({ key: r.key, where: "", from: r.from, to: r.to }))} /> : null}
         {plan.dishes.length > 0 ? <Section title="Dishes" rows={plan.dishes.map((d) => ({ key: d.id, where: venueName(d.venue_id), from: d.from, to: d.to }))} /> : null}
-        {plan.products.length > 0 ? (
-          <Section title="Ordering Products" rows={plan.products.map((p) => ({ key: p.id, where: venueName(p.venue_id), from: p.from, to: p.to, note: p.link ? "Also linked to this ingredient" : undefined }))} />
-        ) : null}
         {plan.skipped.length > 0 ? (
           <div>
             <h3 className="text-[13px] font-semibold uppercase tracking-wide text-label-3">Left As They Are</h3>
@@ -41,11 +43,13 @@ export function RenameSheet({ plan, venues, onChoose, onClose }: { plan: BatchRe
           </div>
         ) : null}
         <div className="flex flex-col gap-2">
-          <TouchButton variant="primary" className="w-full" onClick={() => onChoose(plan)}>
-            Rename All
-          </TouchButton>
-          <TouchButton variant="tinted" className="w-full" onClick={() => onChoose(null)}>
-            Only Save The Matches
+          {n > 0 ? (
+            <TouchButton variant="primary" className="w-full" onClick={() => onChoose(plan)}>
+              Rename All
+            </TouchButton>
+          ) : null}
+          <TouchButton variant={n > 0 ? "tinted" : "primary"} className="w-full" onClick={() => onChoose(null)}>
+            {n > 0 ? "Only Save The Matches" : "Save The Matches"}
           </TouchButton>
         </div>
       </div>

@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Undo2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { answerItemGroups } from "@/lib/invoice-answer";
-import { updateProduct } from "@/lib/ordering-data";
 import {
   loadLinkedProducts,
   loadOtherSupplierCounts,
@@ -152,7 +151,6 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
       answer: (groups) => answerItemGroups(sb, { groups, actor: store.userEmail ?? "unknown" }),
       renameIngredient: (id, name) => store.updateIngredient(id, { name }),
       renameDish: (id, name) => store.updateItem(id, { name }),
-      renameProduct: async (id, patch) => void (await updateProduct(sb, id, patch)),
     }),
     [sb, store],
   );
@@ -177,7 +175,7 @@ export function MatchScreen({ scope }: { scope: MatchScope }) {
         setGone((prev) => new Set([...prev, ...out.savedKeys]));
         setSaved((n) => n + out.savedKeys.size);
         const renamed = renameSummary(out);
-        const hasApplied = out.applied.ingredients.length + out.applied.dishes.length + out.applied.products.length > 0;
+        const hasApplied = out.applied.ingredients.length + out.applied.dishes.length > 0;
         setLast(res.ok || out.savedKeys.size > 0 ? { message: res.message, renamed, applied: hasApplied ? out.applied : null, failures: out.renameFailures } : null);
         toast.show({ message: res.ok ? [res.message, renamed].filter(Boolean).join(" ") : `${res.message} The items that did not save are still here.` });
         if (!res.ok) setBanner(`${res.message} Each item that did not save says why. Fix it and press Save Matches again.`);

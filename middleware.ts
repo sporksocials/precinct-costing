@@ -4,7 +4,7 @@ import { isBarPath } from "./lib/bar";
 import { isKitchenPath } from "./lib/kitchen";
 import { isInvoiceIngestPath } from "./lib/invoice-auth";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/manifest.webmanifest", "/icon", "/icons", "/apple-icon"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/api/auth/check-email", "/manifest.webmanifest", "/icon", "/icons", "/apple-icon"];
 
 export async function middleware(request: NextRequest) {
   // DEMO MODE ONLY (local visual QA with a fixture): no auth. NEXT_PUBLIC_DEMO must never be set in production.

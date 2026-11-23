@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { MailCheck } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { NOT_APPROVED_MESSAGE } from "@/lib/login-check";
 
 export function LoginForm() {
   const params = useSearchParams();
@@ -16,6 +17,18 @@ export function LoginForm() {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    // Is the address on the approved list? Ask first, so a typo or a stranger never uses one of the shared hourly sign-in emails.
+    // If the check itself fails, carry on and send the link: a broken check must never lock a real person out.
+    try {
+      const res = await fetch("/api/auth/check-email", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim() }) });
+      if (res.ok && (await res.json()).allowed === false) {
+        setBusy(false);
+        setError(NOT_APPROVED_MESSAGE);
+        return;
+      }
+    } catch {
+      /* fall through and send the link */
+    }
     const next = params.get("next") ?? "/";
     const redirect = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
     const { error } = await getSupabaseBrowser().auth.signInWithOtp({

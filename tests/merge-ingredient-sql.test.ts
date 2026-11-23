@@ -185,10 +185,11 @@ describe("the migration itself", () => {
     // the only thing written to an ingredient is the source's name and active flag
     expect(code.match(/update cost_ingredients[^;]*;/g)).toEqual(["update cost_ingredients set active = false, name = new_name where id = p_source;"]);
   });
-  it("is mirrored at the end of supabase/schema.sql", () => {
+  it("is mirrored in supabase/schema.sql", () => {
     const schema = readFileSync(path.resolve(__dirname, "../supabase/schema.sql"), "utf8");
     const fn = text.slice(text.indexOf("create or replace function public.cost_merge_ingredient"));
-    expect(schema.trimEnd().endsWith(fn.trimEnd())).toBe(true);
+    // a later migration may be mirrored after it, so it only has to be there whole
+    expect(schema.includes(fn.trimEnd())).toBe(true);
   });
 });
 

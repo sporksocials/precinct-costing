@@ -385,7 +385,7 @@ describe("thin order items: the file itself", () => {
   });
   it("is mirrored at the end of supabase/schema.sql", () => {
     const schema = readFileSync(path.resolve(__dirname, "../supabase/schema.sql"), "utf8");
-    expect(schema.endsWith(THIN)).toBe(true);
+    expect(schema.includes(THIN)).toBe(true);
   });
   it("extends the one trigger on each table instead of adding a second", () => {
     expect([...code.matchAll(/create trigger (\w+)/g)].map((m) => m[1])).toEqual(["ordering_products_follow_ingredient_trg", "cost_ingredients_supplier_moved_trg"]);

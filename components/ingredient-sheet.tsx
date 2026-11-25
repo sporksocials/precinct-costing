@@ -122,7 +122,7 @@ export function IngredientSheet({
   const [categoryTouched, setCategoryTouched] = useState(false);
   const startCategory = useRef(initial.category?.trim() || DEFAULT_INGREDIENT_CATEGORY);
   const suggestion = categoryTouched ? null : suggestCategory({ name: f.name });
-  // a name that says keg, on a form still at its blank defaults, becomes a Beer Keg (50 L, 99% yield); done once so the person can still change it
+  // a name that says keg, on a form still at its blank defaults, becomes a Beer Keg (49.5 L, 99% yield); done once so the person can still change it
   const kegHinted = useRef(false);
   useEffect(() => {
     if (kegHinted.current) return;

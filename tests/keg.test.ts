@@ -17,8 +17,8 @@ describe("keg defaults", () => {
   });
   it("gives a blank new ingredient called a keg the keg defaults", () => {
     const out = applyKegHint({ ...blank, name: "Stone & Wood Keg" }, "1");
-    expect(out.draft).toMatchObject({ category: KEG_CATEGORY, pack_size: 50, pack_unit: "L", yield_pct: KEG_YIELD });
-    expect(out.sizeText).toBe("50");
+    expect(out.draft).toMatchObject({ category: KEG_CATEGORY, pack_size: 49.5, pack_unit: "L", yield_pct: KEG_YIELD });
+    expect(out.sizeText).toBe("49.5");
   });
   it("leaves anything the person already changed, and non-kegs, alone", () => {
     const changed = { ...blank, name: "Pacific Keg", category: "Spirits" };

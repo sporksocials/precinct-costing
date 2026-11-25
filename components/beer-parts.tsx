@@ -59,7 +59,7 @@ export function KegPicker({ open, onClose, onPick, initialQuery = "" }: { open: 
       <IngredientSheet
         open
         title="New Keg"
-        note="Filed as a Beer Keg, priced per litre, with 1% wastage like every other keg."
+        note="Filed as a Beer Keg, priced per litre, with 1% wastage. Enter the size 0.5 L under the keg's label: a 50 L keg is 49.5."
         initial={blankIngredient({ name: kegNameFor(q), category: KEG_CATEGORY, pack_size: KEG_PACK_SIZE, pack_unit: KEG_PACK_UNIT, yield_pct: KEG_YIELD })}
         onClose={() => setNewKeg(false)}
         onSaved={(ing) => {

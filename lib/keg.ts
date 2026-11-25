@@ -1,11 +1,12 @@
 /**
- * Tap beer kegs (Troy, 9 Oct 2026): a keg is an ingredient in the "Beer Keg" category, sold by the litre (50 L), with 99% yield
+ * Tap beer kegs (Troy, 9 Oct 2026): a keg is an ingredient in the "Beer Keg" category, sold by the litre, with 99% yield
  * (1% wastage, the same for every keg; wastage lives on the keg, never on a serve).
+ * The pack size is always 0.5 L UNDER the keg's stated size (Troy, 26 Nov 2026): 50 L is entered as 49.5, 30 L as 29.5.
  */
 import { BEER_KEG_CATEGORY, looksLikeKeg } from "./ingredient-categories";
 
 export const KEG_CATEGORY = BEER_KEG_CATEGORY;
-export const KEG_PACK_SIZE = 50;
+export const KEG_PACK_SIZE = 49.5;
 export const KEG_PACK_UNIT = "L" as const;
 export const KEG_YIELD = 0.99;
 
